@@ -254,15 +254,17 @@ export async function getProductsPaged(
   return collected.slice(offset, offset + size);
 }
 
-export const getProduct = async (id: string) => {
-  const data = await request<Product | { Product?: Product }>(
+export async function getProduct(id: string): Promise<Product> {
+  const data = await request<unknown>(
     `/admin/product/${encodeURIComponent(id)}`,
   );
-  if (data && typeof data === "object" && "Product" in data && data.Product) {
-    return data.Product;
+  if (data && typeof data === "object") {
+    const record = data as { Product?: Product };
+    if (record.Product) return record.Product;
+    return data as Product;
   }
-  return data as Product;
-};
+  throw new ApiError("Product not found", 404);
+}
 export const searchProducts = (tag: string) =>
   request<Product[]>("/admin/product/search", {
     method: "POST",
