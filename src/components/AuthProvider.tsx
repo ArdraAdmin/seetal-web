@@ -10,13 +10,8 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { login as apiLogin } from "@/lib/api";
-import {
-  clearAuth,
-  getStoredAuth,
-  isAdmin,
-  isSales,
-  saveAuth,
-} from "@/lib/auth";
+import { clearAuth, getStoredAuth, saveAuth } from "@/lib/auth";
+import { homePathForRole, areaPrefix } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
 
 interface AuthContextValue {
@@ -41,21 +36,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const authUser = await apiLogin(email, password);
-      if (!isAdmin(authUser) && !isSales(authUser)) {
-        throw new Error("Only Admin and Sales users can access STL Web.");
+      if (!authUser?.token) {
+        throw new Error("Sign-in failed");
       }
       saveAuth(authUser);
       setUser(authUser);
+      const home = homePathForRole(authUser.role);
       const next = new URLSearchParams(window.location.search).get("next");
-      if (isAdmin(authUser)) {
-        router.replace(
-          next && next.startsWith("/admin") ? next : "/admin",
-        );
-      } else {
-        router.replace(
-          next && next.startsWith("/sales") ? next : "/sales/approvals",
-        );
-      }
+      router.replace(
+        next && next.startsWith(areaPrefix(home)) ? next : home,
+      );
     },
     [router],
   );

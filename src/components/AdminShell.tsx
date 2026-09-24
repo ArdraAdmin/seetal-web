@@ -40,7 +40,7 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/admin/inventory", label: "Inventory", icon: Package },
   { href: "/admin/pending-orders", label: "Pending orders", icon: ClipboardList },
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/admin/grv", label: "Goods return vouchers", icon: RotateCcw },
+  { href: "/admin/grv", label: "GRV management", icon: RotateCcw },
   { href: "/admin/categories", label: "Categories", icon: Folders },
   { href: "/admin/payments", label: "Payments", icon: Banknote },
   { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse },

@@ -2,6 +2,7 @@ import type { AuthUser } from "./types";
 import { AUTH_COOKIE } from "./session";
 
 export { AUTH_COOKIE, parseAuthCookie } from "./session";
+export { homePathForRole } from "./roles";
 
 const STORAGE_KEY = "stl_auth";
 
@@ -42,4 +43,8 @@ export function isAdmin(user: AuthUser | null): boolean {
 
 export function isSales(user: AuthUser | null): boolean {
   return user?.role === "Sales";
+}
+
+export function isWarehouse(user: AuthUser | null): boolean {
+  return user?.role === "Warehouse";
 }

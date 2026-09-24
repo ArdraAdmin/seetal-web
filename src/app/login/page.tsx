@@ -42,7 +42,7 @@ export default function LoginPage() {
           </div>
           <h2 className="text-xl font-semibold text-ink">Sign in</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Enter your admin or sales email and password to continue.
+            Enter your email and password to continue.
           </p>
         </div>
 

@@ -5,6 +5,9 @@ const apiOrigin = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  // iCloud Drive skips folders named *.nosync, so the cache stays local
+  distDir: ".next.nosync",
+  serverExternalPackages: ["tesseract.js"],
   async rewrites() {
     return [
       {

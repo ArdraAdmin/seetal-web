@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   getAllWarehouseOrders,
   type WarehouseTabIndex,
@@ -17,58 +19,20 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import {
+  assigneeLabel,
+  invoiceLabel,
+  storeDescription,
+  storeMarks,
+  storeTitle,
+  warehouseBasePath,
+} from "@/lib/warehouse";
 
 const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 0, label: "Today" },
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Confirmed" },
 ];
-
-function storeTitle(order: PendingOrder) {
-  if (typeof order.store === "object" && order.store) {
-    return order.store.storeName || order.store.name || "";
-  }
-  return order.storeName || "Store";
-}
-
-function storeMarks(order: PendingOrder) {
-  if (typeof order.store === "object" && order.store?.marks) {
-    return String(order.store.marks).trim();
-  }
-  return "";
-}
-
-function storeDescription(order: PendingOrder) {
-  const store = typeof order.store === "object" ? order.store : undefined;
-  const city = store?.city || order.city;
-  const country = store?.country || order.country;
-  if ((order.isTempStore || !store) && city && country) {
-    return `${city}, ${country}`;
-  }
-  return store?.alias || "";
-}
-
-function invoiceLabel(order: PendingOrder) {
-  if (order.tempOrderInvoiceNo) return String(order.tempOrderInvoiceNo);
-  if (order.invoiceNumber) return String(order.invoiceNumber);
-  const tempId = order.tempId;
-  if (tempId && typeof tempId === "object" && "tempOrderInvoiceNo" in tempId) {
-    return String(
-      (tempId as { tempOrderInvoiceNo?: string }).tempOrderInvoiceNo ?? "",
-    );
-  }
-  return "";
-}
-
-function assigneeLabel(order: PendingOrder) {
-  if (typeof order.assignee === "object" && order.assignee?.name) {
-    return order.assignee.name;
-  }
-  if (typeof order.assignee === "string" && order.assignee.trim()) {
-    return order.assignee;
-  }
-  return "N/A";
-}
 
 function checkStatus(order: PendingOrder) {
   if (order.status === "Order Removed") {
@@ -98,6 +62,8 @@ function formatDate(value?: string) {
 
 export default function WarehousePage() {
   const { user } = useAuth();
+  const pathname = usePathname();
+  const base = warehouseBasePath(pathname);
   const [tab, setTab] = useState<WarehouseTabIndex>(0);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [counts, setCounts] = useState<WarehouseCounts | null>(null);
@@ -134,7 +100,7 @@ export default function WarehousePage() {
     <div>
       <PageHeader
         title="Warehouse"
-        subtitle="First check, double check, and load verification."
+        subtitle="Open an order to run first check, double check, and load verification."
         actions={
           <SecondaryButton
             type="button"
@@ -221,18 +187,18 @@ export default function WarehousePage() {
           <p className="text-sm text-slate-600">
             Showing {orders.length} order{orders.length === 1 ? "" : "s"}
           </p>
-          {orders.map((order) => {
+          {orders.map((order, index) => {
             const status = checkStatus(order);
             const title = storeTitle(order) || "Store";
             const marks = storeMarks(order);
             const description = storeDescription(order);
             const invoice = invoiceLabel(order);
             const pkg = order.totalPkg;
-            return (
-              <Card
-                key={order._id}
-                className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
-              >
+            const href =
+              tab === 2 ? null : `${base}/${order._id}?step=1`;
+            const rowKey = order._id || `order-${index}`;
+            const body = (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-slate-500">
                     {formatDate(order.date)}
@@ -260,7 +226,18 @@ export default function WarehousePage() {
                 >
                   {status.label}
                 </span>
-              </Card>
+              </div>
+            );
+            return href ? (
+              <Link
+                key={rowKey}
+                href={href}
+                className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
+              >
+                {body}
+              </Link>
+            ) : (
+              <Card key={rowKey}>{body}</Card>
             );
           })}
         </div>

@@ -1,17 +1,24 @@
 import { getStoredAuth } from "./auth";
 import type {
   Driver,
+  GrvLine,
   GrvOrder,
   PaymentRecord,
+  PdcRecord,
   PendingOrder,
   Product,
   ProfileUser,
   StoreProfile,
   Vehicle,
   WarehouseCounts,
+  WarehouseCheckLine,
+  WarehouseCheckOrder,
+  WarehouseCheckStep,
   ApprovalOrder,
   AuthUser,
+  SalesCartLine,
 } from "./types";
+import { asProductList, asStoreList, cartTotals, lineAggregate } from "./sales";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -227,6 +234,52 @@ export const searchProfiles = (tag: string, role: string) =>
 export const deleteUser = (id: string) =>
   request<unknown>(`/admin/edit/deleteUser/${id}`, { method: "DELETE" });
 
+export async function getProfile(role: "sales" | "warehouse", id: string) {
+  const data = await request<unknown>(
+    `/admin/read/${role}/${encodeURIComponent(id)}`,
+  );
+  if (!data || typeof data !== "object") {
+    throw new ApiError("Profile not found", 404);
+  }
+  const payload = data as { user?: unknown };
+  if (Array.isArray(payload.user) && payload.user[0]) {
+    return payload.user[0] as ProfileUser;
+  }
+  if (payload.user && typeof payload.user === "object") {
+    return payload.user as ProfileUser;
+  }
+  if ("_id" in data) return data as ProfileUser;
+  throw new ApiError("Profile not found", 404);
+}
+
+export const updateSalesProfile = (id: string, body: Record<string, unknown>) =>
+  request<unknown>(`/admin/edit/sales/${encodeURIComponent(id)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateWarehouseProfile = (
+  id: string,
+  body: Record<string, unknown>,
+) =>
+  request<unknown>(`/admin/edit/warehouse/${encodeURIComponent(id)}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export interface CompanyRecord {
+  _id: string;
+  name?: string;
+}
+
+export async function getCompanies() {
+  const data = await request<unknown>("/admin/company");
+  if (!Array.isArray(data)) return [] as CompanyRecord[];
+  return data.filter((item): item is CompanyRecord => {
+    return Boolean(item && typeof item === "object" && typeof (item as { _id?: unknown })._id === "string");
+  });
+}
+
 // —— Products / Inventory ——
 export const getProducts = (page = 1) =>
   request<Product[]>(`/admin/product?page=${page}`);
@@ -287,6 +340,52 @@ export const updateProduct = (data: Record<string, unknown>) =>
 export const getCategories = () => request<unknown>("/admin/category");
 export const getMasterCategories = () =>
   request<unknown>("/admin/category/master");
+export const getCategoryManagers = () =>
+  request<unknown>("/admin/category/manager");
+
+export const readCategory = (catId: string) =>
+  request<unknown>("/admin/category/read", {
+    method: "POST",
+    body: JSON.stringify({ catId }),
+  });
+
+export const createMasterCategory = (body: {
+  masterCategoryName: string;
+  awsMasterCatDir: string;
+}) =>
+  request<unknown>("/admin/category/create/master", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const createSubCategory = (body: {
+  masterCategoryId: string;
+  subCategory: string;
+  awsMasterCatDir: string;
+  awsSubCatDir: string;
+}) =>
+  request<unknown>("/admin/category/create/sub", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const editMasterCategory = (body: Record<string, unknown>) =>
+  request<unknown>("/admin/category/edit/master", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const editSubCategory = (body: Record<string, unknown>) =>
+  request<unknown>("/admin/category/edit/sub", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const deleteSubCategory = (catId: string) =>
+  request<unknown>("/admin/category/delete", {
+    method: "POST",
+    body: JSON.stringify({ catId }),
+  });
 
 // —— Pending orders ——
 export const getPendingOrders = (userId: string, page = 1, tabIndex = 0) =>
@@ -373,28 +472,141 @@ export async function getAllWarehouseOrders(
 ): Promise<WarehouseOrdersResult> {
   const pageSize = tabIndex === 0 ? 100 : 50;
   const orders: PendingOrder[] = [];
+  const seen = new Set<string>();
   let counts: WarehouseCounts | undefined;
   const query = tag.trim();
 
   for (let page = 1; page <= 80; page++) {
-    if (query) {
-      const list = await searchWarehouseOrdersPage(
-        userId,
-        query,
-        page,
-        tabIndex,
-      );
-      orders.push(...list);
-      if (list.length < pageSize) break;
-    } else {
-      const batch = await getWarehouseOrdersPage(userId, page, tabIndex);
-      if (batch.counts && !counts) counts = batch.counts;
-      orders.push(...batch.orders);
-      if (batch.orders.length < pageSize) break;
+    const batch = query
+      ? {
+          orders: await searchWarehouseOrdersPage(userId, query, page, tabIndex),
+          counts: undefined,
+        }
+      : await getWarehouseOrdersPage(userId, page, tabIndex);
+    if (batch.counts && !counts) counts = batch.counts;
+
+    let added = 0;
+    for (const order of batch.orders) {
+      const id = String(order._id || "");
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      orders.push(order);
+      added += 1;
+    }
+
+    // Stop on a short page, a full unpaged dump, or a page that only repeats ids.
+    if (
+      batch.orders.length < pageSize ||
+      batch.orders.length > pageSize ||
+      added === 0
+    ) {
+      break;
     }
   }
 
   return { orders, counts };
+}
+
+function asCheckOrder(data: unknown): WarehouseCheckOrder | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  const nested = o.tempOrder;
+  if (nested && typeof nested === "object") {
+    return nested as WarehouseCheckOrder;
+  }
+  if (typeof o._id === "string") return data as WarehouseCheckOrder;
+  return null;
+}
+
+export async function getWarehouseCheckOrder(
+  orderId: string,
+  userId: string,
+  checkNo: WarehouseCheckStep,
+) {
+  const data = await request<unknown>(
+    `/mock/warehouse/product/pending?orderId=${encodeURIComponent(orderId)}&userId=${encodeURIComponent(userId)}&checkNo=${checkNo}`,
+  );
+  const order = asCheckOrder(data);
+  if (!order) throw new ApiError("Order not found", 404);
+  return order;
+}
+
+function checkLinePayload(lines: WarehouseCheckLine[]) {
+  return lines
+    .map((line) => ({
+      productId: warehouseLineProductId(line),
+      quantityAv: Number(line.quantityAv) || 0,
+      unitAv: line.unitAv || line.unitReq || "CARTONS",
+      firstCheck: Boolean(line.firstCheck),
+    }))
+    .filter((line) => line.productId);
+}
+
+export const saveWarehouseCheck = (
+  orderId: string,
+  userId: string,
+  lines: WarehouseCheckLine[],
+) =>
+  request<unknown>("/mock/warehouse/save", {
+    method: "PUT",
+    body: JSON.stringify({
+      orderId,
+      userId,
+      productDetails: checkLinePayload(lines),
+    }),
+  });
+
+export const confirmWarehouseCheck = (
+  checkNo: WarehouseCheckStep,
+  orderId: string,
+  userId: string,
+  lines: WarehouseCheckLine[],
+) =>
+  request<unknown>(`/mock/warehouse/confirm/${checkNo}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      orderId,
+      userId,
+      productDetails: checkLinePayload(lines),
+    }),
+  });
+
+export const toggleWarehouseLineCheck = (
+  checkNo: WarehouseCheckStep,
+  orderId: string,
+  userId: string,
+  productId: string,
+  check: boolean,
+) =>
+  request<unknown>(`/mock/warehouse/check/${checkNo}`, {
+    method: "PATCH",
+    body: JSON.stringify({ check, productId, orderId, userId }),
+  });
+
+export const markWarehouseLineMissing = (
+  orderId: string,
+  userId: string,
+  productId: string,
+) =>
+  request<unknown>("/mock/warehouse/missing", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId, productId }),
+  });
+
+export const checkAllWarehouseLines = (
+  orderId: string,
+  userId: string,
+  checkNo: WarehouseCheckStep,
+  check = true,
+) =>
+  request<unknown>("/mock/warehouse/checkAll", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId, checkNo, check }),
+  });
+
+function warehouseLineProductId(line: WarehouseCheckLine) {
+  if (typeof line.product === "string") return line.product;
+  return line.product?._id || "";
 }
 
 export const exportTempOrders = (orderId: string[], userId: string) =>
@@ -410,12 +622,12 @@ function asApprovalOrders(data: unknown): ApprovalOrder[] {
 }
 
 export const getApprovalQueue = async () =>
-  asApprovalOrders(await request<unknown>("/mock/sales/approvalQueue"));
+  asApprovalOrders(await request<unknown>("/sales/approvalQueue"));
 
 export const getSalesApprovals = async (salesId: string) =>
   asApprovalOrders(
     await request<unknown>(
-      `/mock/sales/approvals?salesId=${encodeURIComponent(salesId)}`,
+      `/sales/approvals?salesId=${encodeURIComponent(salesId)}`,
     ),
   );
 
@@ -424,13 +636,13 @@ export const decideApproval = (
   approved: boolean,
   rejectNote = "",
 ) =>
-  request<unknown>("/mock/sales/approvalDecide", {
+  request<unknown>("/sales/approvalDecide", {
     method: "POST",
     body: JSON.stringify({ orderId, approved, rejectNote }),
   });
 
 export const placeApprovedOrder = (tempOrderId: string, salesId: string) =>
-  request<unknown>("/mock/sales/placeApprovedOrder", {
+  request<unknown>("/sales/placeApprovedOrder", {
     method: "POST",
     body: JSON.stringify({ tempOrderId, salesId }),
   });
@@ -441,8 +653,297 @@ export const resubmitApprovalOrder = (body: Record<string, unknown>) =>
     body: JSON.stringify(body),
   });
 
+export interface SalesStorePage {
+  myStores: StoreProfile[];
+  otherStores: StoreProfile[];
+}
+
+export async function getSalesStorePage(userId: string, page = 1): Promise<SalesStorePage> {
+  const data = await request<unknown>("/sales/store", {
+    method: "POST",
+    body: JSON.stringify({ userId, page }),
+  });
+  if (!data || typeof data !== "object") {
+    return { myStores: [], otherStores: [] };
+  }
+  const o = data as Record<string, unknown>;
+  return {
+    myStores: asStoreList(o.myStoreArr ?? o.myStores),
+    otherStores: asStoreList(o.otherStore ?? o.otherStores),
+  };
+}
+
+export async function getAllSalesStores(userId: string) {
+  const myStores: StoreProfile[] = [];
+  const otherStores: StoreProfile[] = [];
+  for (let page = 1; page <= 80; page++) {
+    const batch = await getSalesStorePage(userId, page);
+    if (page === 1) myStores.push(...batch.myStores);
+    otherStores.push(...batch.otherStores);
+    if (batch.otherStores.length < 50) break;
+  }
+  return { myStores, otherStores };
+}
+
+export const downloadSalesStores = () => request<StoreProfile[]>("/sales/store");
+
+export const downloadSalesCatalog = (salesId: string) =>
+  request<Product[]>(
+    `/sales/product?salesId=${encodeURIComponent(salesId)}`,
+  ).then(asProductList);
+
+export async function getStoreProducts(
+  storeId: string,
+  userId: string,
+  page = 1,
+  tempStore = false,
+) {
+  const data = await request<unknown>("/sales/products", {
+    method: "POST",
+    body: JSON.stringify({
+      storeId,
+      userId,
+      page,
+      tempStore: tempStore ? "true" : "false",
+    }),
+  });
+  return asProductList(data);
+}
+
+export async function getSalesPendingOrders(userId: string) {
+  const data = await request<unknown>("/sales/report/temp", {
+    method: "POST",
+    body: JSON.stringify({ userId, isAdmin: false }),
+  });
+  return Array.isArray(data) ? (data as ApprovalOrder[]) : [];
+}
+
+export async function getSalesConfirmedOrders(userId: string) {
+  const data = await request<unknown>("/sales/report/order", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+  return Array.isArray(data) ? (data as ApprovalOrder[]) : [];
+}
+
+export function placeSalesOrderPayload({
+  salesId,
+  storeId,
+  lines,
+  discount,
+  payableAmount,
+  payableEdited,
+  date,
+}: {
+  salesId: string;
+  storeId: string;
+  lines: SalesCartLine[];
+  discount: number;
+  payableAmount: number;
+  payableEdited: boolean;
+  date: string;
+}) {
+  const { totalCost, totalQuantity } = cartTotals(lines);
+  const needsApproval = discount > 0 || payableEdited;
+  const masterIds = new Set<string>();
+  const categoryList: { masterCategoryId: string; isDone: boolean }[] = [];
+  for (const line of lines) {
+    const id = line.masterCategoryId || "none";
+    if (masterIds.has(id)) continue;
+    masterIds.add(id);
+    categoryList.push({ masterCategoryId: id, isDone: false });
+  }
+  return {
+    invoiceType: "ld",
+    salesId,
+    storeId,
+    productDetails: lines.map((line) => ({
+      product: line.productId,
+      categoryId: line.categoryId,
+      storeCost: Number(line.storeCost) || 0,
+      aggregateCost: lineAggregate(line),
+      quantityReq: Number(line.quantityReq) || 0,
+      quantityAv: Number(line.quantityReq) || 0,
+      unitReq: line.unitReq,
+      unitAv: line.unitReq,
+    })),
+    categoryList,
+    note: "No note",
+    discount,
+    isVat: true,
+    totalQuantity,
+    totalCost,
+    date,
+    isTempStore: "false",
+    editFlag: false,
+    payableAmount,
+    payableEdited,
+    needsApproval,
+  };
+}
+
+export const placeSalesOrder = (body: Record<string, unknown>) =>
+  request<unknown>("/sales/tempOrder", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // —— GRV ——
-export const getGrvOrders = () => request<GrvOrder[]>("/admin/grv");
+export async function getGrvOrders() {
+  const data = await request<unknown>("/admin/grv");
+  const list = Array.isArray(data)
+    ? (data as GrvOrder[])
+    : (asWarehouseOrders(data) as GrvOrder[]);
+  const seen = new Set<string>();
+  return list.filter((order) => {
+    const id = String(order?._id || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+export async function searchInvoiceNumbers(tag: string) {
+  const data = await request<unknown>("/admin/read/search/invoiceNumber", {
+    method: "POST",
+    body: JSON.stringify({ tag }),
+  });
+  if (!Array.isArray(data)) return [] as { _id: string; invoiceNumber?: string }[];
+  return data.filter((item): item is { _id: string; invoiceNumber?: string } => {
+    return Boolean(item && typeof item === "object" && typeof (item as { _id?: unknown })._id === "string");
+  });
+}
+
+export async function getConfirmedInvoice(
+  userId: string,
+  orderId: string,
+): Promise<GrvOrder | null> {
+  for (let page = 1; page <= 80; page++) {
+    const batch = await getWarehouseOrdersPage(userId, page, 2);
+    const match = batch.orders.find((order) => order._id === orderId);
+    if (match) return match as GrvOrder;
+    if (batch.orders.length < 50) break;
+  }
+  return null;
+}
+
+export async function getAllConfirmedInvoices(userId: string) {
+  const result = await getAllWarehouseOrders(userId, 2);
+  return result.orders as GrvOrder[];
+}
+
+export async function getInvoiceStoreDetails(userId: string, orderId: string) {
+  const data = await request<unknown>("/admin/read/order/details", {
+    method: "POST",
+    body: JSON.stringify({ userId, orderId }),
+  });
+  return data as {
+    sales?: { name?: string };
+    store?: { storeName?: string; name?: string };
+  };
+}
+
+interface OrderCategory {
+  name?: string;
+  masterCategoryId?: string;
+  isGRV?: boolean;
+  isDone?: boolean;
+}
+
+export async function getInvoiceCategories(userId: string, orderId: string) {
+  const data = await request<unknown>("/warehouse/orderDetails", {
+    method: "POST",
+    body: JSON.stringify({ userId, orderId, orderType: "Order" }),
+  });
+  if (!data || typeof data !== "object") return [] as OrderCategory[];
+  const list = (data as { "Category List"?: OrderCategory[] })["Category List"];
+  return Array.isArray(list) ? list : [];
+}
+
+export async function getInvoiceCategoryProducts(
+  userId: string,
+  orderId: string,
+  masterCategoryId: string,
+) {
+  const data = await request<unknown>("/warehouse/category/products", {
+    method: "POST",
+    body: JSON.stringify({
+      userId,
+      orderId,
+      orderType: "Order",
+      masterCategoryId,
+    }),
+  });
+  if (!data || typeof data !== "object") return [] as GrvLine[];
+  const list = (data as { productArr?: GrvLine[] }).productArr;
+  return Array.isArray(list) ? list : [];
+}
+
+export async function getInvoiceLines(userId: string, order: GrvOrder) {
+  const categories =
+    Array.isArray(order.categoryList) && order.categoryList.length > 0
+      ? order.categoryList
+      : await getInvoiceCategories(userId, order._id);
+  const lines: GrvLine[] = [];
+  const seen = new Set<string>();
+  for (const category of categories) {
+    const masterCategoryId = String(category.masterCategoryId || "");
+    if (!masterCategoryId) continue;
+    try {
+      const products = await getInvoiceCategoryProducts(
+        userId,
+        order._id,
+        masterCategoryId,
+      );
+      for (const line of products) {
+        const id = typeof line.product === "string" ? line.product : line.product?._id;
+        const key = `${id || ""}:${masterCategoryId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        lines.push({
+          ...line,
+          product:
+            typeof line.product === "object" && line.product
+              ? { ...line.product, masterCategoryId }
+              : line.product,
+        });
+      }
+    } catch {
+      // Category with no items is skipped; fallback below uses the raw order lines.
+    }
+  }
+  if (lines.length > 0) return { lines, categories };
+  return { lines: Array.isArray(order.productDetails) ? order.productDetails : [], categories };
+}
+
+export const saveGrvEdit = (body: {
+  userId: string;
+  orderId: string;
+  masterCategoryId: string;
+  productDetails: Record<string, unknown>[];
+}) =>
+  request<unknown>("/admin/grv/edit", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const toggleGrvDamaged = (
+  orderId: string,
+  productId: string,
+  isDamaged: boolean,
+) =>
+  request<unknown>("/admin/grv/isDamaged", {
+    method: "PUT",
+    body: JSON.stringify({ orderId, productId, isDamaged }),
+  });
+
+export const updateInventoryQuantities = (
+  updates: { itemRef: string; closingQty: number }[],
+) =>
+  request<unknown>("/admin/product/updateQuantities", {
+    method: "POST",
+    body: JSON.stringify({ updates }),
+  });
 
 // —— Payments ——
 function unwrapPayments(data: unknown): PaymentRecord[] {
@@ -464,6 +965,60 @@ export const getPayments = async (userId: string) => {
   });
   return unwrapPayments(data);
 };
+
+export const createPayment = (body: {
+  paymentMode: string;
+  date: string;
+  orderId: string;
+  currency: string;
+  note: string;
+  amountPaid: number;
+  chequeNo?: number;
+}) =>
+  request<unknown>("/admin/payment/create", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const editPayment = (body: {
+  paymentId: string;
+  paymentMode: string;
+  date: string;
+  orderId: string;
+  currency: string;
+  note: string;
+  amountPaid: number;
+  chequeNo?: number;
+}) =>
+  request<unknown>("/admin/payment/edit", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export async function getPdcs(userId: string) {
+  const data = await request<unknown>("/admin/pdc", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+  if (Array.isArray(data)) return data as PdcRecord[];
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    if (Array.isArray(o.pdcArr)) return o.pdcArr as PdcRecord[];
+    if (Array.isArray(o.payment)) return o.payment as PdcRecord[];
+  }
+  return [] as PdcRecord[];
+}
+
+export const createPdc = (body: {
+  orderId: string;
+  givenDate: string;
+  chequeDate: string;
+  amount: number;
+}) =>
+  request<unknown>("/admin/pdc/create", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 function summarizePayments(payments: PaymentRecord[]): {
   paymentReceived: number;

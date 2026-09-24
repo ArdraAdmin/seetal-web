@@ -7,11 +7,10 @@ import {
   ClipboardList,
   LogOut,
   Menu,
-  PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
-  ShieldCheck,
-  Store,
+  RotateCcw,
+  Warehouse,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
@@ -20,15 +19,18 @@ import { useAuth } from "./AuthProvider";
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
 const NAV: { href: string; label: string; icon: NavIcon }[] = [
-  { href: "/sales", label: "Stores", icon: Store },
-  { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
-  { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
-  { href: "/sales/approvals", label: "Approvals", icon: ShieldCheck },
+  { href: "/warehouse", label: "Warehouse", icon: Warehouse },
+  {
+    href: "/warehouse/pending-orders",
+    label: "Pending orders",
+    icon: ClipboardList,
+  },
+  { href: "/warehouse/grv", label: "Goods return vouchers", icon: RotateCcw },
 ];
 
-const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
+const COLLAPSE_KEY = "stl_warehouse_sidebar_collapsed";
 
-export function SalesShell({ children }: { children: React.ReactNode }) {
+export function WarehouseShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -54,7 +56,7 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
     return () => document.body.classList.remove("nav-open");
   }, [mobileOpen]);
 
-  const initials = (user?.name || "S")
+  const initials = (user?.name || "W")
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -94,8 +96,11 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
           <ul className="space-y-1">
             {NAV.map((item) => {
               const active =
-                item.href === "/sales"
-                  ? pathname === "/sales" || pathname.startsWith("/sales/stores")
+                item.href === "/warehouse"
+                  ? pathname === "/warehouse" ||
+                    (pathname.startsWith("/warehouse/") &&
+                      !pathname.startsWith("/warehouse/pending-orders") &&
+                      !pathname.startsWith("/warehouse/grv"))
                   : pathname.startsWith(item.href);
               const Icon = item.icon;
               return (
@@ -129,11 +134,11 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
             }`}
           >
             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
-              {initials || "S"}
+              {initials || "W"}
             </span>
             <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
               <p className="truncate text-sm font-semibold text-black">
-                {user?.name || "Sales"}
+                {user?.name || "Warehouse"}
               </p>
               <p className="truncate text-xs text-black/80">{user?.email}</p>
             </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { AUTH_COOKIE, parseAuthCookie } from "@/lib/session";
+import { homePathForRole } from "@/lib/roles";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -27,9 +28,18 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  if (pathname.startsWith("/warehouse")) {
+    if (!authed || role !== "Warehouse") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (pathname === "/login" && authed) {
     const url = request.nextUrl.clone();
-    url.pathname = role === "Sales" ? "/sales/approvals" : "/admin";
+    url.pathname = homePathForRole(role);
     return NextResponse.redirect(url);
   }
 
@@ -37,5 +47,13 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/sales/:path*", "/login"],
+  matcher: [
+    "/admin",
+    "/admin/:path*",
+    "/sales",
+    "/sales/:path*",
+    "/warehouse",
+    "/warehouse/:path*",
+    "/login",
+  ],
 };
