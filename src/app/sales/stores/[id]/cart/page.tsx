@@ -91,7 +91,7 @@ export default function SalesCartPage() {
         ),
         "success",
       );
-      router.push(needsApproval ? "/sales/approvals" : "/sales/pending");
+      router.push("/sales/pending");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not place order", "error");
     } finally {

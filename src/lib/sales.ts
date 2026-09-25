@@ -115,5 +115,11 @@ export function asStoreList(data: unknown): StoreProfile[] {
 
 export function asProductList(data: unknown): Product[] {
   if (Array.isArray(data)) return data as Product[];
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    for (const key of ["products", "productArr", "product", "data", "items"]) {
+      if (Array.isArray(o[key])) return o[key] as Product[];
+    }
+  }
   return [];
 }

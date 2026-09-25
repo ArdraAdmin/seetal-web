@@ -10,7 +10,6 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
-  ShieldCheck,
   Store,
   X,
 } from "lucide-react";
@@ -23,7 +22,6 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/sales", label: "Stores", icon: Store },
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
-  { href: "/sales/approvals", label: "Approvals", icon: ShieldCheck },
 ];
 
 const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
