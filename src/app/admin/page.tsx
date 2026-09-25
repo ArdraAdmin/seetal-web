@@ -12,10 +12,9 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { getDashboardStats, type DashboardStats } from "@/lib/api";
+import { loadDashboardStats, type DashboardStats } from "@/lib/api";
 import {
   ErrorState,
-  LoadingState,
   PageHeader,
 } from "@/components/ui";
 
@@ -109,10 +108,10 @@ function MetricCard({
   value,
 }: {
   metric: Metric;
-  value: number;
+  value: number | undefined;
 }) {
   const Icon = metric.icon;
-  const highlight = Boolean(metric.alert && value > 0);
+  const highlight = Boolean(metric.alert && (value ?? 0) > 0);
   return (
     <Link
       href={metric.href}
@@ -127,27 +126,30 @@ function MetricCard({
           strokeWidth={1.75}
         />
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-        {metric.format === "money" ? formatMoney(value) : formatCount(value)}
-      </p>
+      {value == null ? (
+        <span className="mt-3 block h-8 w-24 animate-pulse rounded bg-slate-100" />
+      ) : (
+        <p className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          {metric.format === "money" ? formatMoney(value) : formatCount(value)}
+        </p>
+      )}
     </Link>
   );
 }
 
 export default function AdminDashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Partial<DashboardStats>>({});
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setStats({});
     setError(null);
     try {
-      setStats(await getDashboardStats());
+      await loadDashboardStats((partial) => {
+        setStats((current) => ({ ...current, ...partial }));
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -162,11 +164,9 @@ export default function AdminDashboardPage() {
         subtitle="Current totals across users, stores, inventory, and payments."
       />
 
-      {loading ? (
-        <LoadingState label="Loading dashboard…" />
-      ) : error ? (
+      {error ? (
         <ErrorState message={error} onRetry={() => void load()} />
-      ) : stats ? (
+      ) : (
         <div className="space-y-8">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {METRICS.map((metric) => (
@@ -193,7 +193,7 @@ export default function AdminDashboardPage() {
             </div>
           </section>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

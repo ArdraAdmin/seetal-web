@@ -1061,17 +1061,75 @@ function summarizePayments(payments: PaymentRecord[]): {
 
 const LIST_PAGE_SIZE = 50;
 
+function pageItems(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    for (const key of ["stores", "products", "data", "users"]) {
+      if (Array.isArray(o[key])) return o[key];
+    }
+  }
+  return [];
+}
+
+function pageFirstId(items: unknown[]): string {
+  const first = items[0];
+  if (!first || typeof first !== "object") return "";
+  const id = (first as { _id?: unknown })._id;
+  return typeof id === "string" ? id : "";
+}
+
+/** Count paged records without downloading every page. */
 async function countByPaging(
   fetchPage: (page: number) => Promise<unknown>,
+  pageSize = LIST_PAGE_SIZE,
+  maxPages = 80,
 ): Promise<number> {
-  let total = 0;
-  for (let page = 1; page <= 40; page++) {
-    const data = await fetchPage(page);
-    const n = Array.isArray(data) ? data.length : 0;
-    total += n;
-    if (n < LIST_PAGE_SIZE) break;
+  const first = pageItems(await fetchPage(1));
+  if (first.length === 0) return 0;
+  if (first.length !== pageSize) return first.length;
+
+  const firstId = pageFirstId(first);
+  const second = pageItems(await fetchPage(2));
+  if (second.length === 0) return first.length;
+  if (firstId && firstId === pageFirstId(second)) return first.length;
+  if (second.length < pageSize) return first.length + second.length;
+
+  let lastFull = 2;
+  let probe = 4;
+  while (probe <= maxPages) {
+    const items = pageItems(await fetchPage(probe));
+    if (items.length === 0) break;
+    if (firstId && firstId === pageFirstId(items)) break;
+    if (items.length < pageSize) {
+      return (probe - 1) * pageSize + items.length;
+    }
+    lastFull = probe;
+    probe *= 2;
   }
-  return total;
+
+  let left = lastFull + 1;
+  let right = Math.min(probe, maxPages);
+  let lastPage = lastFull;
+  let lastCount = pageSize;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const items = pageItems(await fetchPage(mid));
+    if (
+      items.length === 0 ||
+      (firstId && firstId === pageFirstId(items) && mid !== 1)
+    ) {
+      right = mid - 1;
+      continue;
+    }
+    lastPage = mid;
+    lastCount = items.length;
+    if (items.length < pageSize) break;
+    left = mid + 1;
+  }
+
+  return (lastPage - 1) * pageSize + lastCount;
 }
 
 export interface DashboardStats {
@@ -1086,35 +1144,76 @@ export interface DashboardStats {
   pendingApprovals: number;
 }
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+export async function loadDashboardStats(
+  onUpdate: (partial: Partial<DashboardStats>) => void,
+): Promise<void> {
   const userId = getStoredAuth()?.id ?? "";
-  const [sales, warehouse, admins, expired, stores, products, payments, approvals] =
-    await Promise.all([
-      getSalesProfiles().catch(() => [] as ProfileUser[]),
-      getWarehouseProfiles().catch(() => [] as ProfileUser[]),
-      getAdminProfiles().catch(() => [] as ProfileUser[]),
-      getExpiredTradeLicenses().catch(() => [] as StoreProfile[]),
-      countByPaging(getStores).catch(() => 0),
-      countByPaging((page) => getProducts(page)).catch(() => 0),
-      userId
-        ? getPayments(userId).catch(() => [] as PaymentRecord[])
-        : Promise.resolve([] as PaymentRecord[]),
-      getApprovalQueue().catch(() => [] as ApprovalOrder[]),
-    ]);
+  let salesman = 0;
+  let warehouseUsers = 0;
+  let adminUsers = 0;
 
-  const { paymentReceived, receivable } = summarizePayments(payments);
+  const pushUsers = () =>
+    onUpdate({
+      totalSalesman: salesman,
+      totalWarehouseUsers: warehouseUsers,
+      totalUsers: salesman + warehouseUsers + adminUsers,
+    });
 
-  return {
-    totalUsers: sales.length + warehouse.length + admins.length,
-    totalStores: stores,
-    totalSalesman: sales.length,
-    totalWarehouseUsers: warehouse.length,
-    expiredTradeLicenses: expired.length,
-    totalInventory: products,
-    paymentReceived,
-    receivable,
-    pendingApprovals: approvals.filter(
-      (order) => order.approvalStatus === "pending",
-    ).length,
+  await Promise.all([
+    getSalesProfiles()
+      .then((list) => {
+        salesman = list.length;
+        pushUsers();
+      })
+      .catch(() => pushUsers()),
+    getWarehouseProfiles()
+      .then((list) => {
+        warehouseUsers = list.length;
+        pushUsers();
+      })
+      .catch(() => pushUsers()),
+    getAdminProfiles()
+      .then((list) => {
+        adminUsers = list.length;
+        pushUsers();
+      })
+      .catch(() => pushUsers()),
+    getExpiredTradeLicenses()
+      .then((list) => onUpdate({ expiredTradeLicenses: list.length }))
+      .catch(() => onUpdate({ expiredTradeLicenses: 0 })),
+    countByPaging(getStores)
+      .then((totalStores) => onUpdate({ totalStores }))
+      .catch(() => onUpdate({ totalStores: 0 })),
+    countByPaging((page) => getProducts(page))
+      .then((totalInventory) => onUpdate({ totalInventory }))
+      .catch(() => onUpdate({ totalInventory: 0 })),
+    (userId ? getPayments(userId) : Promise.resolve([] as PaymentRecord[]))
+      .then((payments) => onUpdate(summarizePayments(payments)))
+      .catch(() => onUpdate({ paymentReceived: 0, receivable: 0 })),
+    getApprovalQueue()
+      .then((orders) =>
+        onUpdate({
+          pendingApprovals: orders.filter(
+            (order) => order.approvalStatus === "pending",
+          ).length,
+        }),
+      )
+      .catch(() => onUpdate({ pendingApprovals: 0 })),
+  ]);
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const stats: DashboardStats = {
+    totalUsers: 0,
+    totalStores: 0,
+    totalSalesman: 0,
+    totalWarehouseUsers: 0,
+    expiredTradeLicenses: 0,
+    totalInventory: 0,
+    paymentReceived: 0,
+    receivable: 0,
+    pendingApprovals: 0,
   };
+  await loadDashboardStats((partial) => Object.assign(stats, partial));
+  return stats;
 }
