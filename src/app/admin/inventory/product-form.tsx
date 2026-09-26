@@ -1,17 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   addProductManual,
-  getMasterCategories,
+  getCategories,
   updateProduct,
 } from "@/lib/api";
 import type { Product } from "@/lib/types";
+import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useToast } from "@/components/Toast";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
-
-type MasterCat = { _id?: string; id?: string; name?: string; value?: string };
 
 const EMPTY_FORM = {
   itemRef: "",
@@ -26,18 +25,22 @@ const EMPTY_FORM = {
   isDisplay: true,
 };
 
+function nestedCategory(product?: Product | null) {
+  return typeof product?.category === "object" && product.category
+    ? product.category
+    : null;
+}
+
 function formFromProduct(product: Product) {
+  const nested = nestedCategory(product);
   return {
     itemRef: String(product.itemRef ?? ""),
     itemName: String(product.itemName ?? ""),
-    barCode: String(product.barCode ?? ""),
-    category: String(product.masterCategoryId ?? ""),
-    subCategory:
-      typeof product.category === "object" &&
-      product.category &&
-      "_id" in product.category
-        ? String((product.category as { _id?: string })._id ?? "")
-        : "",
+    barCode: String(product.barCode ?? product.barcode ?? ""),
+    category: String(product.masterCategoryId ?? nested?.masterCategoryId ?? ""),
+    subCategory: String(
+      nested?._id ?? product.subCategoryId ?? product.categoryId ?? "",
+    ),
     unit: String(product.unit ?? "PCS"),
     ratio: String(product.ratio ?? 1),
     amountInUnits: String(
@@ -49,6 +52,37 @@ function formFromProduct(product: Product) {
   };
 }
 
+function SelectField({
+  label,
+  value,
+  onChange,
+  children,
+  required,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[13px] font-medium text-slate-700">{label}</span>
+      <select
+        required={required}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand disabled:bg-[#f7f5f0] sm:text-sm"
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
 export function ProductForm({
   product,
 }: {
@@ -58,54 +92,136 @@ export function ProductForm({
   const { toast } = useToast();
   const editing = Boolean(product?._id);
   const [saving, setSaving] = useState(false);
-  const [masterCats, setMasterCats] = useState<MasterCat[]>([]);
+  const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoadingCategories(true);
     void (async () => {
       try {
-        const cats = await getMasterCategories();
-        if (Array.isArray(cats)) setMasterCats(cats as MasterCat[]);
+        const parsed = parseCategoryGroups(await getCategories());
+        if (!cancelled) setGroups(parsed);
       } catch {
-        // optional for form
+        if (!cancelled) {
+          setGroups([]);
+          toast("Could not load categories", "error");
+        }
+      } finally {
+        if (!cancelled) setLoadingCategories(false);
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   useEffect(() => {
     if (product) {
       setForm(formFromProduct(product));
       return;
     }
-    setForm((prev) => ({
-      ...EMPTY_FORM,
-      category: prev.category,
-    }));
+    setForm(EMPTY_FORM);
   }, [product]);
 
   useEffect(() => {
-    if (product || form.category) return;
-    const first = masterCats[0]?._id || masterCats[0]?.id || "";
-    if (first) setForm((prev) => ({ ...prev, category: first }));
-  }, [masterCats, product, form.category]);
+    if (groups.length === 0) return;
+    setForm((current) => {
+      const group =
+        groups.find(
+          (item) =>
+            item.masterCategoryId === current.category ||
+            item.name === current.category,
+        ) ||
+        (product
+          ? groups.find(
+              (item) =>
+                item.masterCategoryId === product.masterCategoryId ||
+                item.name === nestedCategory(product)?.masterCategory,
+            )
+          : null);
+      if (!group) return current;
+      const masterId = group.masterCategoryId || group.name;
+      const nested = nestedCategory(product);
+      const subName =
+        nested?.subCategory ||
+        (typeof product?.category === "string" ? product.category : "");
+      const match =
+        group.items.find((item) => item._id === current.subCategory) ||
+        group.items.find((item) => item.subCategory === current.subCategory) ||
+        group.items.find((item) => item._id === nested?._id) ||
+        group.items.find((item) => item.subCategory === subName);
+      const nextSub = match?._id || match?.subCategory || current.subCategory;
+      if (current.category === masterId && current.subCategory === nextSub) {
+        return current;
+      }
+      return { ...current, category: masterId, subCategory: nextSub };
+    });
+  }, [groups, product]);
+
+  const selectedGroup = useMemo(
+    () =>
+      groups.find(
+        (group) =>
+          group.masterCategoryId === form.category || group.name === form.category,
+      ) || null,
+    [groups, form.category],
+  );
+
+  const subOptions = useMemo(
+    () =>
+      [...(selectedGroup?.items ?? [])].sort((a, b) =>
+        String(a.subCategory || "").localeCompare(String(b.subCategory || "")),
+      ),
+    [selectedGroup],
+  );
+
+  function onMasterChange(value: string) {
+    setForm((current) => ({
+      ...current,
+      category: value,
+      subCategory: "",
+    }));
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const group = selectedGroup;
+    const sub = subOptions.find((item) => item._id === form.subCategory);
+    if (!group || !form.subCategory) {
+      toast("Select a category and sub category", "info");
+      return;
+    }
     setSaving(true);
     try {
-      const payload = {
-        productId: product?._id ?? "",
-        barCode: form.barCode,
-        itemRef: form.itemRef,
-        category: form.category,
-        subCategory: form.subCategory,
-        itemName: form.itemName,
-        unit: form.unit,
-        ratio: Number(form.ratio),
-        amountInUnits: Number(form.amountInUnits),
-        sellingPrice: Number(form.sellingPrice),
-        isDisplay: form.isDisplay,
-      };
+      const payload = editing
+        ? {
+            productId: product?._id ?? "",
+            barCode: form.barCode,
+            itemRef: form.itemRef,
+            category: group.name,
+            subCategory: sub?.subCategory || form.subCategory,
+            itemName: form.itemName,
+            unit: form.unit,
+            ratio: Number(form.ratio),
+            amountInUnits: Number(form.amountInUnits),
+            sellingPrice: Number(form.sellingPrice),
+            isDisplay: form.isDisplay,
+          }
+        : {
+            productId: product?._id ?? "",
+            barCode: form.barCode,
+            itemRef: form.itemRef,
+            category: group.masterCategoryId || group.name,
+            subCategory: form.subCategory,
+            itemName: form.itemName,
+            unit: form.unit,
+            ratio: Number(form.ratio),
+            amountInUnits: Number(form.amountInUnits),
+            sellingPrice: Number(form.sellingPrice),
+            isDisplay: form.isDisplay,
+          };
       if (editing) {
         await updateProduct(payload);
         toast("Product updated", "success");
@@ -144,20 +260,47 @@ export function ProductForm({
           value={form.barCode}
           onChange={(e) => setForm({ ...form, barCode: e.target.value })}
         />
-        <TextField
-          label="Master category ID"
+        <SelectField
+          label="Category"
           required
           value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value })}
-          placeholder="Mongo category id"
-        />
-        <TextField
-          label="Sub category ID"
+          onChange={onMasterChange}
+        >
+          <option value="">
+            {loadingCategories ? "Loading categories…" : "Select category"}
+          </option>
+          {groups.map((group) => (
+            <option
+              key={group.masterCategoryId || group.name}
+              value={group.masterCategoryId || group.name}
+            >
+              {group.name}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Sub category"
           required
+          disabled={!selectedGroup || loadingCategories}
           value={form.subCategory}
-          onChange={(e) => setForm({ ...form, subCategory: e.target.value })}
-          placeholder="SubCategory enum id"
-        />
+          onChange={(value) => setForm({ ...form, subCategory: value })}
+        >
+          <option value="">
+            {loadingCategories
+              ? "Loading categories…"
+              : selectedGroup
+                ? "Select sub category"
+                : "Select a category first"}
+          </option>
+          {subOptions.map((item) => (
+            <option
+              key={item._id || item.subCategory}
+              value={item._id || item.subCategory}
+            >
+              {item.subCategory || "Sub category"}
+            </option>
+          ))}
+        </SelectField>
         <TextField
           label="Unit"
           required
@@ -207,16 +350,6 @@ export function ProductForm({
           </SecondaryButton>
         </div>
       </form>
-      {masterCats.length > 0 ? (
-        <p className="mt-3 text-xs text-slate-500">
-          Master categories loaded:{" "}
-          {masterCats
-            .slice(0, 5)
-            .map((c) => c.name || c.value || c._id || c.id)
-            .join(", ")}
-          {masterCats.length > 5 ? "…" : ""}
-        </p>
-      ) : null}
     </Card>
   );
 }

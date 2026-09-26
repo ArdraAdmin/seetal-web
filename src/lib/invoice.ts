@@ -65,6 +65,21 @@ export function daysAgo(days: number) {
   return date;
 }
 
+export function exportRangeBounds(days: number | null) {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  if (days == null) {
+    return {
+      startDate: new Date(2000, 0, 1).toISOString(),
+      endDate: end.toISOString(),
+    };
+  }
+  return {
+    startDate: daysAgo(days).toISOString(),
+    endDate: end.toISOString(),
+  };
+}
+
 export function isWithinDays(value: string | undefined, days: number | null) {
   if (days == null) return true;
   if (!value) return false;

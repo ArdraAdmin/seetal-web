@@ -32,6 +32,35 @@ export function approvalStatusLabel(status?: string) {
   }
 }
 
+export function approvalRejectNote(order: ApprovalOrder) {
+  const note = String(order.rejectNote ?? "").trim();
+  return note;
+}
+
+export function salesQueueStatus(order: ApprovalOrder) {
+  const approval = String(order.approvalStatus || "");
+  if (approval === "rejected" || order.status === "Rejected") return "rejected";
+  if (approval === "pending") return "pending";
+  if (approval === "approved") return "approved";
+  if (order.isDraft) return "draft";
+  return "none";
+}
+
+export function salesQueueStatusLabel(order: ApprovalOrder) {
+  switch (salesQueueStatus(order)) {
+    case "rejected":
+      return "Rejected";
+    case "pending":
+      return "Waiting for admin";
+    case "approved":
+      return "Approved";
+    case "draft":
+      return "Draft";
+    default:
+      return String(order.status || "Pending");
+  }
+}
+
 export function approvalMoney(value: unknown) {
   const parsed =
     typeof value === "number"

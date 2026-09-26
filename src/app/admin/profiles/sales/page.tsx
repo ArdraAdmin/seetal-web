@@ -11,6 +11,8 @@ export default function SalesProfilesPage() {
       title="Sales profiles"
       role="Sales"
       editBase="/admin/profiles/sales"
+      addHref="/admin/profiles/sales/new"
+      addLabel="Add"
       fetcher={fetcher}
     />
   );

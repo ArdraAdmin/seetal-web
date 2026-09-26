@@ -168,6 +168,7 @@ export interface WarehouseCheckOrder {
   firstCheck?: boolean;
   doubleCheck?: boolean;
   loadCheck?: boolean;
+  invoiceGenerated?: boolean;
   status?: string;
   isTempStore?: boolean;
   store?:

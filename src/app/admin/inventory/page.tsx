@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { deleteProduct, getProductsPaged, searchProducts } from "@/lib/api";
+import {
+  deleteProduct,
+  exportInventory,
+  getProductsPaged,
+  searchProducts,
+} from "@/lib/api";
 import type { Product } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -19,8 +25,10 @@ import {
 const PAGE_SIZES = [10, 20, 50, 100, 1000] as const;
 
 export default function InventoryPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [searchHits, setSearchHits] = useState<Product[] | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50);
@@ -93,6 +101,26 @@ export default function InventoryPage() {
     }
   }
 
+  async function onExport() {
+    if (!user?.id) return;
+    if (
+      !confirm(
+        "Export inventory to Excel and email it to noreply@shrseetal.com?",
+      )
+    ) {
+      return;
+    }
+    setExporting(true);
+    try {
+      await exportInventory(user.id);
+      toast("An email will be sent shortly", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Export failed", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function onPageSizeChange(size: (typeof PAGE_SIZES)[number]) {
     setPageSize(size);
     void load(1, size, searchHits);
@@ -109,12 +137,27 @@ export default function InventoryPage() {
         title="Inventory"
         subtitle="Product catalogue, stock quantities, and pricing."
         actions={
-          <Link
-            href="/admin/inventory/new"
-            className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
-          >
-            Add product
-          </Link>
+          <>
+            <SecondaryButton
+              type="button"
+              disabled={exporting}
+              onClick={() => void onExport()}
+            >
+              {exporting ? "Exporting…" : "Export"}
+            </SecondaryButton>
+            <Link
+              href="/admin/inventory/new?mode=bulk"
+              className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
+            >
+              Bulk upload
+            </Link>
+            <Link
+              href="/admin/inventory/new"
+              className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
+            >
+              Add product
+            </Link>
+          </>
         }
       />
 

@@ -11,6 +11,8 @@ export default function WarehouseProfilesPage() {
       title="Warehouse profiles"
       role="Warehouse"
       editBase="/admin/profiles/warehouse"
+      addHref="/admin/profiles/warehouse/new"
+      addLabel="Add"
       fetcher={fetcher}
     />
   );

@@ -20,11 +20,15 @@ export function ProfilesList({
   title,
   role,
   editBase,
+  addHref,
+  addLabel,
   fetcher,
 }: {
   title: string;
   role: "Sales" | "Warehouse";
   editBase: string;
+  addHref: string;
+  addLabel: string;
   fetcher: () => Promise<ProfileUser[]>;
 }) {
   const { toast } = useToast();
@@ -89,9 +93,17 @@ export function ProfilesList({
             : "Warehouse manager records."
         }
         actions={
-          <SecondaryButton type="button" onClick={() => void load()}>
-            Refresh
-          </SecondaryButton>
+          <div className="flex flex-wrap gap-2">
+            <SecondaryButton type="button" onClick={() => void load()}>
+              Refresh
+            </SecondaryButton>
+            <Link
+              href={addHref}
+              className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
+            >
+              {addLabel}
+            </Link>
+          </div>
         }
       />
 

@@ -3,10 +3,12 @@ import {
   approvalInvoice,
   approvalMoney,
   approvalPayable,
+  approvalRejectNote,
   approvalSalesName,
-  approvalStatusLabel,
   approvalStoreName,
   lineProductName,
+  salesQueueStatus,
+  salesQueueStatusLabel,
 } from "@/lib/approval";
 import { Card } from "@/components/ui";
 
@@ -23,7 +25,7 @@ export function ApprovalSummary({
   order: ApprovalOrder;
   showSalesman?: boolean;
 }) {
-  const status = String(order.approvalStatus || "pending");
+  const status = salesQueueStatus(order);
   return (
     <div className="min-w-0">
       <p className="font-semibold text-black">{approvalInvoice(order)}</p>
@@ -41,10 +43,12 @@ export function ApprovalSummary({
         <p className="text-sm text-slate-600">Payable was edited by salesman</p>
       ) : null}
       <p className={`mt-2 text-sm font-semibold ${statusClass(status)}`}>
-        {approvalStatusLabel(status)}
+        {salesQueueStatusLabel(order)}
       </p>
-      {order.rejectNote ? (
-        <p className="mt-1 text-sm text-slate-600">Note: {order.rejectNote}</p>
+      {approvalRejectNote(order) ? (
+        <p className="mt-1 text-sm text-slate-600">
+          Admin note: {approvalRejectNote(order)}
+        </p>
       ) : null}
     </div>
   );
@@ -62,13 +66,13 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         ) : null}
         <DetailRow
           label="Status"
-          value={approvalStatusLabel(String(order.approvalStatus))}
+          value={salesQueueStatusLabel(order)}
         />
         {order.note && order.note !== "No note" ? (
           <DetailRow label="Order note" value={order.note} />
         ) : null}
-        {order.rejectNote ? (
-          <DetailRow label="Admin note" value={order.rejectNote} />
+        {approvalRejectNote(order) ? (
+          <DetailRow label="Admin note" value={approvalRejectNote(order)} />
         ) : null}
       </Card>
       <Card>

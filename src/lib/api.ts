@@ -62,7 +62,9 @@ async function requestRaw(
   auth = true,
 ): Promise<{ body: unknown; headers: Headers; ok: boolean; status: number }> {
   const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body) {
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
   if (auth) {
@@ -267,17 +269,148 @@ export const updateWarehouseProfile = (
     body: JSON.stringify(body),
   });
 
+export const createSalesProfile = (body: Record<string, unknown>) =>
+  request<unknown>("/admin/create/sales", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const createWarehouseProfile = (body: Record<string, unknown>) =>
+  request<unknown>("/admin/create/warehouse", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 export interface CompanyRecord {
   _id: string;
   name?: string;
+  prefix?: string;
+  productCount?: number;
+}
+
+export function companyLabel(company: Pick<CompanyRecord, "name" | "prefix">) {
+  return company.name?.trim() || company.prefix?.trim() || "Company";
+}
+
+function asCompanyRecord(item: unknown): CompanyRecord | null {
+  if (!item || typeof item !== "object") return null;
+  const o = item as Record<string, unknown>;
+  const id = typeof o._id === "string" ? o._id : "";
+  if (!id) return null;
+  return {
+    _id: id,
+    name: o.name ? String(o.name) : undefined,
+    prefix: o.prefix ? String(o.prefix) : undefined,
+    productCount: Number(o.productCount) || 0,
+  };
 }
 
 export async function getCompanies() {
   const data = await request<unknown>("/admin/company");
   if (!Array.isArray(data)) return [] as CompanyRecord[];
-  return data.filter((item): item is CompanyRecord => {
-    return Boolean(item && typeof item === "object" && typeof (item as { _id?: unknown })._id === "string");
+  return data
+    .map(asCompanyRecord)
+    .filter((item): item is CompanyRecord => Boolean(item));
+}
+
+export interface CompanyProduct {
+  _id: string;
+  itemName?: string;
+  itemRef?: string;
+  company?: string;
+}
+
+export interface CompanyProductsPage {
+  products: CompanyProduct[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+}
+
+function asCompanyProduct(item: unknown): CompanyProduct | null {
+  if (!item || typeof item !== "object") return null;
+  const o = item as Record<string, unknown>;
+  const rawId = o._id ?? o.id;
+  const id = typeof rawId === "string" ? rawId : "";
+  if (!id) return null;
+  const company =
+    typeof o.company === "string"
+      ? o.company
+      : o.company && typeof o.company === "object"
+        ? String((o.company as { _id?: unknown })._id || "")
+        : undefined;
+  return {
+    _id: id,
+    itemName: o.itemName ? String(o.itemName) : undefined,
+    itemRef: o.itemRef ? String(o.itemRef) : undefined,
+    company: company || undefined,
+  };
+}
+
+export async function getCompanyProducts(
+  companyId: string,
+  page = 1,
+  limit = 500,
+): Promise<CompanyProductsPage> {
+  const data = await request<unknown>("/admin/company/products", {
+    method: "POST",
+    body: JSON.stringify({ companyId, page, limit }),
   });
+  if (Array.isArray(data)) {
+    const products = data
+      .map(asCompanyProduct)
+      .filter((item): item is CompanyProduct => Boolean(item));
+    return { products, page, total: products.length, hasMore: false };
+  }
+  const o =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const products = Array.isArray(o.products)
+    ? o.products
+        .map(asCompanyProduct)
+        .filter((item): item is CompanyProduct => Boolean(item))
+    : [];
+  return {
+    products,
+    page: Number(o.page) || page,
+    total: Number(o.total) || products.length,
+    hasMore: Boolean(o.hasMore),
+  };
+}
+
+export async function getAllCompanyProducts(
+  companyId: string,
+  onPage?: (soFar: CompanyProduct[], total: number) => void,
+) {
+  const products: CompanyProduct[] = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= 80; page++) {
+    const batch = await getCompanyProducts(companyId, page, 500);
+    for (const product of batch.products) {
+      if (seen.has(product._id)) continue;
+      seen.add(product._id);
+      products.push(product);
+    }
+    onPage?.(products, batch.total || products.length);
+    if (!batch.hasMore || batch.products.length === 0) break;
+  }
+  return products;
+}
+
+export async function transferProductsToCompany(
+  productIds: string[],
+  companyId: string,
+) {
+  const ids = productIds.filter(Boolean);
+  if (ids.length === 0) return 0;
+  const data = await request<unknown>("/admin/company/transfer", {
+    method: "PUT",
+    body: JSON.stringify({ productIds: ids, companyId }),
+  });
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown>;
+    return Number(o.modified ?? o.matched ?? ids.length) || ids.length;
+  }
+  return ids.length;
 }
 
 // —— Products / Inventory ——
@@ -332,6 +465,37 @@ export const addProductManual = (data: Record<string, unknown>) =>
     method: "POST",
     body: JSON.stringify(data),
   });
+
+function typedInventoryFile(file: File) {
+  const name = file.name.toLowerCase();
+  let type = file.type;
+  if (name.endsWith(".csv")) type = "text/csv";
+  else if (name.endsWith(".xlsx")) {
+    type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  } else if (name.endsWith(".xls")) type = "application/vnd.ms-excel";
+  if (!type || type === file.type) return file;
+  return new File([file], file.name, { type });
+}
+
+export async function uploadInventoryFile(file: File) {
+  const name = file.name.toLowerCase();
+  if (
+    !name.endsWith(".csv") &&
+    !name.endsWith(".xlsx") &&
+    !name.endsWith(".xls")
+  ) {
+    throw new ApiError("Use a .xlsx or .csv file", 400);
+  }
+  const body = new FormData();
+  body.append("singleFile", typedInventoryFile(file), file.name);
+  const data = await request<unknown>("/admin/product/upload", {
+    method: "POST",
+    body,
+  });
+  return typeof data === "string" && data.trim()
+    ? data
+    : "Products sent for upload";
+}
 export const updateProduct = (data: Record<string, unknown>) =>
   request<unknown>("/admin/product/update", {
     method: "PUT",
@@ -604,6 +768,12 @@ export const checkAllWarehouseLines = (
     body: JSON.stringify({ orderId, userId, checkNo, check }),
   });
 
+export const generateWarehouseInvoice = (orderId: string, userId: string) =>
+  request<unknown>("/mock/warehouse/invoice", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId }),
+  });
+
 function warehouseLineProductId(line: WarehouseCheckLine) {
   if (typeof line.product === "string") return line.product;
   return line.product?._id || "";
@@ -613,6 +783,32 @@ export const exportTempOrders = (orderId: string[], userId: string) =>
   request<unknown>("/admin/export/tempOrder", {
     method: "POST",
     body: JSON.stringify({ orderId, userId }),
+  });
+
+export const exportInventory = (userId: string) =>
+  request<unknown>("/admin/export/products", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+
+export const exportPayments = (
+  userId: string,
+  startDate: string,
+  endDate: string,
+) =>
+  request<unknown>("/admin/export/payment", {
+    method: "POST",
+    body: JSON.stringify({ userId, startDate, endDate }),
+  });
+
+export const exportPendingPayments = (
+  userId: string,
+  startDate: string,
+  endDate: string,
+) =>
+  request<unknown>("/admin/export/pendingPayment", {
+    method: "POST",
+    body: JSON.stringify({ userId, startDate, endDate }),
   });
 
 // —— Approvals ——
@@ -631,15 +827,29 @@ export const getSalesApprovals = async (salesId: string) =>
     ),
   );
 
-export const decideApproval = (
+export async function decideApproval(
   orderId: string,
   approved: boolean,
   rejectNote = "",
-) =>
-  request<unknown>("/sales/approvalDecide", {
-    method: "POST",
-    body: JSON.stringify({ orderId, approved, rejectNote }),
+) {
+  const body = JSON.stringify({
+    orderId: String(orderId),
+    approved,
+    rejectNote,
   });
+  try {
+    return await request<unknown>("/sales/approvalDecide", {
+      method: "POST",
+      body,
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+    return request<unknown>("/mock/sales/approvalDecide", {
+      method: "POST",
+      body,
+    });
+  }
+}
 
 export const placeApprovedOrder = (tempOrderId: string, salesId: string) =>
   request<unknown>("/sales/placeApprovedOrder", {
@@ -648,7 +858,7 @@ export const placeApprovedOrder = (tempOrderId: string, salesId: string) =>
   });
 
 export const resubmitApprovalOrder = (body: Record<string, unknown>) =>
-  request<unknown>("/mock/sales/tempOrder", {
+  request<unknown>("/sales/tempOrder", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -730,6 +940,18 @@ export async function getSalesConfirmedOrders(userId: string) {
     body: JSON.stringify({ userId }),
   });
   return Array.isArray(data) ? (data as ApprovalOrder[]) : [];
+}
+
+export async function getSalesOrder(salesId: string, orderId: string) {
+  const [pending, approvals] = await Promise.all([
+    getSalesPendingOrders(salesId).catch(() => [] as ApprovalOrder[]),
+    getSalesApprovals(salesId).catch(() => [] as ApprovalOrder[]),
+  ]);
+  return (
+    pending.find((order) => order._id === orderId) ||
+    approvals.find((order) => order._id === orderId) ||
+    null
+  );
 }
 
 export function placeSalesOrderPayload({

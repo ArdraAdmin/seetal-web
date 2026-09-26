@@ -7,6 +7,7 @@ import { ArrowLeft, RefreshCw, Search } from "lucide-react";
 import {
   checkAllWarehouseLines,
   confirmWarehouseCheck,
+  generateWarehouseInvoice,
   getWarehouseCheckOrder,
   markWarehouseLineMissing,
   saveWarehouseCheck,
@@ -52,6 +53,7 @@ export function WarehouseCheckView() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [invoicing, setInvoicing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -125,6 +127,24 @@ export function WarehouseCheckView() {
       toast(e instanceof Error ? e.message : "Confirm failed", "error");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function onInvoice() {
+    if (!user?.id || !order) return;
+    if (order.invoiceGenerated) {
+      toast("Invoice already generated", "info");
+      return;
+    }
+    setInvoicing(true);
+    try {
+      await generateWarehouseInvoice(order._id, user.id);
+      setOrder((prev) => (prev ? { ...prev, invoiceGenerated: true } : prev));
+      toast("Invoice generated and emailed", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not generate invoice", "error");
+    } finally {
+      setInvoicing(false);
     }
   }
 
@@ -417,14 +437,30 @@ export function WarehouseCheckView() {
             )}
 
             <div className="sticky bottom-0 mt-auto bg-background pt-3 pb-1">
-              <PrimaryButton
-                type="button"
-                disabled={confirming || loading}
-                onClick={() => void onConfirm()}
-                className="w-full rounded-xl py-3 text-base font-semibold"
-              >
-                {confirming ? "Confirming…" : "Confirm"}
-              </PrimaryButton>
+              <div className="flex gap-2">
+                <PrimaryButton
+                  type="button"
+                  disabled={confirming || loading}
+                  onClick={() => void onConfirm()}
+                  className="w-full rounded-xl py-3 text-base font-semibold"
+                >
+                  {confirming ? "Confirming…" : "Confirm"}
+                </PrimaryButton>
+                {step !== 1 ? (
+                  <button
+                    type="button"
+                    disabled={invoicing || loading || Boolean(order.invoiceGenerated)}
+                    onClick={() => void onInvoice()}
+                    className="min-h-10 w-full rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-3 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {invoicing
+                      ? "Sending…"
+                      : order.invoiceGenerated
+                        ? "Invoice sent"
+                        : "Invoice"}
+                  </button>
+                ) : null}
+              </div>
               {step < 3 ? (
                 <div className="mt-2 flex justify-end">
                   <button

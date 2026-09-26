@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  exportPayments,
+  exportPendingPayments,
   getAllConfirmedInvoices,
   getPayments,
   getPdcs,
 } from "@/lib/api";
 import type { GrvOrder, PaymentRecord, PdcRecord } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/Toast";
 import {
   collectableAmount,
+  exportRangeBounds,
   formatInvoiceDate,
   invoiceDateOf,
   invoiceNumberOf,
@@ -46,12 +50,14 @@ const RANGES: { id: RangeKey; label: string }[] = [
 
 export default function AdminPaymentsPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [orders, setOrders] = useState<GrvOrder[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [pdcs, setPdcs] = useState<PdcRecord[]>([]);
   const [tab, setTab] = useState<PaymentsTab>("receivable");
   const [range, setRange] = useState<RangeKey>(7);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -129,6 +135,34 @@ export default function AdminPaymentsPage() {
 
   const receivableTotal = roundSum(receivableRows.map((row) => row.remaining));
   const receivedTotal = roundSum(receivedRows.map((row) => row.received));
+  const rangeLabel = RANGES.find((item) => item.id === range)?.label || "All";
+
+  async function onExport() {
+    if (!user?.id) return;
+    const pending = tab === "receivable";
+    const kind = pending ? "receivable invoices" : "received payments";
+    if (
+      !confirm(
+        `Export ${kind} (${rangeLabel}) to Excel and email it to noreply@shrseetal.com?`,
+      )
+    ) {
+      return;
+    }
+    setExporting(true);
+    try {
+      const { startDate, endDate } = exportRangeBounds(range);
+      if (pending) {
+        await exportPendingPayments(user.id, startDate, endDate);
+      } else {
+        await exportPayments(user.id, startDate, endDate);
+      }
+      toast("An email will be sent shortly", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Export failed", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div>
@@ -136,9 +170,18 @@ export default function AdminPaymentsPage() {
         title="Payments"
         subtitle="Open an invoice to mark it completed or attach a post-dated cheque."
         actions={
-          <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
-            Refresh
-          </SecondaryButton>
+          <div className="flex flex-wrap gap-2">
+            <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
+              Refresh
+            </SecondaryButton>
+            <SecondaryButton
+              type="button"
+              disabled={loading || exporting}
+              onClick={() => void onExport()}
+            >
+              {exporting ? "Exporting…" : "Export"}
+            </SecondaryButton>
+          </div>
         }
       />
 

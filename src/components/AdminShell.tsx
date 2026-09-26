@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  ArrowLeftRight,
   Banknote,
   ClipboardList,
   Folders,
@@ -38,6 +39,7 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
     icon: UserCog,
   },
   { href: "/admin/inventory", label: "Inventory", icon: Package },
+  { href: "/admin/stock-transfer", label: "Stock transfer", icon: ArrowLeftRight },
   { href: "/admin/pending-orders", label: "Pending orders", icon: ClipboardList },
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/admin/grv", label: "GRV management", icon: RotateCcw },
