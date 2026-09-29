@@ -87,7 +87,9 @@ export default function SalesCartPage() {
       toast(
         apiMessage(
           result,
-          needsApproval ? "Order sent for admin approval" : "Order has been placed",
+          needsApproval
+            ? "Order sent for admin approval"
+            : "Order placed. The order form will be emailed shortly.",
         ),
         "success",
       );

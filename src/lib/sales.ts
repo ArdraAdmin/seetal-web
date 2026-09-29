@@ -101,6 +101,38 @@ export function storeLocation(store: StoreProfile) {
   return city || country || String(store.alias || "").trim();
 }
 
+export function storeMatchesQuery(store: StoreProfile, query: string) {
+  const tag = query.trim().toLowerCase();
+  if (!tag) return true;
+  const haystack = [
+    store.storeName,
+    store.name,
+    store.alias,
+    store.marks,
+    store.city,
+    store.country,
+    store.addressLine1,
+    store.uid,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  return haystack.includes(tag);
+}
+
+export function productMatchesQuery(product: Product, query: string) {
+  const tag = query.trim().toLowerCase();
+  if (!tag) return true;
+  const haystack = [
+    product.itemName,
+    product.itemRef,
+    product.barCode,
+    product.barcode,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  return haystack.includes(tag);
+}
+
 export function storeSalesmanId(store: StoreProfile) {
   const salesman = store.salesman;
   if (typeof salesman === "string") return salesman;

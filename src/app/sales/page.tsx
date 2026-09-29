@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Package, ShoppingCart, Store } from "lucide-react";
 import { downloadSalesCatalog, getAllSalesStores } from "@/lib/api";
 import { saveCatalog } from "@/lib/sales-cart";
-import { storeLocation, storeMarks, storeTitle } from "@/lib/sales";
+import { storeLocation, storeMarks, storeMatchesQuery, storeTitle } from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
+  Card,
   EmptyState,
   ErrorState,
   LoadingState,
+  PrimaryButton,
+  SecondaryButton,
+  TextField,
 } from "@/components/ui";
 
 export default function SalesHomePage() {
@@ -26,6 +30,8 @@ export default function SalesHomePage() {
   const [downloadingInventory, setDownloadingInventory] = useState(false);
   const [downloadingStores, setDownloadingStores] = useState(false);
   const [catalogCount, setCatalogCount] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
 
   const loadStores = useCallback(async () => {
     if (!user?.id) return;
@@ -76,6 +82,24 @@ export default function SalesHomePage() {
     }
   }
 
+  function applySearch() {
+    setAppliedQuery(query.trim());
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setAppliedQuery("");
+  }
+
+  const visibleMyStores = useMemo(
+    () => myStores.filter((store) => storeMatchesQuery(store, appliedQuery)),
+    [myStores, appliedQuery],
+  );
+  const visibleOtherStores = useMemo(
+    () => otherStores.filter((store) => storeMatchesQuery(store, appliedQuery)),
+    [otherStores, appliedQuery],
+  );
+
   return (
     <div>
       <div className="mb-6">
@@ -120,31 +144,73 @@ export default function SalesHomePage() {
         </button>
       </div>
 
-      {loading ? (
-        <LoadingState label="Loading stores…" />
-      ) : error ? (
+      {error ? (
         <ErrorState message={error} onRetry={() => void loadStores()} />
       ) : (
-        <div className="space-y-6">
-          <StoreSection
-            title="My stores"
-            count={myStores.length}
-            empty="No stores assigned to you yet."
-            stores={myStores}
-          />
-          <StoreSection
-            title="Other stores"
-            count={otherStores.length}
-            empty="No other stores."
-            stores={otherStores}
-          />
-          {myStores.length === 0 && otherStores.length === 0 ? (
-            <EmptyState
-              title="No stores"
-              description="Download your store list to start taking orders."
-            />
-          ) : null}
-        </div>
+        <>
+          <Card className="mb-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-0 w-full flex-1 sm:min-w-[220px]">
+                <TextField
+                  label="Search stores"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Name, marks, alias, or city"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applySearch();
+                  }}
+                />
+              </div>
+              <PrimaryButton type="button" onClick={applySearch} disabled={loading}>
+                Search
+              </PrimaryButton>
+              {appliedQuery ? (
+                <SecondaryButton type="button" onClick={clearSearch}>
+                  Clear
+                </SecondaryButton>
+              ) : null}
+            </div>
+          </Card>
+          {loading ? (
+            <LoadingState label="Loading stores…" />
+          ) : (
+            <div className="space-y-6">
+              <StoreSection
+                title="My stores"
+                count={visibleMyStores.length}
+                empty={
+                  appliedQuery
+                    ? "No assigned stores match this search."
+                    : "No stores assigned to you yet."
+                }
+                stores={visibleMyStores}
+              />
+              <StoreSection
+                title="Other stores"
+                count={visibleOtherStores.length}
+                empty={
+                  appliedQuery
+                    ? "No other stores match this search."
+                    : "No other stores."
+                }
+                stores={visibleOtherStores}
+              />
+              {myStores.length === 0 && otherStores.length === 0 ? (
+                <EmptyState
+                  title="No stores"
+                  description="Download your store list to start taking orders."
+                />
+              ) : appliedQuery &&
+                visibleMyStores.length === 0 &&
+                visibleOtherStores.length === 0 ? (
+                <EmptyState
+                  title="No matching stores"
+                  description={`Nothing matched “${appliedQuery}”. Try a store name, marks, or city.`}
+                />
+              ) : null}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

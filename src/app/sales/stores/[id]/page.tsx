@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { ShoppingCart } from "lucide-react";
-import { getStoreProducts } from "@/lib/api";
+import { Search, ShoppingCart } from "lucide-react";
+import { getStoreProducts, searchStoreProducts } from "@/lib/api";
 import {
   cartCount,
   cartLineFromProduct,
@@ -15,6 +15,7 @@ import {
 } from "@/lib/sales-cart";
 import {
   productCartonStock,
+  productMatchesQuery,
   productRatio,
   productUnit,
   productUnitPrice,
@@ -24,7 +25,13 @@ import {
 import type { Product } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { ErrorState, LoadingState, PrimaryButton } from "@/components/ui";
+import {
+  Card,
+  ErrorState,
+  LoadingState,
+  PrimaryButton,
+  SecondaryButton,
+} from "@/components/ui";
 
 export default function SalesStoreProductsPage() {
   const params = useParams<{ id: string }>();
@@ -43,6 +50,8 @@ export default function SalesStoreProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [usingCatalog, setUsingCatalog] = useState(false);
   const [count, setCount] = useState(0);
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
 
   useEffect(() => {
     setCount(cartCount(storeId));
@@ -50,8 +59,9 @@ export default function SalesStoreProductsPage() {
   }, [storeId]);
 
   const load = useCallback(
-    async (nextPage = 1, append = false) => {
+    async (nextPage = 1, append = false, searchTag = "") => {
       if (!user?.id || !storeId) return;
+      const tag = searchTag.trim();
       if (nextPage === 1) {
         setLoading(true);
         setError(null);
@@ -60,7 +70,7 @@ export default function SalesStoreProductsPage() {
       }
       try {
         const catalog = nextPage === 1 ? loadCatalog() : [];
-        if (nextPage === 1 && catalog.length > 0) {
+        if (nextPage === 1 && catalog.length > 0 && !tag) {
           setUsingCatalog(true);
           setProducts(catalog);
           setHasMore(false);
@@ -81,6 +91,12 @@ export default function SalesStoreProductsPage() {
           } catch {
             /* catalog is enough to start an order */
           }
+        } else if (tag) {
+          const list = await searchStoreProducts(storeId, tag, nextPage, false);
+          setUsingCatalog(false);
+          setProducts((prev) => (append ? [...prev, ...list] : list));
+          setHasMore(list.length >= 50);
+          setPage(nextPage);
         } else {
           const list = await getStoreProducts(storeId, user.id, nextPage, false);
           setUsingCatalog(false);
@@ -101,6 +117,30 @@ export default function SalesStoreProductsPage() {
   useEffect(() => {
     void load(1);
   }, [load]);
+
+  const visibleProducts = useMemo(
+    () => products.filter((product) => productMatchesQuery(product, appliedQuery)),
+    [products, appliedQuery],
+  );
+
+  function setSearchText(value: string) {
+    setQuery(value);
+    setAppliedQuery(value.trim());
+  }
+
+  function applySearch() {
+    const tag = query.trim();
+    setAppliedQuery(tag);
+    if (usingCatalog || loadCatalog().length > 0) return;
+    void load(1, false, tag);
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setAppliedQuery("");
+    if (usingCatalog || loadCatalog().length > 0) return;
+    void load(1, false, "");
+  }
 
   return (
     <div>
@@ -131,20 +171,58 @@ export default function SalesStoreProductsPage() {
         </Link>
       </div>
 
+      <Card className="mb-5">
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            applySearch();
+          }}
+        >
+          <div className="relative min-w-0 w-full flex-1 sm:min-w-[220px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search this store's inventory"
+              aria-label="Search this store's inventory"
+              autoComplete="off"
+              className="h-11 w-full rounded-xl border border-line bg-white pl-10 pr-3 text-base text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+            />
+          </div>
+          <PrimaryButton type="submit" disabled={loading}>
+            Search
+          </PrimaryButton>
+          {appliedQuery ? (
+            <SecondaryButton type="button" onClick={clearSearch} disabled={loading}>
+              Clear
+            </SecondaryButton>
+          ) : null}
+        </form>
+        {appliedQuery && !loading ? (
+          <p className="mt-2 text-xs text-slate-500">
+            {visibleProducts.length} item{visibleProducts.length === 1 ? "" : "s"} matching “{appliedQuery}”
+          </p>
+        ) : null}
+      </Card>
+
       {loading ? (
         <LoadingState label="Loading products…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load(1)} />
-      ) : products.length === 0 ? (
+        <ErrorState message={error} onRetry={() => void load(1, false, appliedQuery)} />
+      ) : visibleProducts.length === 0 ? (
         <p className="text-sm text-slate-500">
-          {usingCatalog
-            ? "Inventory is empty. Download products from the Sales home screen."
-            : "No products for this store."}
+          {appliedQuery
+            ? `No items matched “${appliedQuery}”.`
+            : usingCatalog
+              ? "Inventory is empty. Download products from the Sales home screen."
+              : "No products for this store."}
         </p>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {products.map((product) => (
+            {visibleProducts.map((product) => (
               <ProductCard
                 key={product._id}
                 product={product}
@@ -156,12 +234,12 @@ export default function SalesStoreProductsPage() {
               />
             ))}
           </div>
-          {hasMore ? (
+          {hasMore && !usingCatalog ? (
             <div className="mt-4 flex justify-center">
               <PrimaryButton
                 type="button"
                 disabled={loadingMore}
-                onClick={() => void load(page + 1, true)}
+                onClick={() => void load(page + 1, true, appliedQuery)}
               >
                 {loadingMore ? "Loading…" : "Load more"}
               </PrimaryButton>

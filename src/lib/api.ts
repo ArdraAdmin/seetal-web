@@ -926,6 +926,24 @@ export async function getStoreProducts(
   return asProductList(data);
 }
 
+export async function searchStoreProducts(
+  storeId: string,
+  tag: string,
+  page = 1,
+  tempStore = false,
+) {
+  const data = await request<unknown>("/sales/search", {
+    method: "POST",
+    body: JSON.stringify({
+      storeId,
+      tag,
+      page,
+      tempStore: tempStore ? "true" : "false",
+    }),
+  });
+  return asProductList(data);
+}
+
 export async function getSalesPendingOrders(userId: string) {
   const data = await request<unknown>("/sales/report/temp", {
     method: "POST",
