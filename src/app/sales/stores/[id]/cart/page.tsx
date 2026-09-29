@@ -13,6 +13,7 @@ import {
   lineAggregate,
   roundMoney,
   salesMoney,
+  todayDateInput,
 } from "@/lib/sales";
 import type { SalesCartLine } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -31,6 +32,7 @@ export default function SalesCartPage() {
 
   const [lines, setLines] = useState<SalesCartLine[]>([]);
   const [discount, setDiscount] = useState(0);
+  const [deliveryDate, setDeliveryDate] = useState(todayDateInput);
   const [payableText, setPayableText] = useState("");
   const [payableEdited, setPayableEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +72,15 @@ export default function SalesCartPage() {
       toast("Add products to the cart first", "info");
       return;
     }
+    const today = todayDateInput();
+    if (!deliveryDate) {
+      toast("Choose a delivery date", "info");
+      return;
+    }
+    if (deliveryDate < today) {
+      toast("Delivery date cannot be in the past", "info");
+      return;
+    }
     setSubmitting(true);
     try {
       const body = placeSalesOrderPayload({
@@ -79,7 +90,7 @@ export default function SalesCartPage() {
         discount,
         payableAmount: payable,
         payableEdited,
-        date: new Date().toISOString().slice(0, 10),
+        date: deliveryDate,
       });
       const result = await placeSalesOrder(body);
       clearCart(storeId);
@@ -170,6 +181,14 @@ export default function SalesCartPage() {
             <Row label="Items" value={`${lines.length}`} />
             <Row label="Quantity" value={`${totalQuantity}`} />
             <Row label="Total" value={salesMoney(totalCost)} />
+            <TextField
+              label="Delivery date"
+              type="date"
+              required
+              min={todayDateInput()}
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+            />
             <TextField
               label="Discount %"
               type="number"

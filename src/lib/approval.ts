@@ -131,6 +131,7 @@ export function resubmitTempOrderPayload(
     payableEdited,
     needsApproval,
     note,
+    date,
   }: {
     salesId: string;
     discount: number;
@@ -138,6 +139,7 @@ export function resubmitTempOrderPayload(
     payableEdited: boolean;
     needsApproval: boolean;
     note: string;
+    date?: string;
   },
 ) {
   const invoiceType =
@@ -168,7 +170,7 @@ export function resubmitTempOrderPayload(
     isVat: Boolean(order.isVat),
     totalQuantity: Number(order.totalQuantity) || 0,
     totalCost: Number(order.totalCost) || 0,
-    date: order.date || order.createdAt || new Date().toISOString(),
+    date: date || order.date || order.createdAt || new Date().toISOString(),
     isTempStore: String(Boolean(order.isTempStore)),
     editFlag: "true",
     tempOrderId: order._id,

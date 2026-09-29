@@ -10,6 +10,7 @@ import {
   salesQueueStatus,
   salesQueueStatusLabel,
 } from "@/lib/approval";
+import { formatInvoiceDate } from "@/lib/invoice";
 import { Card } from "@/components/ui";
 
 export function statusClass(status?: string) {
@@ -63,6 +64,9 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         <DetailRow label="Store" value={approvalStoreName(order)} />
         {approvalSalesName(order) ? (
           <DetailRow label="Salesman" value={approvalSalesName(order)} />
+        ) : null}
+        {order.date ? (
+          <DetailRow label="Delivery date" value={formatInvoiceDate(order.date)} />
         ) : null}
         <DetailRow
           label="Status"

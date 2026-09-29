@@ -10,6 +10,8 @@ import {
   computedPayable,
   resubmitTempOrderPayload,
 } from "@/lib/approval";
+import { dateInputValue } from "@/lib/profiles";
+import { todayDateInput } from "@/lib/sales";
 import { useAuth } from "@/components/AuthProvider";
 import { ApprovalDetails } from "@/components/ApprovalViews";
 import { useToast } from "@/components/Toast";
@@ -36,6 +38,7 @@ export default function SalesPendingOrderEditPage() {
   const [payable, setPayable] = useState("");
   const [payableTouched, setPayableTouched] = useState(false);
   const [note, setNote] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState(todayDateInput);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -51,6 +54,9 @@ export default function SalesPendingOrderEditPage() {
       const nextDiscount = Number(match.discount) || 0;
       setDiscount(String(nextDiscount));
       setNote(match.note && match.note !== "No note" ? match.note : "");
+      const existingDate = dateInputValue(match.date || match.createdAt);
+      const today = todayDateInput();
+      setDeliveryDate(existingDate && existingDate >= today ? existingDate : today);
       const computed = computedPayable(
         Number(match.totalCost) || 0,
         nextDiscount,
@@ -101,6 +107,7 @@ export default function SalesPendingOrderEditPage() {
           payableEdited,
           needsApproval,
           note,
+          date: deliveryDate,
         }),
       );
       toast(
@@ -142,6 +149,14 @@ export default function SalesPendingOrderEditPage() {
           <ApprovalDetails order={order} />
           <Card>
             <div className="grid gap-3 sm:grid-cols-2">
+              <TextField
+                label="Delivery date"
+                type="date"
+                required
+                min={todayDateInput()}
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+              />
               <TextField
                 label="Discount (%)"
                 type="number"

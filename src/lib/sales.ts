@@ -86,6 +86,13 @@ export function computedPayable(totalCost: number, discount: number, isVat = tru
   return roundMoney(amount);
 }
 
+export function todayDateInput() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 export function storeTitle(store: StoreProfile) {
   return store.storeName || store.name || "Store";
 }
