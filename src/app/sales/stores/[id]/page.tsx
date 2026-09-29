@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Search, ShoppingCart } from "lucide-react";
 import { getStoreProducts, searchStoreProducts } from "@/lib/api";
@@ -9,13 +9,11 @@ import {
   cartCount,
   cartLineFromProduct,
   loadCart,
-  loadCatalog,
   onCartChange,
   upsertCartLine,
 } from "@/lib/sales-cart";
 import {
   productCartonStock,
-  productMatchesQuery,
   productRatio,
   productUnit,
   productUnitPrice,
@@ -48,7 +46,6 @@ export default function SalesStoreProductsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usingCatalog, setUsingCatalog] = useState(false);
   const [count, setCount] = useState(0);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -69,41 +66,12 @@ export default function SalesStoreProductsPage() {
         setLoadingMore(true);
       }
       try {
-        const catalog = nextPage === 1 ? loadCatalog() : [];
-        if (nextPage === 1 && catalog.length > 0 && !tag) {
-          setUsingCatalog(true);
-          setProducts(catalog);
-          setHasMore(false);
-          try {
-            const priced = await getStoreProducts(storeId, user.id, 1, false);
-            if (priced.length) {
-              const prices = new Map(
-                priced.map((item) => [item._id, productUnitPrice(item)]),
-              );
-              setProducts(
-                catalog.map((item) =>
-                  prices.has(item._id)
-                    ? { ...item, sellingPrice: prices.get(item._id) }
-                    : item,
-                ),
-              );
-            }
-          } catch {
-            /* catalog is enough to start an order */
-          }
-        } else if (tag) {
-          const list = await searchStoreProducts(storeId, tag, nextPage, false);
-          setUsingCatalog(false);
-          setProducts((prev) => (append ? [...prev, ...list] : list));
-          setHasMore(list.length >= 50);
-          setPage(nextPage);
-        } else {
-          const list = await getStoreProducts(storeId, user.id, nextPage, false);
-          setUsingCatalog(false);
-          setProducts((prev) => (append ? [...prev, ...list] : list));
-          setHasMore(list.length >= 50);
-          setPage(nextPage);
-        }
+        const list = tag
+          ? await searchStoreProducts(storeId, tag, nextPage, false)
+          : await getStoreProducts(storeId, user.id, nextPage, false);
+        setProducts((prev) => (append ? [...prev, ...list] : list));
+        setHasMore(list.length >= 50);
+        setPage(nextPage);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load products");
       } finally {
@@ -118,27 +86,15 @@ export default function SalesStoreProductsPage() {
     void load(1);
   }, [load]);
 
-  const visibleProducts = useMemo(
-    () => products.filter((product) => productMatchesQuery(product, appliedQuery)),
-    [products, appliedQuery],
-  );
-
-  function setSearchText(value: string) {
-    setQuery(value);
-    setAppliedQuery(value.trim());
-  }
-
   function applySearch() {
     const tag = query.trim();
     setAppliedQuery(tag);
-    if (usingCatalog || loadCatalog().length > 0) return;
     void load(1, false, tag);
   }
 
   function clearSearch() {
     setQuery("");
     setAppliedQuery("");
-    if (usingCatalog || loadCatalog().length > 0) return;
     void load(1, false, "");
   }
 
@@ -184,7 +140,7 @@ export default function SalesStoreProductsPage() {
             <input
               type="search"
               value={query}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => setQuery(e.target.value)}
               placeholder="Search this store's inventory"
               aria-label="Search this store's inventory"
               autoComplete="off"
@@ -202,7 +158,7 @@ export default function SalesStoreProductsPage() {
         </form>
         {appliedQuery && !loading ? (
           <p className="mt-2 text-xs text-slate-500">
-            {visibleProducts.length} item{visibleProducts.length === 1 ? "" : "s"} matching “{appliedQuery}”
+            {products.length} item{products.length === 1 ? "" : "s"} matching “{appliedQuery}”
           </p>
         ) : null}
       </Card>
@@ -211,18 +167,16 @@ export default function SalesStoreProductsPage() {
         <LoadingState label="Loading products…" />
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load(1, false, appliedQuery)} />
-      ) : visibleProducts.length === 0 ? (
+      ) : products.length === 0 ? (
         <p className="text-sm text-slate-500">
           {appliedQuery
             ? `No items matched “${appliedQuery}”.`
-            : usingCatalog
-              ? "Inventory is empty. Download products from the Sales home screen."
-              : "No products for this store."}
+            : "No products for this store."}
         </p>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {visibleProducts.map((product) => (
+            {products.map((product) => (
               <ProductCard
                 key={product._id}
                 product={product}
@@ -234,7 +188,7 @@ export default function SalesStoreProductsPage() {
               />
             ))}
           </div>
-          {hasMore && !usingCatalog ? (
+          {hasMore ? (
             <div className="mt-4 flex justify-center">
               <PrimaryButton
                 type="button"

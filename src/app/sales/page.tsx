@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Package, ShoppingCart, Store } from "lucide-react";
-import { downloadSalesCatalog, getAllSalesStores } from "@/lib/api";
-import { saveCatalog } from "@/lib/sales-cart";
+import { ShoppingCart } from "lucide-react";
+import { getAllSalesStores } from "@/lib/api";
+import { clearCatalogCache } from "@/lib/sales-cart";
 import { storeLocation, storeMarks, storeMatchesQuery, storeTitle } from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
-import { useToast } from "@/components/Toast";
 import {
   Card,
   EmptyState,
@@ -21,15 +20,11 @@ import {
 
 export default function SalesHomePage() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const firstName = (user?.name || "Sales").trim().split(/\s+/)[0];
   const [myStores, setMyStores] = useState<StoreProfile[]>([]);
   const [otherStores, setOtherStores] = useState<StoreProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloadingInventory, setDownloadingInventory] = useState(false);
-  const [downloadingStores, setDownloadingStores] = useState(false);
-  const [catalogCount, setCatalogCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
 
@@ -49,38 +44,9 @@ export default function SalesHomePage() {
   }, [user?.id]);
 
   useEffect(() => {
+    clearCatalogCache();
     void loadStores();
   }, [loadStores]);
-
-  async function onDownloadInventory() {
-    if (!user?.id) return;
-    setDownloadingInventory(true);
-    try {
-      const products = await downloadSalesCatalog(user.id);
-      saveCatalog(products);
-      setCatalogCount(products.length);
-      toast(
-        products.length
-          ? `Inventory ready · ${products.length} products`
-          : "No products available for this account",
-        products.length ? "success" : "info",
-      );
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not download inventory", "error");
-    } finally {
-      setDownloadingInventory(false);
-    }
-  }
-
-  async function onDownloadStores() {
-    setDownloadingStores(true);
-    try {
-      await loadStores();
-      toast("Store list updated", "success");
-    } finally {
-      setDownloadingStores(false);
-    }
-  }
 
   function applySearch() {
     setAppliedQuery(query.trim());
@@ -105,43 +71,8 @@ export default function SalesHomePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Welcome, {firstName}</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Sync your catalogue, then pick a store to start an order.
+          Search a store, then open it to add an order.
         </p>
-      </div>
-
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => void onDownloadInventory()}
-          disabled={downloadingInventory}
-          className="rounded-2xl border border-line bg-white p-4 text-left hover:bg-[#f7f5f0] disabled:opacity-60"
-        >
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand/15 text-ink">
-            <Package className="h-5 w-5" />
-          </span>
-          <p className="mt-3 font-semibold text-slate-900">Inventory</p>
-          <p className="text-sm text-slate-500">
-            {downloadingInventory
-              ? "Downloading products…"
-              : catalogCount != null
-                ? `${catalogCount} products ready`
-                : "Download products"}
-          </p>
-        </button>
-        <button
-          type="button"
-          onClick={() => void onDownloadStores()}
-          disabled={downloadingStores || loading}
-          className="rounded-2xl border border-line bg-white p-4 text-left hover:bg-[#f7f5f0] disabled:opacity-60"
-        >
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand/15 text-ink">
-            <Store className="h-5 w-5" />
-          </span>
-          <p className="mt-3 font-semibold text-slate-900">Stores</p>
-          <p className="text-sm text-slate-500">
-            {downloadingStores ? "Downloading your list…" : "Download your list"}
-          </p>
-        </button>
       </div>
 
       {error ? (
@@ -198,7 +129,7 @@ export default function SalesHomePage() {
               {myStores.length === 0 && otherStores.length === 0 ? (
                 <EmptyState
                   title="No stores"
-                  description="Download your store list to start taking orders."
+                  description="No stores are available for this account yet."
                 />
               ) : appliedQuery &&
                 visibleMyStores.length === 0 &&

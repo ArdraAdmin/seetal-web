@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
+import { clearCatalogCache } from "@/lib/sales-cart";
 
 export default function SalesLayout({
   children,
@@ -13,6 +14,10 @@ export default function SalesLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    clearCatalogCache();
+  }, []);
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "Sales")) {

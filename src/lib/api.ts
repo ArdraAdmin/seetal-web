@@ -897,17 +897,6 @@ export async function getAllSalesStores(userId: string) {
 
 export const downloadSalesStores = () => request<StoreProfile[]>("/sales/store");
 
-export async function downloadSalesCatalog(salesId: string) {
-  const query = `salesId=${encodeURIComponent(salesId)}`;
-  const live = asProductList(
-    await request<unknown>(`/sales/product?${query}`),
-  );
-  if (live.length > 0) return live;
-  return asProductList(
-    await request<unknown>(`/mock/sales/product?${query}`),
-  );
-}
-
 export async function getStoreProducts(
   storeId: string,
   userId: string,

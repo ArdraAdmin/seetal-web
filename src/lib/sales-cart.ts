@@ -11,6 +11,16 @@ const PREFIX = "stl_sales_cart_";
 const CATALOG_KEY = "stl_sales_catalog";
 const EVENT = "stl-sales-cart";
 
+export function clearCatalogCache() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(CATALOG_KEY);
+    localStorage.removeItem(CATALOG_KEY);
+  } catch {
+    /* storage may be unavailable */
+  }
+}
+
 function key(storeId: string) {
   return `${PREFIX}${storeId}`;
 }
@@ -29,7 +39,13 @@ export function loadCart(storeId: string): SalesCartLine[] {
 
 export function saveCart(storeId: string, lines: SalesCartLine[]) {
   if (typeof window === "undefined" || !storeId) return;
-  localStorage.setItem(key(storeId), JSON.stringify(lines));
+  const payload = JSON.stringify(lines);
+  try {
+    localStorage.setItem(key(storeId), payload);
+  } catch {
+    clearCatalogCache();
+    localStorage.setItem(key(storeId), payload);
+  }
   window.dispatchEvent(new CustomEvent(EVENT, { detail: { storeId } }));
 }
 
@@ -69,23 +85,6 @@ export function cartLineFromProduct(
     categoryId,
     masterCategoryId,
   };
-}
-
-export function loadCatalog(): Product[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = sessionStorage.getItem(CATALOG_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Product[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveCatalog(products: Product[]) {
-  if (typeof window === "undefined") return;
-  sessionStorage.setItem(CATALOG_KEY, JSON.stringify(products));
 }
 
 export function onCartChange(storeId: string, callback: () => void) {
