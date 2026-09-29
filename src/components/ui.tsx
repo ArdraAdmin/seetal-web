@@ -125,6 +125,69 @@ export function SecondaryButton({
   );
 }
 
+export function RecordPager({
+  page,
+  hasNext,
+  loading = false,
+  rangeStart,
+  rangeEnd,
+  pageSize,
+  onPage,
+}: {
+  page: number;
+  hasNext: boolean;
+  loading?: boolean;
+  rangeStart: number;
+  rangeEnd: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+}) {
+  const lastShown = hasNext ? page + 1 : page;
+  const numbers: number[] = [];
+  const start = Math.max(1, page - 2);
+  for (let n = start; n <= lastShown; n++) numbers.push(n);
+  if (numbers[0] !== 1) numbers.unshift(1);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-slate-500">
+        Showing {rangeStart}–{rangeEnd} · {pageSize} per page
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <SecondaryButton
+          type="button"
+          disabled={page <= 1 || loading}
+          onClick={() => onPage(page - 1)}
+        >
+          Previous
+        </SecondaryButton>
+        {numbers.map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={loading || n === page}
+            onClick={() => onPage(n)}
+            className={`min-h-10 min-w-10 rounded-lg px-3 text-sm font-medium ${
+              n === page
+                ? "border border-brand bg-brand text-ink"
+                : "border border-line bg-white text-slate-700 hover:bg-[#f7f5f0]"
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+        <SecondaryButton
+          type="button"
+          disabled={!hasNext || loading}
+          onClick={() => onPage(page + 1)}
+        >
+          Next
+        </SecondaryButton>
+      </div>
+    </div>
+  );
+}
+
 export function TextField({
   label,
   type = "text",

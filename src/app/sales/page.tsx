@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ShoppingCart } from "lucide-react";
-import { getAllSalesStores } from "@/lib/api";
+import {
+  createSalesStoreCache,
+  loadSalesStoreSearchPage,
+  loadSalesStoreUiPage,
+  SALES_STORE_PAGE_SIZE,
+} from "@/lib/api";
 import { clearCatalogCache } from "@/lib/sales-cart";
-import { storeLocation, storeMarks, storeMatchesQuery, storeTitle } from "@/lib/sales";
+import { storeLocation, storeMarks, storeTitle } from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -14,6 +19,7 @@ import {
   ErrorState,
   LoadingState,
   PrimaryButton,
+  RecordPager,
   SecondaryButton,
   TextField,
 } from "@/components/ui";
@@ -21,50 +27,70 @@ import {
 export default function SalesHomePage() {
   const { user } = useAuth();
   const firstName = (user?.name || "Sales").trim().split(/\s+/)[0];
+  const cacheRef = useRef(createSalesStoreCache());
   const [myStores, setMyStores] = useState<StoreProfile[]>([]);
   const [otherStores, setOtherStores] = useState<StoreProfile[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
 
-  const loadStores = useCallback(async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getAllSalesStores(user.id);
-      setMyStores(data.myStores);
-      setOtherStores(data.otherStores);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load stores");
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
+  const loadStores = useCallback(
+    async (nextPage = 1, tag = "") => {
+      if (!user?.id) return;
+      setLoading(true);
+      setError(null);
+      try {
+        if (tag) {
+          const data = await loadSalesStoreSearchPage(
+            tag,
+            nextPage,
+            cacheRef.current,
+          );
+          setMyStores([]);
+          setOtherStores(data.stores);
+          setHasNext(data.hasNext);
+        } else {
+          const data = await loadSalesStoreUiPage(
+            user.id,
+            nextPage,
+            cacheRef.current,
+          );
+          setMyStores(data.myStores);
+          setOtherStores(data.otherStores);
+          setHasNext(data.hasNext);
+        }
+        setPage(nextPage);
+        setAppliedQuery(tag);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load stores");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [user?.id],
+  );
 
   useEffect(() => {
+    cacheRef.current = createSalesStoreCache();
     clearCatalogCache();
-    void loadStores();
+    void loadStores(1, "");
   }, [loadStores]);
 
   function applySearch() {
-    setAppliedQuery(query.trim());
+    void loadStores(1, query.trim());
   }
 
   function clearSearch() {
     setQuery("");
-    setAppliedQuery("");
+    void loadStores(1, "");
   }
 
-  const visibleMyStores = useMemo(
-    () => myStores.filter((store) => storeMatchesQuery(store, appliedQuery)),
-    [myStores, appliedQuery],
-  );
-  const visibleOtherStores = useMemo(
-    () => otherStores.filter((store) => storeMatchesQuery(store, appliedQuery)),
-    [otherStores, appliedQuery],
-  );
+  const pageCount = myStores.length + otherStores.length;
+  const rangeStart = pageCount === 0 ? 0 : (page - 1) * SALES_STORE_PAGE_SIZE + 1;
+  const rangeEnd = (page - 1) * SALES_STORE_PAGE_SIZE + pageCount;
 
   return (
     <div>
@@ -76,7 +102,7 @@ export default function SalesHomePage() {
       </div>
 
       {error ? (
-        <ErrorState message={error} onRetry={() => void loadStores()} />
+        <ErrorState message={error} onRetry={() => void loadStores(page, appliedQuery)} />
       ) : (
         <>
           <Card className="mb-5">
@@ -104,41 +130,51 @@ export default function SalesHomePage() {
           </Card>
           {loading ? (
             <LoadingState label="Loading stores…" />
+          ) : pageCount === 0 ? (
+            <EmptyState
+              title={appliedQuery ? "No matching stores" : "No stores"}
+              description={
+                appliedQuery
+                  ? `Nothing matched “${appliedQuery}”. Try a store name, marks, or city.`
+                  : "No stores are available for this account yet."
+              }
+            />
           ) : (
             <div className="space-y-6">
-              <StoreSection
-                title="My stores"
-                count={visibleMyStores.length}
-                empty={
-                  appliedQuery
-                    ? "No assigned stores match this search."
-                    : "No stores assigned to you yet."
-                }
-                stores={visibleMyStores}
-              />
-              <StoreSection
-                title="Other stores"
-                count={visibleOtherStores.length}
-                empty={
-                  appliedQuery
-                    ? "No other stores match this search."
-                    : "No other stores."
-                }
-                stores={visibleOtherStores}
-              />
-              {myStores.length === 0 && otherStores.length === 0 ? (
-                <EmptyState
-                  title="No stores"
-                  description="No stores are available for this account yet."
+              {appliedQuery ? (
+                <StoreSection
+                  title="Search results"
+                  count={otherStores.length}
+                  empty={`Nothing matched “${appliedQuery}”.`}
+                  stores={otherStores}
                 />
-              ) : appliedQuery &&
-                visibleMyStores.length === 0 &&
-                visibleOtherStores.length === 0 ? (
-                <EmptyState
-                  title="No matching stores"
-                  description={`Nothing matched “${appliedQuery}”. Try a store name, marks, or city.`}
-                />
-              ) : null}
+              ) : (
+                <>
+                  {myStores.length > 0 || page === 1 ? (
+                    <StoreSection
+                      title="My stores"
+                      count={myStores.length}
+                      empty="No stores assigned to you yet."
+                      stores={myStores}
+                    />
+                  ) : null}
+                  <StoreSection
+                    title="Other stores"
+                    count={otherStores.length}
+                    empty="No other stores on this page."
+                    stores={otherStores}
+                  />
+                </>
+              )}
+              <RecordPager
+                page={page}
+                hasNext={hasNext}
+                loading={loading}
+                rangeStart={rangeStart}
+                rangeEnd={rangeEnd}
+                pageSize={SALES_STORE_PAGE_SIZE}
+                onPage={(next) => void loadStores(next, appliedQuery)}
+              />
             </div>
           )}
         </>

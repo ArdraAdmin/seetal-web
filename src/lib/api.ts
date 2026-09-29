@@ -868,6 +868,9 @@ export interface SalesStorePage {
   otherStores: StoreProfile[];
 }
 
+export const SALES_STORE_PAGE_SIZE = 30;
+const SALES_STORE_API_PAGE_SIZE = 50;
+
 export async function getSalesStorePage(userId: string, page = 1): Promise<SalesStorePage> {
   const data = await request<unknown>("/sales/store", {
     method: "POST",
@@ -883,16 +886,127 @@ export async function getSalesStorePage(userId: string, page = 1): Promise<Sales
   };
 }
 
-export async function getAllSalesStores(userId: string) {
-  const myStores: StoreProfile[] = [];
-  const otherStores: StoreProfile[] = [];
-  for (let page = 1; page <= 80; page++) {
-    const batch = await getSalesStorePage(userId, page);
-    if (page === 1) myStores.push(...batch.myStores);
-    otherStores.push(...batch.otherStores);
-    if (batch.otherStores.length < 50) break;
+export async function searchSalesStores(tag: string, page = 1) {
+  const data = await request<unknown>("/sales/searchStore", {
+    method: "POST",
+    body: JSON.stringify({ tag, page }),
+  });
+  return asStoreList(data);
+}
+
+export type SalesStoreCache = {
+  myStores: StoreProfile[] | null;
+  other: Map<number, StoreProfile[]>;
+  search: Map<string, Map<number, StoreProfile[]>>;
+};
+
+export function createSalesStoreCache(): SalesStoreCache {
+  return { myStores: null, other: new Map(), search: new Map() };
+}
+
+async function otherStoreApiPage(
+  userId: string,
+  apiPage: number,
+  cache: SalesStoreCache,
+) {
+  const cached = cache.other.get(apiPage);
+  if (cached) return cached;
+  const batch = await getSalesStorePage(userId, apiPage);
+  if (apiPage === 1) cache.myStores = batch.myStores;
+  cache.other.set(apiPage, batch.otherStores);
+  return batch.otherStores;
+}
+
+async function searchStoreApiPage(
+  tag: string,
+  apiPage: number,
+  cache: SalesStoreCache,
+) {
+  let pages = cache.search.get(tag);
+  if (!pages) {
+    pages = new Map();
+    cache.search.set(tag, pages);
   }
-  return { myStores, otherStores };
+  const cached = pages.get(apiPage);
+  if (cached) return cached;
+  const list = await searchSalesStores(tag, apiPage);
+  pages.set(apiPage, list);
+  return list;
+}
+
+function storeAtApiIndex(list: StoreProfile[], index: number) {
+  const offset = index % SALES_STORE_API_PAGE_SIZE;
+  if (index >= 0 && offset < list.length) return list[offset];
+  return undefined;
+}
+
+export async function loadSalesStoreUiPage(
+  userId: string,
+  uiPage: number,
+  cache: SalesStoreCache,
+) {
+  const start = (uiPage - 1) * SALES_STORE_PAGE_SIZE;
+  await otherStoreApiPage(userId, 1, cache);
+  const my = cache.myStores ?? [];
+
+  const stores: StoreProfile[] = [];
+  for (let i = start; i < start + SALES_STORE_PAGE_SIZE; i++) {
+    if (i < my.length) {
+      stores.push(my[i]);
+      continue;
+    }
+    const otherIndex = i - my.length;
+    const apiPage = Math.floor(otherIndex / SALES_STORE_API_PAGE_SIZE) + 1;
+    const list = await otherStoreApiPage(userId, apiPage, cache);
+    const item = storeAtApiIndex(list, otherIndex);
+    if (!item) break;
+    stores.push(item);
+  }
+
+  const nextIndex = start + SALES_STORE_PAGE_SIZE;
+  let hasNext = false;
+  if (nextIndex < my.length) {
+    hasNext = true;
+  } else {
+    const otherIndex = nextIndex - my.length;
+    const apiPage = Math.floor(otherIndex / SALES_STORE_API_PAGE_SIZE) + 1;
+    const list = await otherStoreApiPage(userId, apiPage, cache);
+    hasNext = Boolean(storeAtApiIndex(list, otherIndex));
+  }
+
+  const myIds = new Set(my.map((store) => store._id));
+  return {
+    stores,
+    myStores: stores.filter((store) => myIds.has(store._id)),
+    otherStores: stores.filter((store) => !myIds.has(store._id)),
+    hasNext,
+    hasPrev: uiPage > 1,
+  };
+}
+
+export async function loadSalesStoreSearchPage(
+  tag: string,
+  uiPage: number,
+  cache: SalesStoreCache,
+) {
+  const start = (uiPage - 1) * SALES_STORE_PAGE_SIZE;
+  const stores: StoreProfile[] = [];
+  for (let i = start; i < start + SALES_STORE_PAGE_SIZE; i++) {
+    const apiPage = Math.floor(i / SALES_STORE_API_PAGE_SIZE) + 1;
+    const list = await searchStoreApiPage(tag, apiPage, cache);
+    const item = storeAtApiIndex(list, i);
+    if (!item) break;
+    stores.push(item);
+  }
+
+  const nextIndex = start + SALES_STORE_PAGE_SIZE;
+  const nextApiPage = Math.floor(nextIndex / SALES_STORE_API_PAGE_SIZE) + 1;
+  const nextList = await searchStoreApiPage(tag, nextApiPage, cache);
+  return {
+    stores,
+    hasNext: Boolean(storeAtApiIndex(nextList, nextIndex)),
+    hasPrev: uiPage > 1,
+  };
 }
 
 export const downloadSalesStores = () => request<StoreProfile[]>("/sales/store");
@@ -931,6 +1045,85 @@ export async function searchStoreProducts(
     }),
   });
   return asProductList(data);
+}
+
+export const SALES_INVENTORY_PAGE_SIZE = 30;
+const SALES_INVENTORY_API_PAGE_SIZE = 50;
+
+export type SalesProductCache = Map<string, Map<number, Product[]>>;
+
+export function createSalesProductCache(): SalesProductCache {
+  return new Map();
+}
+
+function productCacheKey(storeId: string, tag: string) {
+  return `${storeId}::${tag}`;
+}
+
+async function inventoryApiPage(
+  storeId: string,
+  userId: string,
+  tag: string,
+  apiPage: number,
+  cache: SalesProductCache,
+) {
+  const key = productCacheKey(storeId, tag);
+  let pages = cache.get(key);
+  if (!pages) {
+    pages = new Map();
+    cache.set(key, pages);
+  }
+  const cached = pages.get(apiPage);
+  if (cached) return cached;
+  try {
+    const list = tag
+      ? await searchStoreProducts(storeId, tag, apiPage, false)
+      : await getStoreProducts(storeId, userId, apiPage, false);
+    pages.set(apiPage, list);
+    return list;
+  } catch {
+    const empty: Product[] = [];
+    pages.set(apiPage, empty);
+    return empty;
+  }
+}
+
+function productAtApiIndex(list: Product[], index: number) {
+  const offset = index % SALES_INVENTORY_API_PAGE_SIZE;
+  if (index >= 0 && offset < list.length) return list[offset];
+  return undefined;
+}
+
+export async function loadSalesInventoryUiPage(
+  storeId: string,
+  userId: string,
+  uiPage: number,
+  tag: string,
+  cache: SalesProductCache,
+) {
+  const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
+  const products: Product[] = [];
+  for (let i = start; i < start + SALES_INVENTORY_PAGE_SIZE; i++) {
+    const apiPage = Math.floor(i / SALES_INVENTORY_API_PAGE_SIZE) + 1;
+    const list = await inventoryApiPage(storeId, userId, tag, apiPage, cache);
+    const item = productAtApiIndex(list, i);
+    if (!item) break;
+    products.push(item);
+  }
+
+  const nextIndex = start + SALES_INVENTORY_PAGE_SIZE;
+  const nextApiPage = Math.floor(nextIndex / SALES_INVENTORY_API_PAGE_SIZE) + 1;
+  const nextList = await inventoryApiPage(
+    storeId,
+    userId,
+    tag,
+    nextApiPage,
+    cache,
+  );
+  return {
+    products,
+    hasNext: Boolean(productAtApiIndex(nextList, nextIndex)),
+  };
 }
 
 export async function getSalesPendingOrders(userId: string) {

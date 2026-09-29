@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Search, ShoppingCart } from "lucide-react";
-import { getStoreProducts, searchStoreProducts } from "@/lib/api";
+import {
+  createSalesProductCache,
+  loadSalesInventoryUiPage,
+  SALES_INVENTORY_PAGE_SIZE,
+} from "@/lib/api";
 import {
   cartCount,
   cartLineFromProduct,
@@ -28,6 +32,7 @@ import {
   ErrorState,
   LoadingState,
   PrimaryButton,
+  RecordPager,
   SecondaryButton,
 } from "@/components/ui";
 
@@ -40,11 +45,11 @@ export default function SalesStoreProductsPage() {
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
 
+  const cacheRef = useRef(createSalesProductCache());
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   const [query, setQuery] = useState("");
@@ -56,47 +61,49 @@ export default function SalesStoreProductsPage() {
   }, [storeId]);
 
   const load = useCallback(
-    async (nextPage = 1, append = false, searchTag = "") => {
+    async (nextPage = 1, searchTag = "") => {
       if (!user?.id || !storeId) return;
       const tag = searchTag.trim();
-      if (nextPage === 1) {
-        setLoading(true);
-        setError(null);
-      } else {
-        setLoadingMore(true);
-      }
+      setLoading(true);
+      setError(null);
       try {
-        const list = tag
-          ? await searchStoreProducts(storeId, tag, nextPage, false)
-          : await getStoreProducts(storeId, user.id, nextPage, false);
-        setProducts((prev) => (append ? [...prev, ...list] : list));
-        setHasMore(list.length >= 50);
+        const data = await loadSalesInventoryUiPage(
+          storeId,
+          user.id,
+          nextPage,
+          tag,
+          cacheRef.current,
+        );
+        setProducts(data.products);
+        setHasNext(data.hasNext);
         setPage(nextPage);
+        setAppliedQuery(tag);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load products");
       } finally {
         setLoading(false);
-        setLoadingMore(false);
       }
     },
     [storeId, user?.id],
   );
 
   useEffect(() => {
-    void load(1);
+    cacheRef.current = createSalesProductCache();
+    void load(1, "");
   }, [load]);
 
   function applySearch() {
-    const tag = query.trim();
-    setAppliedQuery(tag);
-    void load(1, false, tag);
+    void load(1, query.trim());
   }
 
   function clearSearch() {
     setQuery("");
-    setAppliedQuery("");
-    void load(1, false, "");
+    void load(1, "");
   }
+
+  const rangeStart =
+    products.length === 0 ? 0 : (page - 1) * SALES_INVENTORY_PAGE_SIZE + 1;
+  const rangeEnd = (page - 1) * SALES_INVENTORY_PAGE_SIZE + products.length;
 
   return (
     <div>
@@ -166,7 +173,7 @@ export default function SalesStoreProductsPage() {
       {loading ? (
         <LoadingState label="Loading products…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load(1, false, appliedQuery)} />
+        <ErrorState message={error} onRetry={() => void load(page, appliedQuery)} />
       ) : products.length === 0 ? (
         <p className="text-sm text-slate-500">
           {appliedQuery
@@ -188,17 +195,15 @@ export default function SalesStoreProductsPage() {
               />
             ))}
           </div>
-          {hasMore ? (
-            <div className="mt-4 flex justify-center">
-              <PrimaryButton
-                type="button"
-                disabled={loadingMore}
-                onClick={() => void load(page + 1, true, appliedQuery)}
-              >
-                {loadingMore ? "Loading…" : "Load more"}
-              </PrimaryButton>
-            </div>
-          ) : null}
+          <RecordPager
+            page={page}
+            hasNext={hasNext}
+            loading={loading}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            pageSize={SALES_INVENTORY_PAGE_SIZE}
+            onPage={(next) => void load(next, appliedQuery)}
+          />
         </>
       )}
     </div>
