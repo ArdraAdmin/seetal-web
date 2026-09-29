@@ -774,6 +774,17 @@ export const generateWarehouseInvoice = (orderId: string, userId: string) =>
     body: JSON.stringify({ orderId, userId }),
   });
 
+export type WarehouseActionTag = "customs" | "daily" | "loading";
+
+export const sendWarehouseActionSheet = (
+  tag: WarehouseActionTag,
+  userId: string,
+) =>
+  request<unknown>(
+    `/mock/warehouse/action/${encodeURIComponent(tag)}?userId=${encodeURIComponent(userId)}`,
+    { method: "GET", cache: "no-store" },
+  );
+
 function warehouseLineProductId(line: WarehouseCheckLine) {
   if (typeof line.product === "string") return line.product;
   return line.product?._id || "";

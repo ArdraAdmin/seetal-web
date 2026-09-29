@@ -5,10 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   getAllWarehouseOrders,
+  sendWarehouseActionSheet,
+  type WarehouseActionTag,
   type WarehouseTabIndex,
 } from "@/lib/api";
 import type { PendingOrder, WarehouseCounts } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/Toast";
 import {
   Card,
   EmptyState,
@@ -32,6 +35,28 @@ const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 0, label: "Today" },
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Confirmed" },
+];
+
+const ACTION_BUTTONS: {
+  tag: WarehouseActionTag;
+  label: string;
+  className: string;
+}[] = [
+  {
+    tag: "customs",
+    label: "Customs",
+    className: "bg-[#f59e0b] hover:bg-[#d97706]",
+  },
+  {
+    tag: "daily",
+    label: "Daily List",
+    className: "bg-[#2563eb] hover:bg-[#1d4ed8]",
+  },
+  {
+    tag: "loading",
+    label: "Loading List",
+    className: "bg-[#16a34a] hover:bg-[#15803d]",
+  },
 ];
 
 function checkStatus(order: PendingOrder) {
@@ -62,6 +87,7 @@ function formatDate(value?: string) {
 
 export default function WarehousePage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const pathname = usePathname();
   const base = warehouseBasePath(pathname);
   const [tab, setTab] = useState<WarehouseTabIndex>(0);
@@ -71,6 +97,9 @@ export default function WarehousePage() {
   const [appliedQuery, setAppliedQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sendingAction, setSendingAction] = useState<WarehouseActionTag | null>(
+    null,
+  );
 
   const load = useCallback(
     async (tabIndex: WarehouseTabIndex, tag = "") => {
@@ -95,6 +124,19 @@ export default function WarehousePage() {
   useEffect(() => {
     void load(0);
   }, [load]);
+
+  async function sendAction(tag: WarehouseActionTag) {
+    if (!user?.id || sendingAction) return;
+    setSendingAction(tag);
+    try {
+      await sendWarehouseActionSheet(tag, user.id);
+      toast("Email sent", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to send email", "error");
+    } finally {
+      setSendingAction(null);
+    }
+  }
 
   return (
     <div>
@@ -174,6 +216,25 @@ export default function WarehousePage() {
             <SummaryStat label="Load check" value={counts.loadCheckCount} />
           </div>
         </Card>
+      ) : null}
+
+      {tab === 0 ? (
+        <div className="mb-5 flex flex-wrap gap-3">
+          {ACTION_BUTTONS.map((action) => {
+            const busy = sendingAction === action.tag;
+            return (
+              <button
+                key={action.tag}
+                type="button"
+                disabled={sendingAction !== null}
+                onClick={() => void sendAction(action.tag)}
+                className={`inline-flex min-h-11 min-w-[8.5rem] flex-1 items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-70 sm:flex-none ${action.className}`}
+              >
+                {busy ? "Sending…" : action.label}
+              </button>
+            );
+          })}
+        </div>
       ) : null}
 
       {loading ? (

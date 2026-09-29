@@ -253,7 +253,10 @@ function ProductCard({
 
   return (
     <article className="flex flex-col rounded-2xl border border-line bg-white p-3">
-      <p className="min-h-10 text-sm font-bold leading-snug text-slate-900">
+      {product.itemRef ? (
+        <p className="text-xs font-bold tracking-wide text-ink">{product.itemRef}</p>
+      ) : null}
+      <p className="mt-0.5 min-h-10 text-sm font-bold leading-snug text-slate-900">
         {product.itemName || product.itemRef || "Product"}
       </p>
       <p className="mt-1 text-[15px] font-extrabold text-ink">{salesMoney(price)}</p>

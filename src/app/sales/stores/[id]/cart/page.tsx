@@ -136,9 +136,12 @@ export default function SalesCartPage() {
                 className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4"
               >
                 <div className="min-w-0">
+                  {line.itemRef ? (
+                    <p className="text-xs font-bold tracking-wide text-ink">{line.itemRef}</p>
+                  ) : null}
                   <p className="font-semibold text-slate-900">{line.itemName}</p>
                   <p className="text-xs text-slate-500">
-                    {line.itemRef} · {salesMoney(line.storeCost)} / {line.unit}
+                    {salesMoney(line.storeCost)} / {line.unit}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
