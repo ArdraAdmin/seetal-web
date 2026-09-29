@@ -4,13 +4,65 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   addProductManual,
+  companyLabel,
   getCategories,
+  getCompanies,
   updateProduct,
+  type CompanyRecord,
 } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useToast } from "@/components/Toast";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
+
+const COMPANY_ORDER = ["SH Lakshmi", "SHMP", "Sarvah", "STL"] as const;
+
+const COMPANY_ALIASES: Record<(typeof COMPANY_ORDER)[number], string[]> = {
+  "SH Lakshmi": ["shlakshmi", "shlaxmi"],
+  SHMP: ["shmp"],
+  Sarvah: ["sarvah"],
+  STL: ["stl"],
+};
+
+function normalizeCompanyKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function companyIdFromProduct(product?: Product | null) {
+  const raw = product?.company;
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") return String(raw._id ?? "");
+  return "";
+}
+
+function displayCompanyName(company: CompanyRecord) {
+  const hay = normalizeCompanyKey(
+    `${company.name ?? ""} ${company.prefix ?? ""}`,
+  );
+  for (const label of COMPANY_ORDER) {
+    if (COMPANY_ALIASES[label].some((alias) => hay === alias || hay.includes(alias))) {
+      return label;
+    }
+  }
+  return companyLabel(company);
+}
+
+function orderedCompanies(list: CompanyRecord[]) {
+  const used = new Set<string>();
+  const preferred: CompanyRecord[] = [];
+  for (const label of COMPANY_ORDER) {
+    const match = list.find(
+      (company) =>
+        !used.has(company._id) && displayCompanyName(company) === label,
+    );
+    if (match) {
+      used.add(match._id);
+      preferred.push(match);
+    }
+  }
+  if (preferred.length > 0) return preferred;
+  return list;
+}
 
 const EMPTY_FORM = {
   itemRef: "",
@@ -18,6 +70,7 @@ const EMPTY_FORM = {
   barCode: "",
   category: "",
   subCategory: "",
+  company: "",
   unit: "PCS",
   ratio: "1",
   amountInUnits: "0",
@@ -41,6 +94,7 @@ function formFromProduct(product: Product) {
     subCategory: String(
       nested?._id ?? product.subCategoryId ?? product.categoryId ?? "",
     ),
+    company: companyIdFromProduct(product),
     unit: String(product.unit ?? "PCS"),
     ratio: String(product.ratio ?? 1),
     amountInUnits: String(
@@ -93,7 +147,9 @@ export function ProductForm({
   const editing = Boolean(product?._id);
   const [saving, setSaving] = useState(false);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
@@ -110,6 +166,27 @@ export function ProductForm({
         }
       } finally {
         if (!cancelled) setLoadingCategories(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCompanies(true);
+    void (async () => {
+      try {
+        const list = orderedCompanies(await getCompanies());
+        if (!cancelled) setCompanies(list);
+      } catch {
+        if (!cancelled) {
+          setCompanies([]);
+          toast("Could not load companies", "error");
+        }
+      } finally {
+        if (!cancelled) setLoadingCompanies(false);
       }
     })();
     return () => {
@@ -193,6 +270,10 @@ export function ProductForm({
       toast("Select a category and sub category", "info");
       return;
     }
+    if (!form.company) {
+      toast("Select a company", "info");
+      return;
+    }
     setSaving(true);
     try {
       const payload = editing
@@ -208,6 +289,7 @@ export function ProductForm({
             amountInUnits: Number(form.amountInUnits),
             sellingPrice: Number(form.sellingPrice),
             isDisplay: form.isDisplay,
+            company: form.company,
           }
         : {
             productId: product?._id ?? "",
@@ -221,6 +303,7 @@ export function ProductForm({
             amountInUnits: Number(form.amountInUnits),
             sellingPrice: Number(form.sellingPrice),
             isDisplay: form.isDisplay,
+            company: form.company,
           };
       if (editing) {
         await updateProduct(payload);
@@ -298,6 +381,26 @@ export function ProductForm({
               value={item._id || item.subCategory}
             >
               {item.subCategory || "Sub category"}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Company"
+          required
+          disabled={loadingCompanies}
+          value={form.company}
+          onChange={(value) => setForm({ ...form, company: value })}
+        >
+          <option value="">
+            {loadingCompanies ? "Loading companies…" : "Select company"}
+          </option>
+          {form.company &&
+          !companies.some((company) => company._id === form.company) ? (
+            <option value={form.company}>Current company</option>
+          ) : null}
+          {companies.map((company) => (
+            <option key={company._id} value={company._id}>
+              {displayCompanyName(company)}
             </option>
           ))}
         </SelectField>

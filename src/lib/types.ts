@@ -73,6 +73,7 @@ export interface Product {
   subCategoryId?: string;
   masterCategoryId?: string;
   imagePath?: string;
+  company?: string | { _id?: string; name?: string; prefix?: string };
   [key: string]: unknown;
 }
 
