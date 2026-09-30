@@ -10,6 +10,7 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   Store,
   X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/sales", label: "Stores", icon: Store },
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
+  { href: "/sales/settings", label: "Settings", icon: Settings },
 ];
 
 const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
@@ -121,9 +123,16 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
             collapsed ? "px-2 py-3" : "px-3 py-4"
           }`}
         >
-          <div
-            className={`flex items-center gap-2.5 ${
+          <Link
+            href="/sales/settings"
+            title="Settings"
+            onClick={() => setMobileOpen(false)}
+            className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
               collapsed ? "lg:justify-center" : ""
+            } ${
+              pathname.startsWith("/sales/settings")
+                ? "bg-white/70"
+                : "hover:bg-white/40"
             }`}
           >
             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
@@ -135,7 +144,7 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
               </p>
               <p className="truncate text-xs text-black/80">{user?.email}</p>
             </div>
-          </div>
+          </Link>
           <button
             type="button"
             onClick={logout}

@@ -51,6 +51,7 @@ function errorMessage(body: unknown, fallback: string): string {
   if (body && typeof body === "object") {
     const o = body as Record<string, unknown>;
     if (typeof o.error === "string") return o.error;
+    if (typeof o.err === "string") return o.err;
     if (typeof o.message === "string") return o.message;
   }
   return fallback;
@@ -106,6 +107,34 @@ async function request<T>(
   return body as T;
 }
 
+async function siteRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  const user = getStoredAuth();
+  if (user?.token) headers.set("Authorization", user.token);
+
+  let res: Response;
+  try {
+    res = await fetch(path, { ...options, headers });
+  } catch {
+    throw new ApiError("Cannot complete this request.", 0);
+  }
+
+  const body = await parseBody(res);
+  if (!res.ok) {
+    throw new ApiError(
+      errorMessage(body, `Request failed (${res.status})`),
+      res.status,
+    );
+  }
+  return body as T;
+}
+
 export async function login(
   email: string,
   password: string,
@@ -147,6 +176,16 @@ export async function login(
   };
 }
 
+export const changeOwnPassword = (
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string,
+) =>
+  siteRequest<string>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+  });
+
 // —— Drivers ——
 export const getDrivers = () => request<Driver[]>("/admin/driver/read");
 export const addDriver = (driverName: string, driverPhoneNo: string) =>
@@ -177,12 +216,12 @@ export const addVehicle = (vehicleNumber: number) =>
     body: JSON.stringify({ vehicleNumber }),
   });
 export const editVehicle = (vehicleId: string, vehicleNumber: number) =>
-  request<string>("/admin/vehicle/edit", {
+  siteRequest<string>("/api/admin/vehicle/edit", {
     method: "POST",
     body: JSON.stringify({ vehicleId, vehicleNumber }),
   });
 export const deleteVehicle = (vehicleId: string) =>
-  request<string>("/admin/vehicle/delete", {
+  siteRequest<string>("/api/admin/vehicle/delete", {
     method: "POST",
     body: JSON.stringify({ vehicleId }),
   });
@@ -451,11 +490,13 @@ export async function getProduct(id: string): Promise<Product> {
   }
   throw new ApiError("Product not found", 404);
 }
-export const searchProducts = (tag: string) =>
-  request<Product[]>("/admin/product/search", {
+export async function searchProducts(tag: string, page = 1) {
+  const data = await request<unknown>("/admin/product/search", {
     method: "POST",
-    body: JSON.stringify({ tag }),
+    body: JSON.stringify({ tag, page }),
   });
+  return asProductList(data);
+}
 export const deleteProduct = (id: string) =>
   request<unknown>(`/admin/product/deleteProduct/${id}`, {
     method: "DELETE",

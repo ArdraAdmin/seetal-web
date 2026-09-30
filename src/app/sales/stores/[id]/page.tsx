@@ -210,6 +210,12 @@ export default function SalesStoreProductsPage() {
   );
 }
 
+function parseQtyInput(value: string) {
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return 0;
+  return Number.parseInt(digits, 10) || 0;
+}
+
 function ProductCard({
   product,
   storeId,
@@ -223,18 +229,35 @@ function ProductCard({
 }) {
   const unit = productUnit(product);
   const [qty, setQty] = useState(0);
+  const [qtyInput, setQtyInput] = useState("0");
   const [unitReq, setUnitReq] = useState(unit);
+  const [added, setAdded] = useState(false);
   const price = productUnitPrice(product);
   const ratio = productRatio(product);
   const cartons = productCartonStock(product);
   const pieces = productUnitStock(product);
 
+  function setQuantity(next: number) {
+    const qtyValue = Number.isFinite(next) ? Math.max(0, Math.floor(next)) : 0;
+    setQty(qtyValue);
+    setQtyInput(String(qtyValue));
+  }
+
   useEffect(() => {
-    const existing = loadCart(storeId).find((line) => line.productId === product._id);
-    if (existing) {
-      setQty(existing.quantityReq);
-      setUnitReq(existing.unitReq);
+    function syncFromCart() {
+      const existing = loadCart(storeId).find(
+        (line) => line.productId === product._id,
+      );
+      if (existing) {
+        setQuantity(existing.quantityReq);
+        setUnitReq(existing.unitReq);
+        setAdded(true);
+      } else {
+        setAdded(false);
+      }
     }
+    syncFromCart();
+    return onCartChange(storeId, syncFromCart);
   }, [product._id, storeId]);
 
   function add() {
@@ -248,6 +271,7 @@ function ProductCard({
       return;
     }
     upsertCartLine(storeId, line);
+    setAdded(true);
     onAdded();
   }
 
@@ -280,23 +304,48 @@ function ProductCard({
           <button
             type="button"
             className="h-8 w-8 rounded-full border border-line text-lg leading-none"
-            onClick={() => setQty((value) => Math.max(0, value - 1))}
+            aria-label="Decrease quantity"
+            onClick={() => setQuantity(qty - 1)}
           >
             −
           </button>
-          <span className="w-8 text-center text-sm font-semibold">{qty}</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            aria-label="Quantity"
+            value={qtyInput}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/[^\d]/g, "");
+              setQtyInput(raw);
+              setQty(parseQtyInput(raw));
+            }}
+            onBlur={() => setQtyInput(String(qty))}
+            className="h-8 w-16 rounded-lg border border-line bg-white text-center text-sm font-semibold text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+          />
           <button
             type="button"
             className="h-8 w-8 rounded-full border border-line text-lg leading-none"
-            onClick={() => setQty((value) => value + 1)}
+            aria-label="Increase quantity"
+            onClick={() => setQuantity(qty + 1)}
           >
             +
           </button>
         </div>
       </div>
-      <PrimaryButton type="button" className="mt-3 w-full" onClick={add}>
-        Add to cart
-      </PrimaryButton>
+      {added ? (
+        <button
+          type="button"
+          className="mt-3 min-h-10 w-full rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          onClick={add}
+        >
+          Added
+        </button>
+      ) : (
+        <PrimaryButton type="button" className="mt-3 w-full" onClick={add}>
+          Add to cart
+        </PrimaryButton>
+      )}
     </article>
   );
 }

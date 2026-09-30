@@ -9,7 +9,7 @@ import {
   loadSalesStoreUiPage,
   SALES_STORE_PAGE_SIZE,
 } from "@/lib/api";
-import { clearCatalogCache } from "@/lib/sales-cart";
+import { cartCount, clearCatalogCache, onCartChange } from "@/lib/sales-cart";
 import { storeLocation, storeMarks, storeTitle } from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -183,6 +183,30 @@ export default function SalesHomePage() {
   );
 }
 
+function StoreCartIcon({ storeId }: { storeId: string }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setCount(cartCount(storeId));
+    refresh();
+    return onCartChange(storeId, refresh);
+  }, [storeId]);
+
+  return (
+    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center text-ink">
+      <ShoppingCart className="h-5 w-5" aria-hidden />
+          {count > 0 ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white">
+              {count}
+            </span>
+          ) : null}
+      <span className="sr-only">
+        {count > 0 ? `${count} items in cart` : "Cart empty"}
+      </span>
+    </span>
+  );
+}
+
 function StoreSection({
   title,
   count,
@@ -228,7 +252,7 @@ function StoreSection({
                     <p className="mt-1 text-xs text-slate-500">{location}</p>
                   ) : null}
                 </div>
-                <ShoppingCart className="h-5 w-5 text-ink" />
+                <StoreCartIcon storeId={store._id} />
               </Link>
             );
           })}

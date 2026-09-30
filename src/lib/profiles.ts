@@ -52,6 +52,28 @@ export function companyIds(raw: unknown): string[] {
   return id ? [id] : [];
 }
 
+export function stlCompanyId(
+  companies: { _id: string; name?: string; prefix?: string }[],
+) {
+  return (
+    companies.find((company) => {
+      const hay = `${company.name ?? ""} ${company.prefix ?? ""}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+      return hay === "stl";
+    })?._id || ""
+  );
+}
+
+export function salesCompanyIdsOrStl(
+  selected: string[],
+  companies: { _id: string; name?: string; prefix?: string }[],
+) {
+  if (selected.length > 0) return selected;
+  const stl = stlCompanyId(companies);
+  return stl ? [stl] : selected;
+}
+
 export function dateInputValue(value?: string) {
   if (!value) return "";
   const date = new Date(value);

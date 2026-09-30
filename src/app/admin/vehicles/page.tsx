@@ -28,6 +28,7 @@ export default function VehiclesPage() {
   const [number, setNumber] = useState("");
   const [editing, setEditing] = useState<Vehicle | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,12 +75,19 @@ export default function VehiclesPage() {
 
   async function onDelete(id: string) {
     if (!confirm("Delete this vehicle?")) return;
+    setDeletingId(id);
     try {
       await deleteVehicle(id);
+      if (editing?._id === id) {
+        setEditing(null);
+        setNumber("");
+      }
       toast("Vehicle deleted", "success");
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -104,7 +112,9 @@ export default function VehiclesPage() {
         <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-3">
           <div className="min-w-0 w-full flex-1 sm:min-w-[200px]">
             <TextField
-              label="Vehicle number"
+              label={
+                editing ? `Edit vehicle #${editing.value}` : "Vehicle number"
+              }
               value={number}
               onChange={(e) => setNumber(e.target.value)}
               required
@@ -112,7 +122,7 @@ export default function VehiclesPage() {
             />
           </div>
           <PrimaryButton type="submit" disabled={saving}>
-            {editing ? "Update" : "Add vehicle"}
+            {editing ? "Save changes" : "Add vehicle"}
           </PrimaryButton>
           {editing ? (
             <SecondaryButton
@@ -142,7 +152,9 @@ export default function VehiclesPage() {
           {vehicles.map((v) => (
             <Card
               key={v._id}
-              className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
+                editing?._id === v._id ? "border-brand ring-1 ring-brand" : ""
+              }`}
             >
               <p className="font-semibold text-slate-900">#{v.value}</p>
               <div className="flex gap-2">
@@ -152,9 +164,10 @@ export default function VehiclesPage() {
                 <SecondaryButton
                   type="button"
                   className="border-red-200 text-red-700"
+                  disabled={deletingId === v._id}
                   onClick={() => void onDelete(v._id)}
                 >
-                  Delete
+                  {deletingId === v._id ? "Deleting…" : "Delete"}
                 </SecondaryButton>
               </div>
             </Card>

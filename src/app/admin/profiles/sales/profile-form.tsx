@@ -11,7 +11,7 @@ import {
   type CompanyRecord,
 } from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
-import { companyIds, dateInputValue, salesField } from "@/lib/profiles";
+import { companyIds, dateInputValue, salesCompanyIdsOrStl, salesField } from "@/lib/profiles";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -72,7 +72,10 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
           password: "",
           mobileNumber: String(user.mobileNumber || ""),
           altMobileNumber: String(user.altMobileNumber || ""),
-          spouseName: String(sales.spouseName || ""),
+          spouseName:
+            String(sales.spouseName || "").trim() === "N/A"
+              ? ""
+              : String(sales.spouseName || ""),
           dob: dateInputValue(sales.dob),
           joiningDate: dateInputValue(sales.joiningDate),
           address: String(sales.address || ""),
@@ -108,18 +111,19 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
     }
     setSaving(true);
     try {
+      const company = salesCompanyIdsOrStl(form.companyIds, companies);
       const payload: Record<string, unknown> = {
         role: "Sales",
         name: form.name.trim(),
         email: form.email.trim(),
         mobileNumber: form.mobileNumber.trim(),
         altMobileNumber: form.altMobileNumber.trim(),
-        spouseName: form.spouseName.trim(),
+        spouseName: form.spouseName.trim() || "N/A",
         dob: form.dob,
         joiningDate: form.joiningDate,
         address: form.address.trim(),
-        company: form.companyIds,
-        accessToInv: form.companyIds.length > 0,
+        company,
+        accessToInv: company.length > 0,
       };
       if (form.password.trim()) payload.password = form.password.trim();
       if (creating) {
@@ -200,7 +204,6 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
             />
             <TextField
               label="Spouse name"
-              required
               value={form.spouseName}
               onChange={(e) => setForm({ ...form, spouseName: e.target.value })}
             />
@@ -233,7 +236,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
                 Inventory companies
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Leave none selected if this salesperson should not see inventory.
+                If none are selected, this salesperson sees STL stock by default.
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {companies.map((company) => (

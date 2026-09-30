@@ -7,7 +7,7 @@ const apiOrigin = (
 const nextConfig: NextConfig = {
   // iCloud Drive skips folders named *.nosync; Vercel still expects ".next"
   distDir: process.env.VERCEL ? ".next" : ".next.nosync",
-  serverExternalPackages: ["tesseract.js"],
+  serverExternalPackages: ["tesseract.js", "mongodb", "bcryptjs"],
   async rewrites() {
     return [
       {

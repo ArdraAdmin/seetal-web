@@ -72,8 +72,7 @@ export default function InventoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await searchProducts(query.trim());
-      const hits = Array.isArray(data) ? data : [];
+      const hits = await searchProducts(query.trim());
       setSearchHits(hits);
       setProducts(hits.slice(0, pageSize));
       setPage(1);
