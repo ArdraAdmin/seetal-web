@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { exportTempOrders, getPendingOrders } from "@/lib/api";
 import type { PendingOrder } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
-import { useToast } from "@/components/Toast";
+import { formatInvoiceDate } from "@/lib/invoice";
 import {
   Card,
   EmptyState,
@@ -152,7 +152,7 @@ export default function PendingOrdersPage() {
                   <p className="mt-1 text-xs text-slate-500">
                     Amount: ₹{amount}
                     {o.createdAt || o.date
-                      ? ` · ${String(o.createdAt || o.date).slice(0, 10)}`
+                      ? ` · ${formatInvoiceDate(String(o.createdAt || o.date))}`
                       : ""}
                   </p>
                 </div>

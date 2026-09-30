@@ -1,10 +1,29 @@
 import type { ApprovalLineItem, ApprovalOrder } from "./types";
+import { formatInvoiceDate } from "./invoice";
 
 export function approvalInvoice(order: ApprovalOrder) {
+  if (typeof order.invoiceNumber === "string" && order.invoiceNumber.trim()) {
+    return order.invoiceNumber;
+  }
   return order.tempOrderInvoiceNo || order._id.slice(-8);
 }
 
+export function approvalOrderDate(order: ApprovalOrder) {
+  return formatInvoiceDate(order.date || order.createdAt || "");
+}
+
+export function canPlaceApprovedOrder(order: ApprovalOrder) {
+  if (order.isAdminApproved === true) return true;
+  return (
+    order.needsApproval === true &&
+    String(order.approvalStatus || "") === "approved"
+  );
+}
+
 export function approvalStoreName(order: ApprovalOrder) {
+  if (typeof order.store === "string" && order.store.trim() && order.store !== "null") {
+    return order.store;
+  }
   if (order.store && typeof order.store === "object") {
     const name = order.store.storeName || order.store.name;
     if (name) return name;
@@ -41,7 +60,7 @@ export function salesQueueStatus(order: ApprovalOrder) {
   const approval = String(order.approvalStatus || "");
   if (approval === "rejected" || order.status === "Rejected") return "rejected";
   if (approval === "pending") return "pending";
-  if (approval === "approved") return "approved";
+  if (approval === "approved" || order.isAdminApproved === true) return "approved";
   if (order.isDraft) return "draft";
   return "none";
 }

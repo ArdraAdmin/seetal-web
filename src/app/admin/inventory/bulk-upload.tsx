@@ -2,7 +2,19 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { Upload } from "lucide-react";
-import { uploadInventoryFile } from "@/lib/api";
+import {
+  checkProductsByItemRefs,
+  existingItemLabel,
+  updateInventoryQuantities,
+  uploadInventoryFile,
+  type ExistingInventoryItem,
+} from "@/lib/api";
+import {
+  inventoryTableToCsvFile,
+  parseInventoryUploadFile,
+  type InventoryUploadRow,
+  type InventoryUploadTable,
+} from "@/lib/inventory-upload";
 import { useToast } from "@/components/Toast";
 import { Card, PrimaryButton, SecondaryButton } from "@/components/ui";
 
@@ -26,6 +38,8 @@ const TEMPLATE_HEADERS = [
   "Cl. Qty",
   "Add",
 ];
+
+const EXISTING_PREVIEW_LIMIT = 12;
 
 function isSpreadsheet(file: File) {
   const name = file.name.toLowerCase();
@@ -54,6 +68,19 @@ export function InventoryBulkUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [existingItems, setExistingItems] = useState<ExistingInventoryItem[]>(
+    [],
+  );
+  const [newRows, setNewRows] = useState<InventoryUploadRow[]>([]);
+  const [pendingTable, setPendingTable] = useState<InventoryUploadTable | null>(
+    null,
+  );
+
+  function resetCheck() {
+    setExistingItems([]);
+    setNewRows([]);
+    setPendingTable(null);
+  }
 
   function chooseFile(next: File | null) {
     if (next && !isSpreadsheet(next)) {
@@ -61,7 +88,66 @@ export function InventoryBulkUpload() {
       return;
     }
     setFile(next);
+    resetCheck();
     if (!next && inputRef.current) inputRef.current.value = "";
+  }
+
+  async function finishUpload(options: { updateExisting: boolean }) {
+    if (!pendingTable) return;
+    setUploading(true);
+    try {
+      let updatedCount = 0;
+      if (options.updateExisting && existingItems.length > 0) {
+        const byRef = new Map(
+          pendingTable.rows.map((row) => [row.itemRef, row]),
+        );
+        const updates = existingItems
+          .map((item) => byRef.get(item.itemRef))
+          .filter((row): row is InventoryUploadRow => Boolean(row))
+          .map((row) => ({
+            itemRef: row.itemRef,
+            closingQty: row.closingQty,
+          }));
+        if (updates.length > 0) {
+          const result = await updateInventoryQuantities(updates);
+          updatedCount =
+            result && typeof result === "object" && "updated" in result
+              ? Number((result as { updated?: unknown }).updated) || 0
+              : updates.length;
+        }
+      }
+
+      if (newRows.length > 0) {
+        const csv = inventoryTableToCsvFile(pendingTable, newRows);
+        const message = await uploadInventoryFile(csv);
+        const parts = [
+          `${newRows.length} new item${newRows.length === 1 ? "" : "s"} sent for upload`,
+        ];
+        if (updatedCount > 0) {
+          parts.push(
+            `quantity updated for ${updatedCount} existing item${updatedCount === 1 ? "" : "s"}`,
+          );
+        }
+        toast(parts.join(". "), "success");
+      } else if (options.updateExisting) {
+        toast(
+          updatedCount > 0
+            ? `Quantity updated for ${updatedCount} existing item${updatedCount === 1 ? "" : "s"}.`
+            : "No existing items were updated.",
+          updatedCount > 0 ? "success" : "info",
+        );
+      } else {
+        toast(
+          "These items already exist. No new products were added.",
+          "info",
+        );
+      }
+      chooseFile(null);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Upload failed", "error");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -71,7 +157,42 @@ export function InventoryBulkUpload() {
       return;
     }
     setUploading(true);
+    resetCheck();
     try {
+      const table = await parseInventoryUploadFile(file);
+      if (table.rows.length === 0) {
+        toast("The file has no product rows.", "error");
+        return;
+      }
+      const existing = await checkProductsByItemRefs(
+        table.rows.map((row) => row.itemRef),
+      );
+      const existingRefs = new Set(existing.map((item) => item.itemRef));
+      const nextNewRows = table.rows.filter(
+        (row) => !existingRefs.has(row.itemRef),
+      );
+
+      if (existing.length > 0) {
+        const labels = new Map(
+          table.rows.map((row) => [row.itemRef, row.itemName]),
+        );
+        setExistingItems(
+          existing.map((item) => ({
+            ...item,
+            itemName: item.itemName || labels.get(item.itemRef) || "",
+          })),
+        );
+        setNewRows(nextNewRows);
+        setPendingTable(table);
+        toast(
+          existing.length === 1
+            ? "This item already exists"
+            : `${existing.length} items already exist`,
+          "info",
+        );
+        return;
+      }
+
       const message = await uploadInventoryFile(file);
       toast(message, "success");
       chooseFile(null);
@@ -81,6 +202,9 @@ export function InventoryBulkUpload() {
       setUploading(false);
     }
   }
+
+  const remaining = Math.max(0, existingItems.length - EXISTING_PREVIEW_LIMIT);
+  const preview = existingItems.slice(0, EXISTING_PREVIEW_LIMIT);
 
   return (
     <Card>
@@ -93,7 +217,8 @@ export function InventoryBulkUpload() {
             <p className="mt-1 text-sm text-slate-500">
               Accepts Excel (.xlsx / .xls) and CSV. Required columns: Item Ref,
               Item Details, Unit, SP, PCS/CTNS, MASTER CATEGORY, SUB CATEGORY,
-              Cl. Qty. Use Add = Y to increase stock on an existing item.
+              Cl. Qty. Existing item refs are checked first and will not be
+              added again.
             </p>
           </div>
           <SecondaryButton type="button" onClick={downloadTemplate}>
@@ -137,6 +262,47 @@ export function InventoryBulkUpload() {
           </span>
         </label>
 
+        {existingItems.length > 0 ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            <p className="font-semibold">
+              {existingItems.length === 1
+                ? "This item already exists"
+                : `${existingItems.length} items already exist`}
+            </p>
+            <p className="mt-1">
+              {newRows.length > 0
+                ? `${newRows.length} new item${newRows.length === 1 ? "" : "s"} can still be added. Existing items will not be created again.`
+                : "No new products will be added."}
+            </p>
+            <ul className="mt-3 max-h-48 space-y-1 overflow-auto text-sm">
+              {preview.map((item) => (
+                <li key={item.itemRef}>{existingItemLabel(item)}</li>
+              ))}
+            </ul>
+            {remaining > 0 ? (
+              <p className="mt-2 text-xs">and {remaining} more</p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <SecondaryButton
+                type="button"
+                disabled={uploading}
+                onClick={() => void finishUpload({ updateExisting: false })}
+              >
+                {newRows.length > 0
+                  ? `Continue with ${newRows.length} new item${newRows.length === 1 ? "" : "s"}`
+                  : "Keep existing only"}
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                disabled={uploading}
+                onClick={() => void finishUpload({ updateExisting: true })}
+              >
+                Update existing quantities
+              </PrimaryButton>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           {file ? (
             <SecondaryButton
@@ -147,8 +313,11 @@ export function InventoryBulkUpload() {
               Clear
             </SecondaryButton>
           ) : null}
-          <PrimaryButton type="submit" disabled={uploading || !file}>
-            {uploading ? "Uploading…" : "Upload file"}
+          <PrimaryButton
+            type="submit"
+            disabled={uploading || !file || existingItems.length > 0}
+          >
+            {uploading ? "Checking…" : "Upload file"}
           </PrimaryButton>
         </div>
       </form>

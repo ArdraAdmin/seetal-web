@@ -496,6 +496,64 @@ export async function uploadInventoryFile(file: File) {
     ? data
     : "Products sent for upload";
 }
+
+export function normalizeItemRef(ref: string) {
+  return String(ref || "")
+    .trim()
+    .replace(/^'+/, "");
+}
+
+export interface ExistingInventoryItem {
+  itemRef: string;
+  itemName?: string;
+}
+
+function asExistingInventoryItems(data: unknown): ExistingInventoryItem[] {
+  const list = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as { products?: unknown }).products)
+      ? (data as { products: unknown[] }).products
+      : [];
+  const items: ExistingInventoryItem[] = [];
+  for (const row of list) {
+    if (!row || typeof row !== "object") continue;
+    const o = row as Record<string, unknown>;
+    const itemRef = normalizeItemRef(String(o.itemRef ?? ""));
+    if (!itemRef) continue;
+    items.push({
+      itemRef,
+      itemName: o.itemName ? String(o.itemName) : undefined,
+    });
+  }
+  return items;
+}
+
+export async function checkProductsByItemRefs(itemRefs: string[]) {
+  const unique = [
+    ...new Set(itemRefs.map(normalizeItemRef).filter(Boolean)),
+  ];
+  if (unique.length === 0) return [] as ExistingInventoryItem[];
+
+  const products: ExistingInventoryItem[] = [];
+  const chunkSize = 100;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const data = await request<unknown>("/admin/product/checkByItemRefs", {
+      method: "POST",
+      body: JSON.stringify({ itemRefs: chunk }),
+    });
+    products.push(...asExistingInventoryItems(data));
+  }
+  return products;
+}
+
+export function existingItemLabel(item: {
+  itemRef: string;
+  itemName?: string;
+}) {
+  const name = item.itemName?.trim();
+  return name ? `${item.itemRef} — ${name}` : item.itemRef;
+}
 export const updateProduct = (data: Record<string, unknown>) =>
   request<unknown>("/admin/product/update", {
     method: "PUT",
@@ -1154,13 +1212,15 @@ export async function getSalesConfirmedOrders(userId: string) {
 }
 
 export async function getSalesOrder(salesId: string, orderId: string) {
-  const [pending, approvals] = await Promise.all([
+  const [pending, approvals, confirmed] = await Promise.all([
     getSalesPendingOrders(salesId).catch(() => [] as ApprovalOrder[]),
     getSalesApprovals(salesId).catch(() => [] as ApprovalOrder[]),
+    getSalesConfirmedOrders(salesId).catch(() => [] as ApprovalOrder[]),
   ]);
   return (
     pending.find((order) => order._id === orderId) ||
     approvals.find((order) => order._id === orderId) ||
+    confirmed.find((order) => order._id === orderId) ||
     null
   );
 }

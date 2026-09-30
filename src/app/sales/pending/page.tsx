@@ -7,6 +7,7 @@ import type { ApprovalOrder } from "@/lib/types";
 import {
   approvalInvoice,
   approvalMoney,
+  approvalOrderDate,
   approvalPayable,
   approvalRejectNote,
   approvalStoreName,
@@ -68,6 +69,7 @@ export default function SalesPendingOrdersPage() {
           {orders.map((order) => {
             const status = salesQueueStatus(order);
             const note = approvalRejectNote(order);
+            const date = approvalOrderDate(order);
             return (
               <Link
                 key={order._id}
@@ -77,6 +79,9 @@ export default function SalesPendingOrdersPage() {
                 <p className="text-xs font-medium text-slate-500">
                   {approvalInvoice(order)}
                 </p>
+                {date ? (
+                  <p className="mt-0.5 text-xs text-slate-500">{date}</p>
+                ) : null}
                 <p className="mt-1 font-semibold text-slate-900">
                   {approvalStoreName(order)}
                 </p>

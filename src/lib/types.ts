@@ -312,6 +312,8 @@ export interface ApprovalOrder {
   payableEdited?: boolean;
   needsApproval?: boolean;
   approvalStatus?: ApprovalStatus | string;
+  isAdminApproved?: boolean;
+  invoiceNumber?: string;
   rejectNote?: string;
   date?: string;
   createdAt?: string;

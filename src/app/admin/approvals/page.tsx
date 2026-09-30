@@ -95,19 +95,22 @@ export default function AdminApprovalsPage() {
       ) : orders.length === 0 ? (
         <EmptyState title="No orders to review" />
       ) : (
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {orders.map((order) => {
             const status = String(order.approvalStatus || "pending");
             const busy = busyId === order._id;
+            const isRejecting = rejecting?._id === order._id;
             return (
               <div
                 key={order._id}
-                className="rounded-xl border border-line bg-white p-4"
+                className={`flex h-full flex-col rounded-xl border border-line bg-white p-4 ${
+                  isRejecting ? "sm:col-span-2 lg:col-span-3" : ""
+                }`}
               >
-                <Link href={`/admin/approvals/${order._id}`} className="block">
+                <Link href={`/admin/approvals/${order._id}`} className="block min-w-0">
                   <ApprovalSummary order={order} showSalesman />
                 </Link>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-auto flex flex-wrap gap-2 pt-3">
                   <Link
                     href={`/admin/approvals/${order._id}`}
                     className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
@@ -136,7 +139,7 @@ export default function AdminApprovalsPage() {
                     </>
                   ) : null}
                 </div>
-                {rejecting?._id === order._id ? (
+                {isRejecting ? (
                   <Card className="mt-3">
                     <p className="text-sm font-semibold text-black">Reject order</p>
                     <p className="mt-1 text-sm text-slate-500">

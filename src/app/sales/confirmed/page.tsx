@@ -1,15 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { getSalesConfirmedOrders } from "@/lib/api";
+import { getSalesConfirmedOrders, placeApprovedOrder } from "@/lib/api";
 import type { ApprovalOrder } from "@/lib/types";
-import { approvalInvoice, approvalMoney, approvalPayable, approvalStoreName } from "@/lib/approval";
+import {
+  apiMessage,
+  approvalInvoice,
+  approvalMoney,
+  approvalOrderDate,
+  approvalPayable,
+  approvalStoreName,
+  canPlaceApprovedOrder,
+} from "@/lib/approval";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/Toast";
 import {
   EmptyState,
   ErrorState,
   LoadingState,
   PageHeader,
+  PrimaryButton,
   SecondaryButton,
 } from "@/components/ui";
 
@@ -21,15 +32,19 @@ function invoiceOf(order: ApprovalOrder) {
 }
 
 function storeOf(order: ApprovalOrder) {
-  if (typeof order.store === "string" && order.store.trim()) return order.store;
+  if (typeof order.store === "string" && order.store.trim() && order.store !== "null") {
+    return order.store;
+  }
   return approvalStoreName(order);
 }
 
 export default function SalesConfirmedOrdersPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [orders, setOrders] = useState<ApprovalOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [placingId, setPlacingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -48,11 +63,31 @@ export default function SalesConfirmedOrdersPage() {
     void load();
   }, [load]);
 
+  async function onPlace(order: ApprovalOrder) {
+    if (!user?.id) return;
+    setPlacingId(order._id);
+    try {
+      const result = await placeApprovedOrder(order._id, user.id);
+      toast(
+        apiMessage(
+          result,
+          "Order placed. The order form will be emailed shortly.",
+        ),
+        "success",
+      );
+      await load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not place order", "error");
+    } finally {
+      setPlacingId(null);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Confirmed orders"
-        subtitle="Orders that have already been confirmed."
+        subtitle="Admin-approved orders can be placed here. Placing sends them to the warehouse and emails the order form."
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
             Refresh
@@ -66,19 +101,56 @@ export default function SalesConfirmedOrdersPage() {
       ) : orders.length === 0 ? (
         <EmptyState title="No confirmed orders" />
       ) : (
-        <div className="space-y-2">
-          {orders.map((order) => (
-            <article
-              key={order._id}
-              className="rounded-2xl border border-line bg-white p-4"
-            >
-              <p className="text-xs font-medium text-slate-500">{invoiceOf(order)}</p>
-              <p className="mt-1 font-semibold text-slate-900">{storeOf(order)}</p>
-              <p className="mt-1 text-sm text-slate-600">
-                {approvalMoney(approvalPayable(order))}
-              </p>
-            </article>
-          ))}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {orders.map((order) => {
+            const canPlace = canPlaceApprovedOrder(order);
+            const date = approvalOrderDate(order);
+            const placing = placingId === order._id;
+            return (
+              <article
+                key={order._id}
+                className="flex h-full flex-col rounded-2xl border border-line bg-white p-4"
+              >
+                <Link
+                  href={`/sales/confirmed/${order._id}`}
+                  className="block min-w-0"
+                >
+                  <p className="truncate text-xs font-medium text-slate-500">
+                    {invoiceOf(order)}
+                  </p>
+                  {date ? (
+                    <p className="mt-0.5 text-xs text-slate-500">{date}</p>
+                  ) : null}
+                  <p className="mt-1 truncate font-semibold text-slate-900">
+                    {storeOf(order)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {approvalMoney(approvalPayable(order))}
+                  </p>
+                  {canPlace ? (
+                    <p className="mt-2 text-sm font-semibold text-emerald-700">
+                      Approved by admin
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm font-semibold text-slate-700">
+                      Confirmed
+                    </p>
+                  )}
+                </Link>
+                {canPlace ? (
+                  <div className="mt-auto pt-3">
+                    <PrimaryButton
+                      type="button"
+                      disabled={placing}
+                      onClick={() => void onPlace(order)}
+                    >
+                      {placing ? "Placing…" : "Place order"}
+                    </PrimaryButton>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

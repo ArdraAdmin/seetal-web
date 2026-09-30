@@ -2,6 +2,7 @@ import type { ApprovalLineItem, ApprovalOrder } from "@/lib/types";
 import {
   approvalInvoice,
   approvalMoney,
+  approvalOrderDate,
   approvalPayable,
   approvalRejectNote,
   approvalSalesName,
@@ -10,7 +11,6 @@ import {
   salesQueueStatus,
   salesQueueStatusLabel,
 } from "@/lib/approval";
-import { formatInvoiceDate } from "@/lib/invoice";
 import { Card } from "@/components/ui";
 
 export function statusClass(status?: string) {
@@ -27,10 +27,14 @@ export function ApprovalSummary({
   showSalesman?: boolean;
 }) {
   const status = salesQueueStatus(order);
+  const date = approvalOrderDate(order);
   return (
     <div className="min-w-0">
-      <p className="font-semibold text-black">{approvalInvoice(order)}</p>
-      <p className="mt-0.5 text-sm text-slate-600">{approvalStoreName(order)}</p>
+      <p className="truncate font-semibold text-black">{approvalInvoice(order)}</p>
+      {date ? (
+        <p className="mt-0.5 text-sm text-slate-500">{date}</p>
+      ) : null}
+      <p className="mt-0.5 truncate text-sm text-slate-600">{approvalStoreName(order)}</p>
       {showSalesman && approvalSalesName(order) ? (
         <p className="text-sm text-slate-600">Sales: {approvalSalesName(order)}</p>
       ) : null}
@@ -65,8 +69,8 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         {approvalSalesName(order) ? (
           <DetailRow label="Salesman" value={approvalSalesName(order)} />
         ) : null}
-        {order.date ? (
-          <DetailRow label="Delivery date" value={formatInvoiceDate(order.date)} />
+        {approvalOrderDate(order) ? (
+          <DetailRow label="Date" value={approvalOrderDate(order)} />
         ) : null}
         <DetailRow
           label="Status"

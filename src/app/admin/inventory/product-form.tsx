@@ -4,9 +4,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   addProductManual,
+  checkProductsByItemRefs,
   companyLabel,
+  existingItemLabel,
   getCategories,
   getCompanies,
+  normalizeItemRef,
   updateProduct,
   type CompanyRecord,
 } from "@/lib/api";
@@ -151,6 +154,7 @@ export function ProductForm({
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [existsError, setExistsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,7 +279,17 @@ export function ProductForm({
       return;
     }
     setSaving(true);
+    setExistsError(null);
     try {
+      if (!editing) {
+        const existing = await checkProductsByItemRefs([form.itemRef]);
+        if (existing.length > 0) {
+          const label = existingItemLabel(existing[0]);
+          setExistsError(label);
+          toast("This item already exists", "error");
+          return;
+        }
+      }
       const payload = editing
         ? {
             productId: product?._id ?? "",
@@ -314,7 +328,14 @@ export function ProductForm({
       }
       router.push("/admin/inventory");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Save failed", "error");
+      const message = err instanceof Error ? err.message : "Save failed";
+      if (!editing && /duplicate|e11000|already exist/i.test(message)) {
+        const ref = normalizeItemRef(form.itemRef);
+        setExistsError(ref || "This item ref is already in inventory.");
+        toast("This item already exists", "error");
+      } else {
+        toast(message, "error");
+      }
     } finally {
       setSaving(false);
     }
@@ -326,11 +347,22 @@ export function ProductForm({
         onSubmit={onSubmit}
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
       >
+        {existsError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 sm:col-span-2 lg:col-span-3">
+            <p className="font-semibold">This item already exists</p>
+            <p className="mt-1">
+              {existsError}. It was not added.
+            </p>
+          </div>
+        ) : null}
         <TextField
           label="Item ref"
           required
           value={form.itemRef}
-          onChange={(e) => setForm({ ...form, itemRef: e.target.value })}
+          onChange={(e) => {
+            setExistsError(null);
+            setForm({ ...form, itemRef: e.target.value });
+          }}
         />
         <TextField
           label="Item name"

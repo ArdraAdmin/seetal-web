@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { getSalesOrder, placeApprovedOrder } from "@/lib/api";
 import type { ApprovalOrder } from "@/lib/types";
-import { apiMessage, salesQueueStatus } from "@/lib/approval";
+import { apiMessage, canPlaceApprovedOrder } from "@/lib/approval";
 import { useAuth } from "@/components/AuthProvider";
 import { ApprovalDetails } from "@/components/ApprovalViews";
 import { useToast } from "@/components/Toast";
@@ -16,8 +16,9 @@ import {
   PrimaryButton,
 } from "@/components/ui";
 
-export default function SalesPendingOrderDetailsPage() {
+export default function SalesConfirmedOrderDetailsPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
   const [order, setOrder] = useState<ApprovalOrder | null>(null);
@@ -56,7 +57,7 @@ export default function SalesPendingOrderDetailsPage() {
         ),
         "success",
       );
-      await load();
+      router.push("/sales/confirmed");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not place order", "error");
     } finally {
@@ -64,16 +65,16 @@ export default function SalesPendingOrderDetailsPage() {
     }
   }
 
-  const status = order ? salesQueueStatus(order) : "none";
+  const canPlace = order ? canPlaceApprovedOrder(order) : false;
 
   return (
     <div>
       <PageHeader
         title="Order details"
-        subtitle="If admin rejected this order, the note is shown here. Edit the same order to send it again."
+        subtitle="Place an admin-approved order to send it to the warehouse. An order form is emailed to you."
         actions={
           <Link
-            href="/sales/pending"
+            href="/sales/confirmed"
             className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
           >
             Back
@@ -88,21 +89,13 @@ export default function SalesPendingOrderDetailsPage() {
       ) : (
         <>
           <ApprovalDetails order={order} />
-          <div className="mt-5 flex flex-wrap gap-2">
-            {status === "approved" ? (
+          {canPlace ? (
+            <div className="mt-5">
               <PrimaryButton type="button" disabled={busy} onClick={() => void onPlace()}>
                 {busy ? "Placing…" : "Place order"}
               </PrimaryButton>
-            ) : null}
-            {status === "rejected" ? (
-              <Link
-                href={`/sales/pending/${order._id}/edit`}
-                className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
-              >
-                Edit and resend
-              </Link>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </>
       )}
     </div>
