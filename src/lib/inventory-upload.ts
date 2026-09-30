@@ -1,9 +1,17 @@
-import { normalizeItemRef } from "./api";
+import { addProductManual, type CompanyRecord, normalizeItemRef } from "./api";
+import type { CategoryGroup } from "./categories";
 
 export interface InventoryUploadRow {
   itemRef: string;
   itemName: string;
   closingQty: number;
+  unit: string;
+  sellingPrice: number;
+  ratio: number;
+  masterCategory: string;
+  subCategory: string;
+  barcode: string;
+  company: string;
   cells: string[];
 }
 
@@ -16,27 +24,40 @@ function normalizeHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeMatch(value: string) {
+  return value.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+}
+
 function columnIndexes(header: string[]) {
-  let itemRef = -1;
-  let itemName = -1;
-  let qty = -1;
+  const indexes = {
+    itemRef: -1,
+    itemName: -1,
+    qty: -1,
+    unit: -1,
+    sellingPrice: -1,
+    ratio: -1,
+    masterCategory: -1,
+    subCategory: -1,
+    barcode: -1,
+    company: -1,
+  };
   header.forEach((cell, index) => {
     const key = normalizeHeader(cell);
     if (
-      itemRef < 0 &&
+      indexes.itemRef < 0 &&
       (key === "itemref" || key === "ref" || key === "itemreference")
     ) {
-      itemRef = index;
+      indexes.itemRef = index;
     } else if (
-      itemName < 0 &&
+      indexes.itemName < 0 &&
       (key === "itemdetails" ||
         key === "itemname" ||
         key === "itemdetail" ||
         key === "name")
     ) {
-      itemName = index;
+      indexes.itemName = index;
     } else if (
-      qty < 0 &&
+      indexes.qty < 0 &&
       (key === "clqty" ||
         key === "qty" ||
         key === "quantity" ||
@@ -44,10 +65,39 @@ function columnIndexes(header: string[]) {
         key === "amount" ||
         key === "amountinunits")
     ) {
-      qty = index;
+      indexes.qty = index;
+    } else if (indexes.unit < 0 && key === "unit") {
+      indexes.unit = index;
+    } else if (
+      indexes.sellingPrice < 0 &&
+      (key === "sp" || key === "sellingprice")
+    ) {
+      indexes.sellingPrice = index;
+    } else if (
+      indexes.ratio < 0 &&
+      (key === "pcsctns" || key === "ratio" || key === "pcsctn")
+    ) {
+      indexes.ratio = index;
+    } else if (
+      indexes.masterCategory < 0 &&
+      (key === "mastercategory" || key === "category")
+    ) {
+      indexes.masterCategory = index;
+    } else if (
+      indexes.subCategory < 0 &&
+      (key === "subcategory" || key === "subcat")
+    ) {
+      indexes.subCategory = index;
+    } else if (
+      indexes.barcode < 0 &&
+      (key === "barcode" || key === "itemnumber")
+    ) {
+      indexes.barcode = index;
+    } else if (indexes.company < 0 && key === "company") {
+      indexes.company = index;
     }
   });
-  return { itemRef, itemName, qty };
+  return indexes;
 }
 
 function cellAt(cells: string[], index: number) {
@@ -58,6 +108,11 @@ function cellAt(cells: string[], index: number) {
 function parseQty(value: string) {
   const parsed = Number(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
+function parseNumber(value: string) {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseCsvLine(line: string) {
@@ -93,14 +148,6 @@ function parseCsvText(text: string) {
     .map(parseCsvLine);
 }
 
-function escapeCsv(value: string) {
-  const trimmed = value.trim();
-  if (/[",\n]/.test(trimmed)) {
-    return `"${trimmed.replace(/"/g, '""')}"`;
-  }
-  return trimmed;
-}
-
 function tableFromRows(rows: string[][]): InventoryUploadTable {
   if (rows.length <= 1) {
     return { headers: rows[0] ?? [], rows: [] };
@@ -120,6 +167,13 @@ function tableFromRows(rows: string[][]): InventoryUploadTable {
       itemRef,
       itemName: cellAt(cells, indexes.itemName),
       closingQty: parseQty(cellAt(cells, indexes.qty)),
+      unit: cellAt(cells, indexes.unit) || "PCS",
+      sellingPrice: parseNumber(cellAt(cells, indexes.sellingPrice)),
+      ratio: parseQty(cellAt(cells, indexes.ratio)) || 1,
+      masterCategory: cellAt(cells, indexes.masterCategory),
+      subCategory: cellAt(cells, indexes.subCategory),
+      barcode: cellAt(cells, indexes.barcode),
+      company: cellAt(cells, indexes.company),
       cells,
     });
   }
@@ -151,14 +205,104 @@ export async function parseInventoryUploadFile(
   return tableFromRows(rows);
 }
 
-export function inventoryTableToCsvFile(
-  table: InventoryUploadTable,
-  rows: InventoryUploadRow[],
-  filename = "inventory-new-items.csv",
+export function matchUploadCompany(
+  value: string,
+  companies: CompanyRecord[],
 ) {
-  const lines = [
-    table.headers.map(escapeCsv).join(","),
-    ...rows.map((row) => row.cells.map(escapeCsv).join(",")),
-  ];
-  return new File([lines.join("\n")], filename, { type: "text/csv" });
+  const want = normalizeMatch(value);
+  if (!want) return null;
+  return (
+    companies.find((company) => {
+      const name = normalizeMatch(company.name || "");
+      const prefix = normalizeMatch(company.prefix || "");
+      return want === name || want === prefix || name.includes(want) || want.includes(name);
+    }) || null
+  );
+}
+
+export function matchUploadCategory(
+  masterName: string,
+  subName: string,
+  groups: CategoryGroup[],
+) {
+  const wantMaster = normalizeMatch(masterName);
+  const wantSub = normalizeMatch(subName);
+  if (!wantMaster || !wantSub) return null;
+  const group =
+    groups.find((item) => normalizeMatch(item.name) === wantMaster) ||
+    groups.find((item) => normalizeMatch(item.name).includes(wantMaster)) ||
+    groups.find((item) => wantMaster.includes(normalizeMatch(item.name)));
+  if (!group) return null;
+  const sub =
+    group.items.find((item) => normalizeMatch(item.subCategory || "") === wantSub) ||
+    group.items.find((item) =>
+      normalizeMatch(item.subCategory || "").includes(wantSub),
+    );
+  if (!sub) return null;
+  return { group, sub };
+}
+
+export async function addInventoryUploadRows(
+  rows: InventoryUploadRow[],
+  groups: CategoryGroup[],
+  companies: CompanyRecord[],
+) {
+  const errors: string[] = [];
+  let added = 0;
+
+  for (const row of rows) {
+    if (!row.itemName.trim()) {
+      errors.push(`${row.itemRef}: missing Item Details`);
+      continue;
+    }
+    if (!row.unit.trim() || /\d/.test(row.unit)) {
+      errors.push(`${row.itemRef}: invalid Unit "${row.unit}"`);
+      continue;
+    }
+    if (!row.ratio || row.ratio <= 0) {
+      errors.push(`${row.itemRef}: PCS/CTNS must be greater than 0`);
+      continue;
+    }
+    const category = matchUploadCategory(
+      row.masterCategory,
+      row.subCategory,
+      groups,
+    );
+    if (!category) {
+      errors.push(
+        `${row.itemRef}: category not found — ${row.masterCategory || "(blank)"} / ${row.subCategory || "(blank)"}`,
+      );
+      continue;
+    }
+    const company = matchUploadCompany(row.company, companies);
+    if (!company) {
+      errors.push(
+        `${row.itemRef}: company not found — ${row.company || "(blank)"}`,
+      );
+      continue;
+    }
+
+    try {
+      await addProductManual({
+        itemRef: row.itemRef,
+        itemName: row.itemName,
+        barCode: row.barcode,
+        category: category.group.masterCategoryId || category.group.name,
+        subCategory: category.sub._id || category.sub.subCategory,
+        unit: row.unit,
+        ratio: row.ratio,
+        amountInUnits: row.closingQty,
+        sellingPrice: row.sellingPrice,
+        isDisplay: true,
+        company: company._id,
+      });
+      added += 1;
+    } catch (error) {
+      errors.push(
+        `${row.itemRef}: ${error instanceof Error ? error.message : "could not add"}`,
+      );
+    }
+  }
+
+  return { added, errors };
 }

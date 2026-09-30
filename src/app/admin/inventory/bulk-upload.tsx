@@ -1,16 +1,19 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import {
   checkProductsByItemRefs,
   existingItemLabel,
+  getCategories,
+  getCompanies,
   updateInventoryQuantities,
-  uploadInventoryFile,
+  type CompanyRecord,
   type ExistingInventoryItem,
 } from "@/lib/api";
+import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import {
-  inventoryTableToCsvFile,
+  addInventoryUploadRows,
   parseInventoryUploadFile,
   type InventoryUploadRow,
   type InventoryUploadTable,
@@ -36,7 +39,8 @@ const TEMPLATE_HEADERS = [
   "MASTER CATEGORY",
   "SUB CATEGORY",
   "Cl. Qty",
-  "Add",
+  "Company",
+  "Barcode",
 ];
 
 const EXISTING_PREVIEW_LIMIT = 12;
@@ -51,7 +55,7 @@ function isSpreadsheet(file: File) {
 function downloadTemplate() {
   const sample = [
     TEMPLATE_HEADERS.join(","),
-    "SAMPLE-001,Sample item,PCS,10,1,FOOD,SNACKS,0,N",
+    "SAMPLE-001,Sample item,PCS,10,1,FOOD,SNACKS,0,STL,",
   ].join("\n");
   const blob = new Blob([sample], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -75,6 +79,26 @@ export function InventoryBulkUpload() {
   const [pendingTable, setPendingTable] = useState<InventoryUploadTable | null>(
     null,
   );
+  const [groups, setGroups] = useState<CategoryGroup[]>([]);
+  const [companies, setCompanies] = useState<CompanyRecord[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getCategories(), getCompanies()])
+      .then(([categoryData, companyData]) => {
+        if (cancelled) return;
+        setGroups(parseCategoryGroups(categoryData));
+        setCompanies(companyData);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast("Could not load categories and companies", "error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   function resetCheck() {
     setExistingItems([]);
@@ -90,6 +114,11 @@ export function InventoryBulkUpload() {
     setFile(next);
     resetCheck();
     if (!next && inputRef.current) inputRef.current.value = "";
+  }
+
+  async function addNewRows(rows: InventoryUploadRow[]) {
+    if (rows.length === 0) return { added: 0, errors: [] as string[] };
+    return addInventoryUploadRows(rows, groups, companies);
   }
 
   async function finishUpload(options: { updateExisting: boolean }) {
@@ -117,32 +146,34 @@ export function InventoryBulkUpload() {
         }
       }
 
-      if (newRows.length > 0) {
-        const csv = inventoryTableToCsvFile(pendingTable, newRows);
-        const message = await uploadInventoryFile(csv);
-        const parts = [
-          `${newRows.length} new item${newRows.length === 1 ? "" : "s"} sent for upload`,
-        ];
-        if (updatedCount > 0) {
-          parts.push(
-            `quantity updated for ${updatedCount} existing item${updatedCount === 1 ? "" : "s"}`,
-          );
-        }
+      const created = await addNewRows(newRows);
+      const parts: string[] = [];
+      if (created.added > 0) {
+        parts.push(
+          `${created.added} new item${created.added === 1 ? "" : "s"} added`,
+        );
+      }
+      if (updatedCount > 0) {
+        parts.push(
+          `quantity updated for ${updatedCount} existing item${updatedCount === 1 ? "" : "s"}`,
+        );
+      }
+      if (created.errors.length > 0) {
+        toast(
+          `${created.errors.slice(0, 4).join(". ")}${created.errors.length > 4 ? ` (+${created.errors.length - 4} more)` : ""}`,
+          "error",
+        );
+      } else if (parts.length > 0) {
         toast(parts.join(". "), "success");
       } else if (options.updateExisting) {
-        toast(
-          updatedCount > 0
-            ? `Quantity updated for ${updatedCount} existing item${updatedCount === 1 ? "" : "s"}.`
-            : "No existing items were updated.",
-          updatedCount > 0 ? "success" : "info",
-        );
+        toast("No existing items were updated.", "info");
       } else {
         toast(
           "These items already exist. No new products were added.",
           "info",
         );
       }
-      chooseFile(null);
+      if (created.errors.length === 0) chooseFile(null);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Upload failed", "error");
     } finally {
@@ -154,6 +185,10 @@ export function InventoryBulkUpload() {
     e.preventDefault();
     if (!file) {
       toast("Choose a .xlsx or .csv file first", "info");
+      return;
+    }
+    if (groups.length === 0 || companies.length === 0) {
+      toast("Categories and companies are still loading. Try again.", "info");
       return;
     }
     setUploading(true);
@@ -193,9 +228,26 @@ export function InventoryBulkUpload() {
         return;
       }
 
-      const message = await uploadInventoryFile(file);
-      toast(message, "success");
-      chooseFile(null);
+      const created = await addNewRows(nextNewRows);
+      if (created.errors.length > 0 && created.added === 0) {
+        toast(
+          created.errors.slice(0, 4).join(". "),
+          "error",
+        );
+        return;
+      }
+      if (created.errors.length > 0) {
+        toast(
+          `${created.added} added. ${created.errors.slice(0, 3).join(". ")}`,
+          "error",
+        );
+      } else {
+        toast(
+          `${created.added} new item${created.added === 1 ? "" : "s"} added`,
+          "success",
+        );
+      }
+      if (created.errors.length === 0) chooseFile(null);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Upload failed", "error");
     } finally {
@@ -217,8 +269,8 @@ export function InventoryBulkUpload() {
             <p className="mt-1 text-sm text-slate-500">
               Accepts Excel (.xlsx / .xls) and CSV. Required columns: Item Ref,
               Item Details, Unit, SP, PCS/CTNS, MASTER CATEGORY, SUB CATEGORY,
-              Cl. Qty. Existing item refs are checked first and will not be
-              added again.
+              Cl. Qty, Company. Existing item refs are checked first and will not
+              be added again.
             </p>
           </div>
           <SecondaryButton type="button" onClick={downloadTemplate}>
