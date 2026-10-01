@@ -35,7 +35,12 @@ async function accessFromRemote(token: string | null, userId: string) {
   if (!Array.isArray(data.companyIds)) return null;
   return {
     companyIds: data.companyIds.map((id) => String(id || "")).filter(Boolean),
-    includeUnassigned: Boolean(data.includeUnassigned),
+    companyNames: Array.isArray((data as { companyNames?: unknown }).companyNames)
+      ? ((data as { companyNames: unknown[] }).companyNames || [])
+          .map((name) => String(name || "").trim())
+          .filter(Boolean)
+      : [],
+    includeUnassigned: false,
   };
 }
 
@@ -58,10 +63,12 @@ async function accessFromMongo(token: string | null, userId: string) {
     .find({})
     .project({ name: 1 })
     .toArray();
-  const stl = companies.find((company) => String(company.name || "").trim() === "STL");
   return resolveCatalogAccess(
     companyIds(user.field?.sales?.company),
-    stl ? String(stl._id) : "",
+    companies.map((company) => ({
+      _id: String(company._id),
+      name: company.name,
+    })),
   );
 }
 
@@ -83,17 +90,16 @@ async function accessFromRemoteProfile(token: string | null, userId: string) {
   if (!rawUser || typeof rawUser !== "object") return null;
   const assigned = companyIds(salesField(rawUser as ProfileUser).company);
   const companiesRes = await fetch(`${REMOTE_API}/admin/company`, { headers });
-  let stlId = "";
+  const companies: { _id: string; name?: string }[] = [];
   if (companiesRes.ok) {
-    const companies = (await companiesRes.json()) as { _id?: string; name?: string }[];
-    if (Array.isArray(companies)) {
-      stlId = String(
-        companies.find((company) => String(company.name || "").trim() === "STL")?._id ||
-          "",
-      );
+    const data = (await companiesRes.json()) as { _id?: string; name?: string }[];
+    if (Array.isArray(data)) {
+      for (const company of data) {
+        if (company?._id) companies.push({ _id: String(company._id), name: company.name });
+      }
     }
   }
-  return resolveCatalogAccess(assigned, stlId);
+  return resolveCatalogAccess(assigned, companies);
 }
 
 export async function salesCompanyAccessForUser(

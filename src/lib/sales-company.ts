@@ -3,7 +3,12 @@ import { companyIds, stlCompanyId } from "./profiles";
 
 export interface SalesCompanyAccess {
   companyIds: string[];
+  companyNames: string[];
   includeUnassigned: boolean;
+}
+
+function normalizeCompanyName(value: unknown) {
+  return String(value || "").trim().toUpperCase();
 }
 
 const ACCESS_KEY = "stl_sales_company_access";
@@ -26,20 +31,24 @@ export function onSalesAccessChange(callback: () => void) {
 
 export function loadSalesCompanyAccess(): SalesCompanyAccess {
   if (typeof window === "undefined") {
-    return { companyIds: [], includeUnassigned: false };
+    return { companyIds: [], companyNames: ["STL"], includeUnassigned: false };
   }
   try {
     const raw = localStorage.getItem(ACCESS_KEY);
-    if (!raw) return { companyIds: [], includeUnassigned: false };
+    if (!raw) return { companyIds: [], companyNames: ["STL"], includeUnassigned: false };
     const parsed = JSON.parse(raw) as SalesCompanyAccess;
+    const names = Array.isArray(parsed.companyNames)
+      ? parsed.companyNames.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
     return {
       companyIds: Array.isArray(parsed.companyIds)
         ? parsed.companyIds.map(String).filter(Boolean)
         : [],
-      includeUnassigned: Boolean(parsed.includeUnassigned),
+      companyNames: names,
+      includeUnassigned: false,
     };
   } catch {
-    return { companyIds: [], includeUnassigned: false };
+    return { companyIds: [], companyNames: ["STL"], includeUnassigned: false };
   }
 }
 
@@ -52,20 +61,46 @@ export function saveSalesCompanyAccess(access: SalesCompanyAccess) {
 
 export function resolveCatalogAccess(
   assigned: string[],
-  stlId: string,
+  companies: { _id: string; name?: string }[],
 ): SalesCompanyAccess {
-  const companyIds = assigned.map(String).filter(Boolean);
-  if (companyIds.length > 0) {
-    return { companyIds, includeUnassigned: false };
+  const assignedIds = assigned.map(String).filter(Boolean);
+  if (assignedIds.length > 0) {
+    const names = companies
+      .filter((company) => assignedIds.includes(String(company._id)))
+      .map((company) => String(company.name || "").trim())
+      .filter(Boolean);
+    return {
+      companyIds: assignedIds,
+      companyNames: names,
+      includeUnassigned: false,
+    };
   }
+  const stl = companies.find(
+    (company) => String(company.name || "").trim() === "STL",
+  );
   return {
-    companyIds: stlId ? [stlId] : [],
+    companyIds: stl?._id ? [String(stl._id)] : [],
+    companyNames: ["STL"],
     includeUnassigned: false,
   };
 }
 
 export function accessKey(access: SalesCompanyAccess) {
-  return `${access.includeUnassigned ? "1" : "0"}:${[...access.companyIds].sort().join(",")}`;
+  return `${[...access.companyIds].sort().join(",")}:${[...allowedCompanyNames(access)].sort().join(",")}`;
+}
+
+export function allowedCompanyNames(access: SalesCompanyAccess) {
+  return (access.companyNames || [])
+    .map((name) => normalizeCompanyName(name))
+    .filter(Boolean);
+}
+
+export function productCompanyName(product: Product) {
+  const raw = product.company;
+  if (raw && typeof raw === "object") {
+    return normalizeCompanyName(raw.name);
+  }
+  return "";
 }
 
 export function productCompanyId(product: Product) {
@@ -76,8 +111,15 @@ export function productCompanyId(product: Product) {
 }
 
 export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
+  const allowedNames = allowedCompanyNames(access);
   const id = productCompanyId(product);
-  if (id) return access.companyIds.includes(id);
+  const name = productCompanyName(product);
+  if (id) {
+    if (access.companyIds.includes(id)) return true;
+    if (name && allowedNames.includes(name)) return true;
+    return false;
+  }
+  if (name) return allowedNames.includes(name);
   if (loadAllowedProductIds(access)?.has(product._id)) return true;
   return false;
 }
@@ -101,6 +143,7 @@ export function defaultSalesCompanyAccess(
 ): SalesCompanyAccess {
   return {
     companyIds: stlId ? [stlId] : [],
+    companyNames: ["STL"],
     includeUnassigned: false,
   };
 }

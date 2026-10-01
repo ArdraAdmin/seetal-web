@@ -19,7 +19,7 @@ import type {
   SalesCartLine,
 } from "./types";
 import { asProductList, asStoreList, cartTotals, lineAggregate } from "./sales";
-import { companyIds, salesField, stlCompanyId } from "./profiles";
+import { companyIds, salesField } from "./profiles";
 import {
   companyQueryPayload,
   filterAllowedProducts,
@@ -1345,19 +1345,31 @@ export async function downloadSalesStores(userId?: string) {
 function parseSalesCompanyAccess(data: unknown): SalesCompanyAccess | null {
   if (!data || typeof data !== "object") return null;
   const o = data as Record<string, unknown>;
-  if (!Array.isArray(o.companyIds) && o.includeUnassigned == null) return null;
-  const ids = Array.isArray(o.companyIds)
-    ? o.companyIds.map((id) => String(id || "")).filter(Boolean)
-    : [];
+  if (!Array.isArray(o.companyIds) && !Array.isArray(o.companyNames)) return null;
   return {
-    companyIds: ids,
-    includeUnassigned: Boolean(o.includeUnassigned),
+    companyIds: Array.isArray(o.companyIds)
+      ? o.companyIds.map((id) => String(id || "")).filter(Boolean)
+      : [],
+    companyNames: Array.isArray(o.companyNames)
+      ? o.companyNames.map((name) => String(name || "").trim()).filter(Boolean)
+      : [],
+    includeUnassigned: false,
   };
 }
 
 export async function getSalesCompanyAccess(
   userId: string,
 ): Promise<SalesCompanyAccess> {
+  try {
+    const user = await getProfile("sales", userId);
+    const companies = await getCompanies().catch(() => [] as CompanyRecord[]);
+    return resolveCatalogAccess(
+      companyIds(salesField(user).company),
+      companies,
+    );
+  } catch {
+    /* Fall through to other access sources. */
+  }
   try {
     const data = await request<unknown>(
       `/sales/access?userId=${encodeURIComponent(userId)}`,
@@ -1367,22 +1379,13 @@ export async function getSalesCompanyAccess(
   } catch {
     /* Origin may not have /sales/access yet. */
   }
-  try {
-    const user = await getProfile("sales", userId);
-    const companies = await getCompanies().catch(() => [] as CompanyRecord[]);
-    return resolveCatalogAccess(
-      companyIds(salesField(user).company),
-      stlCompanyId(companies),
-    );
-  } catch {
-    /* Salesman tokens may not be allowed to read the profile on some origins. */
-  }
   const data = await siteRequest<unknown>(
     `/api/sales/access?userId=${encodeURIComponent(userId)}`,
   );
   return (
     parseSalesCompanyAccess(data) || {
       companyIds: [],
+      companyNames: [],
       includeUnassigned: false,
     }
   );
