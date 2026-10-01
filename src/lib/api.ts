@@ -703,12 +703,13 @@ function asWarehouseCounts(data: unknown): WarehouseCounts | undefined {
   };
 }
 
-function dubaiTodayRange() {
+function warehouseWorkDayRange() {
+  // Today tab = the coming Dubai calendar day, not the current date.
   const offsetMs = 4 * 60 * 60 * 1000;
   const dubaiNow = new Date(Date.now() + offsetMs);
   const y = dubaiNow.getUTCFullYear();
   const m = dubaiNow.getUTCMonth();
-  const d = dubaiNow.getUTCDate();
+  const d = dubaiNow.getUTCDate() + 1;
   return {
     start: new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - offsetMs),
     end: new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - offsetMs),
@@ -723,7 +724,7 @@ function matchesWarehouseTab(
   if (!order.date) return false;
   const ms = new Date(order.date).getTime();
   if (Number.isNaN(ms)) return false;
-  const { start, end } = dubaiTodayRange();
+  const { start, end } = warehouseWorkDayRange();
   if (tabIndex === 0) return ms >= start.getTime() && ms <= end.getTime();
   return ms > end.getTime();
 }
@@ -737,6 +738,28 @@ function visibleWarehouseOrders(
   );
 }
 
+function countsFromOrders(orders: PendingOrder[]): WarehouseCounts {
+  let pendingCheckCount = 0;
+  let firstCheckCount = 0;
+  let doubleCheckCount = 0;
+  let loadCheckCount = 0;
+  let totalPkgCount = 0;
+  for (const order of orders) {
+    totalPkgCount += Number(order.totalPkg) || 0;
+    if (order.loadCheck) loadCheckCount += 1;
+    else if (order.doubleCheck) doubleCheckCount += 1;
+    else if (order.firstCheck) firstCheckCount += 1;
+    else pendingCheckCount += 1;
+  }
+  return {
+    pendingCheckCount,
+    firstCheckCount,
+    doubleCheckCount,
+    loadCheckCount,
+    totalPkgCount,
+  };
+}
+
 export async function getWarehouseOrdersPage(
   userId: string,
   page: number,
@@ -746,9 +769,11 @@ export async function getWarehouseOrdersPage(
   const data = await request<unknown>(
     `/warehouse/order/${kind}?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
   );
+  const orders = visibleWarehouseOrders(asWarehouseOrders(data), tabIndex);
   return {
-    orders: visibleWarehouseOrders(asWarehouseOrders(data), tabIndex),
-    counts: asWarehouseCounts(data),
+    orders,
+    counts:
+      tabIndex === 0 ? countsFromOrders(orders) : asWarehouseCounts(data),
   };
 }
 
@@ -765,16 +790,67 @@ export async function searchWarehouseOrdersPage(
   return visibleWarehouseOrders(asWarehouseOrders(data), tabIndex);
 }
 
+async function fetchPendingWarehousePage(
+  userId: string,
+  page: number,
+  apiTab: 0 | 1,
+  tag: string,
+) {
+  const query = tag.trim();
+  const data = query
+    ? await request<unknown>(
+        `/warehouse/search?tag=${encodeURIComponent(query)}&userId=${encodeURIComponent(userId)}&orderType=temp&tabIndex=${apiTab}&page=${page}`,
+      )
+    : await request<unknown>(
+        `/warehouse/order/pending?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${apiTab}`,
+      );
+  return asWarehouseOrders(data).filter((order) => !order.isDraft);
+}
+
+async function collectPendingWarehouseOrders(
+  userId: string,
+  tag: string,
+) {
+  const orders: PendingOrder[] = [];
+  const seen = new Set<string>();
+  for (const apiTab of [0, 1] as const) {
+    const pageSize = apiTab === 0 ? 100 : 50;
+    for (let page = 1; page <= 80; page++) {
+      const batch = await fetchPendingWarehousePage(userId, page, apiTab, tag);
+      let added = 0;
+      for (const order of batch) {
+        const id = String(order._id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        orders.push(order);
+        added += 1;
+      }
+      if (batch.length < pageSize || batch.length > pageSize || added === 0) {
+        break;
+      }
+    }
+  }
+  return orders;
+}
+
 export async function getAllWarehouseOrders(
   userId: string,
   tabIndex: WarehouseTabIndex,
   tag = "",
   maxPages = 80,
 ): Promise<WarehouseOrdersResult> {
-  const pageSize = tabIndex === 0 ? 100 : 50;
+  if (tabIndex === 0 || tabIndex === 1) {
+    const pending = await collectPendingWarehouseOrders(userId, tag);
+    const orders = visibleWarehouseOrders(pending, tabIndex);
+    return {
+      orders,
+      counts: tabIndex === 0 ? countsFromOrders(orders) : undefined,
+    };
+  }
+
+  const pageSize = 50;
   const orders: PendingOrder[] = [];
   const seen = new Set<string>();
-  let counts: WarehouseCounts | undefined;
   const query = tag.trim();
   const pageLimit = Math.max(1, Math.min(maxPages, 80));
 
@@ -785,7 +861,6 @@ export async function getAllWarehouseOrders(
           counts: undefined,
         }
       : await getWarehouseOrdersPage(userId, page, tabIndex);
-    if (batch.counts && !counts) counts = batch.counts;
 
     let added = 0;
     for (const order of batch.orders) {
@@ -796,7 +871,6 @@ export async function getAllWarehouseOrders(
       added += 1;
     }
 
-    // Stop on a short page, a full unpaged dump, or a page that only repeats ids.
     if (
       batch.orders.length < pageSize ||
       batch.orders.length > pageSize ||
@@ -806,7 +880,7 @@ export async function getAllWarehouseOrders(
     }
   }
 
-  return { orders, counts };
+  return { orders };
 }
 
 function asCheckOrder(data: unknown): WarehouseCheckOrder | null {
