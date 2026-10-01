@@ -1383,7 +1383,7 @@ export async function getSalesCompanyAccess(
   return (
     parseSalesCompanyAccess(data) || {
       companyIds: [],
-      includeUnassigned: true,
+      includeUnassigned: false,
     }
   );
 }

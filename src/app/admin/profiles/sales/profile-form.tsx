@@ -256,9 +256,8 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
             <div className="sm:col-span-2">
               <FieldLabel label="Inventory companies" optional />
               <p className="mt-1 text-xs text-slate-500">
-                If none are selected, this salesperson sees STL stock plus
-                products that have no company. Selecting companies hides
-                unassigned products.
+                If none are selected, this salesperson sees STL stock only.
+                Selecting companies shows only those companies’ products.
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {companies.map((company) => (

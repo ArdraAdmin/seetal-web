@@ -26,11 +26,11 @@ export function onSalesAccessChange(callback: () => void) {
 
 export function loadSalesCompanyAccess(): SalesCompanyAccess {
   if (typeof window === "undefined") {
-    return { companyIds: [], includeUnassigned: true };
+    return { companyIds: [], includeUnassigned: false };
   }
   try {
     const raw = localStorage.getItem(ACCESS_KEY);
-    if (!raw) return { companyIds: [], includeUnassigned: true };
+    if (!raw) return { companyIds: [], includeUnassigned: false };
     const parsed = JSON.parse(raw) as SalesCompanyAccess;
     return {
       companyIds: Array.isArray(parsed.companyIds)
@@ -39,7 +39,7 @@ export function loadSalesCompanyAccess(): SalesCompanyAccess {
       includeUnassigned: Boolean(parsed.includeUnassigned),
     };
   } catch {
-    return { companyIds: [], includeUnassigned: true };
+    return { companyIds: [], includeUnassigned: false };
   }
 }
 
@@ -60,7 +60,7 @@ export function resolveCatalogAccess(
   }
   return {
     companyIds: stlId ? [stlId] : [],
-    includeUnassigned: true,
+    includeUnassigned: false,
   };
 }
 
@@ -77,11 +77,9 @@ export function productCompanyId(product: Product) {
 
 export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
   const id = productCompanyId(product);
-  if (id) {
-    return access.companyIds.includes(id);
-  }
+  if (id) return access.companyIds.includes(id);
   if (loadAllowedProductIds(access)?.has(product._id)) return true;
-  return access.includeUnassigned;
+  return false;
 }
 
 export function filterAllowedProducts(
@@ -103,7 +101,7 @@ export function defaultSalesCompanyAccess(
 ): SalesCompanyAccess {
   return {
     companyIds: stlId ? [stlId] : [],
-    includeUnassigned: true,
+    includeUnassigned: false,
   };
 }
 
