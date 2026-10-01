@@ -75,8 +75,10 @@ export function productCompanyId(product: Product) {
 }
 
 export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
+  if (!Object.prototype.hasOwnProperty.call(product, "company")) return true;
   const id = productCompanyId(product);
   if (!id) return access.includeUnassigned;
+  if (access.companyIds.length === 0) return true;
   return access.companyIds.includes(id);
 }
 
@@ -138,7 +140,9 @@ export function saveCachedCatalog(access: SalesCompanyAccess, products: Product[
 export function catalogForAccess(access: SalesCompanyAccess): Product[] | null {
   const cached = loadCachedCatalog();
   if (!cached || cached.accessKey !== accessKey(access)) return null;
-  return filterAllowedProducts(cached.products, access);
+  if (!cached.products.length) return null;
+  const allowed = filterAllowedProducts(cached.products, access);
+  return allowed.length > 0 ? allowed : null;
 }
 
 export function replaceCachedCatalog(

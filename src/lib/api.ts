@@ -1402,7 +1402,7 @@ export async function syncSalesInventory(userId: string) {
     return { access, products: catalogForAccess(access) || [] };
   }
   const cached = catalogForAccess(access);
-  if (cached && accessKey(previous) === accessKey(access)) {
+  if (cached && cached.length > 0 && accessKey(previous) === accessKey(access)) {
     saveSalesCompanyAccess(access);
     return { access, products: cached };
   }
@@ -1411,7 +1411,7 @@ export async function syncSalesInventory(userId: string) {
       await downloadSalesCatalog(userId),
       access,
     );
-    replaceCachedCatalog(access, products);
+    if (products.length > 0) replaceCachedCatalog(access, products);
     saveSalesCompanyAccess(access);
     return { access, products };
   } catch {
@@ -1419,14 +1419,15 @@ export async function syncSalesInventory(userId: string) {
       loadCachedCatalog()?.products || [],
       access,
     );
-    replaceCachedCatalog(access, leftover);
     saveSalesCompanyAccess(access);
     return { access, products: leftover };
   }
 }
 
 function allowedSalesProducts(list: Product[]) {
-  return filterAllowedProducts(list, loadSalesCompanyAccess());
+  const access = loadSalesCompanyAccess();
+  if (access.companyIds.length === 0) return list;
+  return filterAllowedProducts(list, access);
 }
 
 function withCompanyBody(body: Record<string, unknown>) {
@@ -1586,7 +1587,7 @@ export async function loadSalesInventoryUiPage(
   subCat = "",
 ) {
   const catalog = catalogForAccess(loadSalesCompanyAccess());
-  if (catalog) {
+  if (catalog && catalog.length > 0) {
     const needle = tag.trim().toLowerCase();
     const filtered = catalog.filter((product) => {
       if (needle) {
