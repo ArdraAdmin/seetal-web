@@ -87,16 +87,87 @@ function nestedCategory(product?: Product | null) {
     : null;
 }
 
-function formFromProduct(product: Product) {
+function asCategoryId(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && "_id" in (value as object)) {
+    return String((value as { _id?: unknown })._id ?? "");
+  }
+  return "";
+}
+
+function productSubCategoryId(product?: Product | null) {
+  if (!product) return "";
   const nested = nestedCategory(product);
+  return (
+    asCategoryId(nested) ||
+    asCategoryId(product.category) ||
+    String(product.subCategoryId ?? product.categoryId ?? "")
+  );
+}
+
+function productSubCategoryName(product?: Product | null) {
+  return String(nestedCategory(product)?.subCategory ?? "");
+}
+
+function matchCategorySelection(
+  product: Product | undefined,
+  groups: CategoryGroup[],
+  current?: { category: string; subCategory: string },
+) {
+  const subId = current?.subCategory || productSubCategoryId(product);
+  const subName = productSubCategoryName(product);
+  const masterHint =
+    current?.category ||
+    String(
+      product?.masterCategoryId ??
+        nestedCategory(product)?.masterCategoryId ??
+        "",
+    );
+
+  const same = (left?: string, right?: string) =>
+    String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase();
+
+  for (const group of groups) {
+    const item =
+      group.items.find((entry) => entry._id && entry._id === subId) ||
+      (subName
+        ? group.items.find((entry) => same(entry.subCategory, subName))
+        : undefined);
+    if (item) {
+      return {
+        category: group.masterCategoryId || group.name,
+        subCategory: item._id || item.subCategory || "",
+      };
+    }
+  }
+
+  const group = groups.find(
+    (entry) =>
+      entry.masterCategoryId === masterHint || entry.name === masterHint,
+  );
+  if (group) {
+    const item =
+      group.items.find((entry) => entry._id === subId) ||
+      group.items.find((entry) => same(entry.subCategory, subId)) ||
+      group.items.find((entry) => same(entry.subCategory, subName));
+    return {
+      category: group.masterCategoryId || group.name,
+      subCategory: item?._id || item?.subCategory || subId,
+    };
+  }
+
+  return { category: masterHint, subCategory: subId };
+}
+
+function formFromProduct(product: Product, groups: CategoryGroup[] = []) {
+  const matched = matchCategorySelection(product, groups);
   return {
     itemRef: String(product.itemRef ?? ""),
     itemName: String(product.itemName ?? ""),
     barCode: String(product.barCode ?? product.barcode ?? ""),
-    category: String(product.masterCategoryId ?? nested?.masterCategoryId ?? ""),
-    subCategory: String(
-      nested?._id ?? product.subCategoryId ?? product.categoryId ?? "",
-    ),
+    category: matched.category,
+    subCategory: matched.subCategory,
     company: companyIdFromProduct(product),
     unit: String(product.unit ?? "PCS"),
     ratio: String(product.ratio ?? 1),
@@ -200,46 +271,11 @@ export function ProductForm({
 
   useEffect(() => {
     if (product) {
-      setForm(formFromProduct(product));
+      setForm(formFromProduct(product, groups));
       return;
     }
     setForm(EMPTY_FORM);
-  }, [product]);
-
-  useEffect(() => {
-    if (groups.length === 0) return;
-    setForm((current) => {
-      const group =
-        groups.find(
-          (item) =>
-            item.masterCategoryId === current.category ||
-            item.name === current.category,
-        ) ||
-        (product
-          ? groups.find(
-              (item) =>
-                item.masterCategoryId === product.masterCategoryId ||
-                item.name === nestedCategory(product)?.masterCategory,
-            )
-          : null);
-      if (!group) return current;
-      const masterId = group.masterCategoryId || group.name;
-      const nested = nestedCategory(product);
-      const subName =
-        nested?.subCategory ||
-        (typeof product?.category === "string" ? product.category : "");
-      const match =
-        group.items.find((item) => item._id === current.subCategory) ||
-        group.items.find((item) => item.subCategory === current.subCategory) ||
-        group.items.find((item) => item._id === nested?._id) ||
-        group.items.find((item) => item.subCategory === subName);
-      const nextSub = match?._id || match?.subCategory || current.subCategory;
-      if (current.category === masterId && current.subCategory === nextSub) {
-        return current;
-      }
-      return { ...current, category: masterId, subCategory: nextSub };
-    });
-  }, [groups, product]);
+  }, [product, groups]);
 
   const selectedGroup = useMemo(
     () =>
@@ -407,6 +443,14 @@ export function ProductForm({
                 ? "Select sub category"
                 : "Select a category first"}
           </option>
+          {form.subCategory &&
+          !subOptions.some(
+            (item) => (item._id || item.subCategory) === form.subCategory,
+          ) ? (
+            <option value={form.subCategory}>
+              {productSubCategoryName(product) || "Current sub category"}
+            </option>
+          ) : null}
           {subOptions.map((item) => (
             <option
               key={item._id || item.subCategory}

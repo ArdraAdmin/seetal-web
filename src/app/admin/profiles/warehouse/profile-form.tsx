@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createWarehouseProfile,
+  deleteUser,
   getMasterCategories,
   getProfile,
   updateWarehouseProfile,
@@ -49,6 +50,7 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
   const [categories, setCategories] = useState<MasterCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY);
 
@@ -141,6 +143,22 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!profileId) return;
+    const label = form.name.trim() || form.email.trim() || "this profile";
+    if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteUser(profileId);
+      toast("Profile deleted", "success");
+      router.push("/admin/profiles/warehouse");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -245,16 +263,26 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
               </label>
             )}
             <div className="flex flex-wrap gap-2 sm:col-span-2">
-              <PrimaryButton type="submit" disabled={saving}>
+              <PrimaryButton type="submit" disabled={saving || deleting}>
                 {saving ? "Saving…" : creating ? "Add profile" : "Save"}
               </PrimaryButton>
               <SecondaryButton
                 type="button"
-                disabled={saving}
+                disabled={saving || deleting}
                 onClick={() => router.push("/admin/profiles/warehouse")}
               >
                 Cancel
               </SecondaryButton>
+              {!creating ? (
+                <SecondaryButton
+                  type="button"
+                  className="border-red-200 text-red-700"
+                  disabled={saving || deleting}
+                  onClick={() => void onDelete()}
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </SecondaryButton>
+              ) : null}
             </div>
           </form>
         </Card>

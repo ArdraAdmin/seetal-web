@@ -107,7 +107,12 @@ export default function WarehousePage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await getAllWarehouseOrders(user.id, tabIndex, tag);
+        const data = await getAllWarehouseOrders(
+          user.id,
+          tabIndex,
+          tag,
+          tabIndex === 2 ? 6 : 80,
+        );
         setOrders(data.orders);
         setCounts(data.counts ?? null);
         setTab(tabIndex);

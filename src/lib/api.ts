@@ -273,7 +273,10 @@ export const searchProfiles = (tag: string, role: string) =>
     body: JSON.stringify({ tag, role }),
   });
 export const deleteUser = (id: string) =>
-  request<unknown>(`/admin/edit/deleteUser/${id}`, { method: "DELETE" });
+  siteRequest<string>("/api/admin/profiles/delete", {
+    method: "POST",
+    body: JSON.stringify({ userId: id }),
+  });
 
 export async function getProfile(role: "sales" | "warehouse", id: string) {
   const data = await request<unknown>(
@@ -700,6 +703,40 @@ function asWarehouseCounts(data: unknown): WarehouseCounts | undefined {
   };
 }
 
+function dubaiTodayRange() {
+  const offsetMs = 4 * 60 * 60 * 1000;
+  const dubaiNow = new Date(Date.now() + offsetMs);
+  const y = dubaiNow.getUTCFullYear();
+  const m = dubaiNow.getUTCMonth();
+  const d = dubaiNow.getUTCDate();
+  return {
+    start: new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - offsetMs),
+    end: new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - offsetMs),
+  };
+}
+
+function matchesWarehouseTab(
+  order: PendingOrder,
+  tabIndex: WarehouseTabIndex,
+) {
+  if (tabIndex === 2) return true;
+  if (!order.date) return false;
+  const ms = new Date(order.date).getTime();
+  if (Number.isNaN(ms)) return false;
+  const { start, end } = dubaiTodayRange();
+  if (tabIndex === 0) return ms >= start.getTime() && ms <= end.getTime();
+  return ms > end.getTime();
+}
+
+function visibleWarehouseOrders(
+  orders: PendingOrder[],
+  tabIndex: WarehouseTabIndex,
+) {
+  return orders.filter(
+    (order) => !order.isDraft && matchesWarehouseTab(order, tabIndex),
+  );
+}
+
 export async function getWarehouseOrdersPage(
   userId: string,
   page: number,
@@ -707,10 +744,10 @@ export async function getWarehouseOrdersPage(
 ): Promise<WarehouseOrdersResult> {
   const kind = tabIndex === 2 ? "confirmed" : "pending";
   const data = await request<unknown>(
-    `/mock/warehouse/order/${kind}?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
+    `/warehouse/order/${kind}?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
   );
   return {
-    orders: asWarehouseOrders(data).filter((order) => !order.isDraft),
+    orders: visibleWarehouseOrders(asWarehouseOrders(data), tabIndex),
     counts: asWarehouseCounts(data),
   };
 }
@@ -723,23 +760,25 @@ export async function searchWarehouseOrdersPage(
 ): Promise<PendingOrder[]> {
   const orderType = tabIndex === 2 ? "confirm" : "temp";
   const data = await request<unknown>(
-    `/mock/warehouse/search?tag=${encodeURIComponent(tag)}&userId=${encodeURIComponent(userId)}&orderType=${orderType}&tabIndex=${tabIndex}&page=${page}`,
+    `/warehouse/search?tag=${encodeURIComponent(tag)}&userId=${encodeURIComponent(userId)}&orderType=${orderType}&tabIndex=${tabIndex}&page=${page}`,
   );
-  return asWarehouseOrders(data).filter((order) => !order.isDraft);
+  return visibleWarehouseOrders(asWarehouseOrders(data), tabIndex);
 }
 
 export async function getAllWarehouseOrders(
   userId: string,
   tabIndex: WarehouseTabIndex,
   tag = "",
+  maxPages = 80,
 ): Promise<WarehouseOrdersResult> {
   const pageSize = tabIndex === 0 ? 100 : 50;
   const orders: PendingOrder[] = [];
   const seen = new Set<string>();
   let counts: WarehouseCounts | undefined;
   const query = tag.trim();
+  const pageLimit = Math.max(1, Math.min(maxPages, 80));
 
-  for (let page = 1; page <= 80; page++) {
+  for (let page = 1; page <= pageLimit; page++) {
     const batch = query
       ? {
           orders: await searchWarehouseOrdersPage(userId, query, page, tabIndex),
@@ -1724,8 +1763,15 @@ export async function loadDashboardStats(
     countByPaging(getStores)
       .then((totalStores) => onUpdate({ totalStores }))
       .catch(() => onUpdate({ totalStores: 0 })),
-    countByPaging((page) => getProducts(page))
-      .then((totalInventory) => onUpdate({ totalInventory }))
+    getCompanies()
+      .then((companies) =>
+        onUpdate({
+          totalInventory: companies.reduce(
+            (sum, company) => sum + (company.productCount ?? 0),
+            0,
+          ),
+        }),
+      )
       .catch(() => onUpdate({ totalInventory: 0 })),
     (userId ? getPayments(userId) : Promise.resolve([] as PaymentRecord[]))
       .then((payments) => onUpdate(summarizePayments(payments)))

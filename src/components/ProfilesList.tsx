@@ -37,6 +37,7 @@ export function ProfilesList({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,14 +73,18 @@ export function ProfilesList({
     }
   }
 
-  async function onDelete(id: string) {
-    if (!confirm("Delete this profile?")) return;
+  async function onDelete(profile: ProfileUser) {
+    const label = profile.name?.trim() || profile.email || "this profile";
+    if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    setDeletingId(profile._id);
     try {
-      await deleteUser(id);
+      await deleteUser(profile._id);
       toast("Profile deleted", "success");
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -160,9 +165,10 @@ export function ProfilesList({
                 <SecondaryButton
                   type="button"
                   className="border-red-200 text-red-700"
-                  onClick={() => void onDelete(profile._id)}
+                  disabled={deletingId === profile._id}
+                  onClick={() => void onDelete(profile)}
                 >
-                  Delete
+                  {deletingId === profile._id ? "Deleting…" : "Delete"}
                 </SecondaryButton>
               </div>
             </Card>
