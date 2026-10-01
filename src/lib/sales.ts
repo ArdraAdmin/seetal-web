@@ -6,7 +6,7 @@ export function salesMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
-  return `Dhs ${formatted}`;
+  return `AED ${formatted}`;
 }
 
 export function roundMoney(value: number) {
