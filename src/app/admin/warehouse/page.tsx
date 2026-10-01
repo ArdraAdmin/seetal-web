@@ -35,6 +35,7 @@ const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 0, label: "Today" },
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Confirmed" },
+  { id: 3, label: "Pending" },
 ];
 
 const ACTION_BUTTONS: {

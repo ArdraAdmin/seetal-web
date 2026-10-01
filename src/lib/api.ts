@@ -659,7 +659,7 @@ export const getPendingOrders = (userId: string, page = 1, tabIndex = 0) =>
     `/mock/warehouse/order/pending?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
   );
 
-export type WarehouseTabIndex = 0 | 1 | 2;
+export type WarehouseTabIndex = 0 | 1 | 2 | 3;
 
 export interface WarehouseOrdersResult {
   orders: PendingOrder[];
@@ -716,11 +716,26 @@ function warehouseWorkDayRange() {
   };
 }
 
+function isOverdueIncomplete(order: PendingOrder) {
+  if (order.loadCheck) return false;
+  if (order.needsApproval === true) return false;
+  const status = String(order.status || "").toLowerCase();
+  if (status === "confirmed" || status === "order removed") return false;
+  if (String(order.approvalStatus || "").toLowerCase() === "rejected") {
+    return false;
+  }
+  if (!order.date) return false;
+  const ms = new Date(order.date).getTime();
+  if (Number.isNaN(ms)) return false;
+  return ms < warehouseWorkDayRange().start.getTime();
+}
+
 function matchesWarehouseTab(
   order: PendingOrder,
   tabIndex: WarehouseTabIndex,
 ) {
   if (tabIndex === 2) return true;
+  if (tabIndex === 3) return isOverdueIncomplete(order);
   if (!order.date) return false;
   const ms = new Date(order.date).getTime();
   if (Number.isNaN(ms)) return false;
@@ -793,7 +808,7 @@ export async function searchWarehouseOrdersPage(
 async function fetchPendingWarehousePage(
   userId: string,
   page: number,
-  apiTab: 0 | 1,
+  apiTab: 0 | 1 | 3,
   tag: string,
 ) {
   const query = tag.trim();
@@ -839,6 +854,30 @@ export async function getAllWarehouseOrders(
   tag = "",
   maxPages = 80,
 ): Promise<WarehouseOrdersResult> {
+  if (tabIndex === 3) {
+    const pending: PendingOrder[] = [];
+    const seen = new Set<string>();
+    const pageSize = 50;
+    for (let page = 1; page <= 20; page++) {
+      const batch = await fetchPendingWarehousePage(userId, page, 3, tag);
+      let added = 0;
+      for (const order of batch) {
+        const id = String(order._id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        pending.push(order);
+        added += 1;
+      }
+      if (batch.length < pageSize || added === 0) break;
+    }
+    const overdue = visibleWarehouseOrders(pending, 3).sort((a, b) => {
+      const aMs = new Date(a.date || 0).getTime();
+      const bMs = new Date(b.date || 0).getTime();
+      return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+    });
+    return { orders: overdue };
+  }
+
   if (tabIndex === 0 || tabIndex === 1) {
     const pending = await collectPendingWarehouseOrders(userId, tag);
     const orders = visibleWarehouseOrders(pending, tabIndex);
