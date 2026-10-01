@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
-import { companyIds } from "@/lib/profiles";
+import type { ProfileUser } from "@/lib/types";
+import { companyIds, salesField } from "@/lib/profiles";
 import { resolveCatalogAccess } from "@/lib/sales-company";
 import { getMongoClient } from "@/lib/server/mongo";
 import { userIdFromAuthHeader } from "@/lib/server/password";
@@ -64,6 +65,37 @@ async function accessFromMongo(token: string | null, userId: string) {
   );
 }
 
+async function accessFromRemoteProfile(token: string | null, userId: string) {
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", token);
+    headers.set("auth-token", token);
+  }
+  const userRes = await fetch(
+    `${REMOTE_API}/admin/read/sales/${encodeURIComponent(userId)}`,
+    { headers },
+  );
+  if (!userRes.ok) return null;
+  const data = (await userRes.json()) as { user?: unknown } | unknown;
+  const rawUser = Array.isArray((data as { user?: unknown }).user)
+    ? (data as { user: unknown[] }).user[0]
+    : (data as { user?: unknown }).user || data;
+  if (!rawUser || typeof rawUser !== "object") return null;
+  const assigned = companyIds(salesField(rawUser as ProfileUser).company);
+  const companiesRes = await fetch(`${REMOTE_API}/admin/company`, { headers });
+  let stlId = "";
+  if (companiesRes.ok) {
+    const companies = (await companiesRes.json()) as { _id?: string; name?: string }[];
+    if (Array.isArray(companies)) {
+      stlId = String(
+        companies.find((company) => String(company.name || "").trim() === "STL")?._id ||
+          "",
+      );
+    }
+  }
+  return resolveCatalogAccess(assigned, stlId);
+}
+
 export async function salesCompanyAccessForUser(
   token: string | null,
   userId: string,
@@ -71,6 +103,12 @@ export async function salesCompanyAccessForUser(
   try {
     const remote = await accessFromRemote(token, userId);
     if (remote) return remote;
+  } catch {
+    /* Fall through. */
+  }
+  try {
+    const fromProfile = await accessFromRemoteProfile(token, userId);
+    if (fromProfile) return fromProfile;
   } catch {
     /* Fall through to the database copy. */
   }

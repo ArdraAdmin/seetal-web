@@ -19,6 +19,7 @@ import type {
   SalesCartLine,
 } from "./types";
 import { asProductList, asStoreList, cartTotals, lineAggregate } from "./sales";
+import { companyIds, salesField, stlCompanyId } from "./profiles";
 import {
   companyQueryPayload,
   filterAllowedProducts,
@@ -28,6 +29,8 @@ import {
   catalogForAccess,
   loadCachedCatalog,
   saveSalesCompanyAccess,
+  saveAllowedProductIds,
+  resolveCatalogAccess,
   type SalesCompanyAccess,
 } from "./sales-company";
 
@@ -83,6 +86,7 @@ async function requestRaw(
     const user = getStoredAuth();
     if (user?.token) {
       headers.set("Authorization", user.token);
+      headers.set("auth-token", user.token);
     }
   }
 
@@ -127,7 +131,10 @@ async function siteRequest<T>(
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
-  if (user?.token) headers.set("Authorization", user.token);
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
 
   let res: Response;
   try {
@@ -1360,6 +1367,16 @@ export async function getSalesCompanyAccess(
   } catch {
     /* Origin may not have /sales/access yet. */
   }
+  try {
+    const user = await getProfile("sales", userId);
+    const companies = await getCompanies().catch(() => [] as CompanyRecord[]);
+    return resolveCatalogAccess(
+      companyIds(salesField(user).company),
+      stlCompanyId(companies),
+    );
+  } catch {
+    /* Salesman tokens may not be allowed to read the profile on some origins. */
+  }
   const data = await siteRequest<unknown>(
     `/api/sales/access?userId=${encodeURIComponent(userId)}`,
   );
@@ -1411,6 +1428,16 @@ export async function syncSalesInventory(userId: string) {
       await downloadSalesCatalog(userId),
       access,
     );
+    if (access.companyIds.length > 0) {
+      const allowedIds: string[] = [];
+      for (const companyId of access.companyIds) {
+        const companyProducts = await getAllCompanyProducts(companyId).catch(
+          () => [],
+        );
+        for (const product of companyProducts) allowedIds.push(product._id);
+      }
+      if (allowedIds.length > 0) saveAllowedProductIds(access, allowedIds);
+    }
     if (products.length > 0) replaceCachedCatalog(access, products);
     saveSalesCompanyAccess(access);
     return { access, products };
@@ -1425,9 +1452,7 @@ export async function syncSalesInventory(userId: string) {
 }
 
 function allowedSalesProducts(list: Product[]) {
-  const access = loadSalesCompanyAccess();
-  if (access.companyIds.length === 0) return list;
-  return filterAllowedProducts(list, access);
+  return filterAllowedProducts(list, loadSalesCompanyAccess());
 }
 
 function withCompanyBody(body: Record<string, unknown>) {
@@ -1637,10 +1662,9 @@ export async function loadSalesInventoryUiPage(
     };
   }
 
-  const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
-  const products: Product[] = [];
-  for (let i = start; i < start + SALES_INVENTORY_PAGE_SIZE; i++) {
-    const apiPage = Math.floor(i / SALES_INVENTORY_API_PAGE_SIZE) + 1;
+  const needed = uiPage * SALES_INVENTORY_PAGE_SIZE;
+  const collected: Product[] = [];
+  for (let apiPage = 1; apiPage <= 40; apiPage++) {
     const list = await inventoryApiPage(
       storeId,
       userId,
@@ -1651,26 +1675,14 @@ export async function loadSalesInventoryUiPage(
       cat,
       subCat,
     );
-    const item = productAtApiIndex(list, i);
-    if (!item) break;
-    products.push(item);
+    collected.push(...list);
+    if (list.length < SALES_INVENTORY_API_PAGE_SIZE) break;
+    if (collected.length > needed) break;
   }
-
-  const nextIndex = start + SALES_INVENTORY_PAGE_SIZE;
-  const nextApiPage = Math.floor(nextIndex / SALES_INVENTORY_API_PAGE_SIZE) + 1;
-  const nextList = await inventoryApiPage(
-    storeId,
-    userId,
-    tag,
-    nextApiPage,
-    cache,
-    tempStore,
-    cat,
-    subCat,
-  );
+  const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
   return {
-    products,
-    hasNext: Boolean(productAtApiIndex(nextList, nextIndex)),
+    products: collected.slice(start, start + SALES_INVENTORY_PAGE_SIZE),
+    hasNext: collected.length > start + SALES_INVENTORY_PAGE_SIZE,
   };
 }
 

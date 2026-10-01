@@ -9,6 +9,7 @@ export interface SalesCompanyAccess {
 const ACCESS_KEY = "stl_sales_company_access";
 const CATALOG_KEY = "stl_sales_product_catalog";
 const STORES_KEY = "stl_sales_downloaded_stores";
+const ALLOWED_IDS_KEY = "stl_sales_allowed_product_ids";
 
 const listeners = new Set<() => void>();
 
@@ -75,11 +76,12 @@ export function productCompanyId(product: Product) {
 }
 
 export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
-  if (!Object.prototype.hasOwnProperty.call(product, "company")) return true;
   const id = productCompanyId(product);
-  if (!id) return access.includeUnassigned;
-  if (access.companyIds.length === 0) return true;
-  return access.companyIds.includes(id);
+  if (id) {
+    return access.companyIds.includes(id);
+  }
+  if (loadAllowedProductIds(access)?.has(product._id)) return true;
+  return access.includeUnassigned;
 }
 
 export function filterAllowedProducts(
@@ -134,6 +136,37 @@ export function saveCachedCatalog(access: SalesCompanyAccess, products: Product[
     } catch {
       /* ignore */
     }
+  }
+}
+
+export function saveAllowedProductIds(
+  access: SalesCompanyAccess,
+  ids: string[],
+) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(
+    ALLOWED_IDS_KEY,
+    JSON.stringify({
+      accessKey: accessKey(access),
+      ids: [...new Set(ids.filter(Boolean))],
+    }),
+  );
+}
+
+export function loadAllowedProductIds(
+  access: SalesCompanyAccess,
+): Set<string> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ALLOWED_IDS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { accessKey?: string; ids?: string[] };
+    if (parsed.accessKey !== accessKey(access) || !Array.isArray(parsed.ids)) {
+      return null;
+    }
+    return new Set(parsed.ids.map(String).filter(Boolean));
+  } catch {
+    return null;
   }
 }
 
