@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSalesProductCache,
   loadSalesInventoryUiPage,
+  localSalesInventoryPage,
   SALES_INVENTORY_PAGE_SIZE,
   syncSalesInventory,
 } from "@/lib/api";
@@ -37,6 +38,8 @@ export function SalesOrderProductPicker({
 }) {
   const { user } = useAuth();
   const cacheRef = useRef(createSalesProductCache());
+  const loadGen = useRef(0);
+  const appliedRef = useRef("");
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
@@ -48,11 +51,24 @@ export function SalesOrderProductPicker({
   const load = useCallback(
     async (nextPage = 1, searchTag = "") => {
       if (!user?.id || !storeId) return;
+      const gen = ++loadGen.current;
       const tag = searchTag.trim();
+      const local = localSalesInventoryPage(nextPage, tag);
+      if (local) {
+        if (gen !== loadGen.current) return;
+        setProducts(local.products);
+        setHasNext(local.hasNext);
+        setPage(nextPage);
+        setAppliedQuery(tag);
+        appliedRef.current = tag;
+        setError(null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError(null);
+      void syncSalesInventory(user.id);
       try {
-        await syncSalesInventory(user.id);
         const data = await loadSalesInventoryUiPage(
           storeId,
           user.id,
@@ -61,14 +77,17 @@ export function SalesOrderProductPicker({
           cacheRef.current,
           tempStore,
         );
+        if (gen !== loadGen.current) return;
         setProducts(data.products);
         setHasNext(data.hasNext);
         setPage(nextPage);
         setAppliedQuery(tag);
+        appliedRef.current = tag;
       } catch (e) {
+        if (gen !== loadGen.current) return;
         setError(e instanceof Error ? e.message : "Failed to load products");
       } finally {
-        setLoading(false);
+        if (gen === loadGen.current) setLoading(false);
       }
     },
     [storeId, tempStore, user?.id],
@@ -82,9 +101,9 @@ export function SalesOrderProductPicker({
   useEffect(() => {
     return onSalesAccessChange(() => {
       cacheRef.current = createSalesProductCache();
-      void load(1, appliedQuery);
+      void load(1, appliedRef.current);
     });
-  }, [load, appliedQuery]);
+  }, [load]);
 
   return (
     <Card>
@@ -97,7 +116,6 @@ export function SalesOrderProductPicker({
         className="mt-3 flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          cacheRef.current = createSalesProductCache();
           void load(1, query.trim());
         }}
       >
@@ -117,7 +135,6 @@ export function SalesOrderProductPicker({
             disabled={loading}
             onClick={() => {
               setQuery("");
-              cacheRef.current = createSalesProductCache();
               void load(1, "");
             }}
           >

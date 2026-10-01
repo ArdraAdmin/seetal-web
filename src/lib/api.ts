@@ -27,6 +27,7 @@ import {
   replaceCachedCatalog,
   accessKey,
   catalogForAccess,
+  loadAllowedProductIds,
   loadCachedCatalog,
   saveSalesCompanyAccess,
   saveAllowedProductIds,
@@ -877,6 +878,15 @@ async function collectPendingWarehouseOrders(
   return orders;
 }
 
+function deliveryDateMs(order: PendingOrder) {
+  const ms = new Date(order.date || 0).getTime();
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
+function byDeliveryDateAsc(a: PendingOrder, b: PendingOrder) {
+  return deliveryDateMs(a) - deliveryDateMs(b);
+}
+
 export async function getAllWarehouseOrders(
   userId: string,
   tabIndex: WarehouseTabIndex,
@@ -910,6 +920,7 @@ export async function getAllWarehouseOrders(
   if (tabIndex === 0 || tabIndex === 1) {
     const pending = await collectPendingWarehouseOrders(userId, tag);
     const orders = visibleWarehouseOrders(pending, tabIndex);
+    if (tabIndex === 1) orders.sort(byDeliveryDateAsc);
     return {
       orders,
       counts: tabIndex === 0 ? countsFromOrders(orders) : undefined,
@@ -1408,50 +1419,127 @@ export async function downloadSalesCatalog(userId: string) {
   return asProductList(data);
 }
 
-export async function syncSalesInventory(userId: string) {
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    const access = loadSalesCompanyAccess();
-    return { access, products: catalogForAccess(access) || [] };
+const SALES_ACCESS_REFRESH_MS = 30_000;
+let lastSalesAccessCheck = 0;
+let salesSyncInflight: {
+  userId: string;
+  promise: Promise<{ access: SalesCompanyAccess; products: Product[] }>;
+} | null = null;
+let salesCatalogDownload: {
+  key: string;
+  promise: Promise<{ access: SalesCompanyAccess; products: Product[] }>;
+} | null = null;
+
+function warmSalesInventoryIndex() {
+  const catalog = catalogForAccess(loadSalesCompanyAccess());
+  if (!catalog || catalog.length === 0) return;
+  const build = () => {
+    salesCatalogRows(catalog);
+  };
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(build);
+  } else {
+    setTimeout(build, 50);
   }
+}
+
+async function rememberAllowedProductIds(access: SalesCompanyAccess) {
+  if (access.companyIds.length === 0) return;
+  if (loadAllowedProductIds(access)?.size) return;
+  const allowedIds: string[] = [];
+  for (const companyId of access.companyIds) {
+    const companyProducts = await getAllCompanyProducts(companyId).catch(() => []);
+    for (const product of companyProducts) allowedIds.push(product._id);
+  }
+  if (allowedIds.length > 0) saveAllowedProductIds(access, allowedIds);
+}
+
+function downloadSalesCatalogForAccess(userId: string, access: SalesCompanyAccess) {
+  const key = accessKey(access);
+  if (salesCatalogDownload?.key === key) return salesCatalogDownload.promise;
+  const promise = (async () => {
+    try {
+      const products = filterAllowedProducts(
+        await downloadSalesCatalog(userId),
+        access,
+      );
+      if (products.length > 0) replaceCachedCatalog(access, products);
+      else saveSalesCompanyAccess(access);
+      warmSalesInventoryIndex();
+      void rememberAllowedProductIds(access);
+      return {
+        access,
+        products: catalogForAccess(access) || products,
+      };
+    } catch {
+      const leftover = filterAllowedProducts(
+        loadCachedCatalog()?.products || [],
+        access,
+      );
+      saveSalesCompanyAccess(access);
+      return { access, products: leftover };
+    }
+  })().finally(() => {
+    if (salesCatalogDownload?.promise === promise) salesCatalogDownload = null;
+  });
+  salesCatalogDownload = { key, promise };
+  return promise;
+}
+
+async function refreshSalesAccessIfStale(
+  userId: string,
+  previous: SalesCompanyAccess,
+) {
+  if (Date.now() - lastSalesAccessCheck < SALES_ACCESS_REFRESH_MS) return;
+  lastSalesAccessCheck = Date.now();
+  try {
+    const access = await getSalesCompanyAccess(userId);
+    if (accessKey(previous) === accessKey(access)) {
+      saveSalesCompanyAccess(access);
+      return;
+    }
+    await downloadSalesCatalogForAccess(userId, access);
+  } catch {
+    /* Keep the catalog already on screen. */
+  }
+}
+
+export async function syncSalesInventory(userId: string) {
+  if (salesSyncInflight?.userId === userId) return salesSyncInflight.promise;
+  const promise = runSalesInventorySync(userId).finally(() => {
+    if (salesSyncInflight?.promise === promise) salesSyncInflight = null;
+  });
+  salesSyncInflight = { userId, promise };
+  return promise;
+}
+
+async function runSalesInventorySync(userId: string) {
   const previous = loadSalesCompanyAccess();
-  let access: SalesCompanyAccess;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { access: previous, products: catalogForAccess(previous) || [] };
+  }
+  const cached = catalogForAccess(previous);
+  if (cached && cached.length > 0) {
+    warmSalesInventoryIndex();
+    void refreshSalesAccessIfStale(userId, previous);
+    return { access: previous, products: cached };
+  }
+  let access = previous;
   try {
     access = await getSalesCompanyAccess(userId);
+    lastSalesAccessCheck = Date.now();
   } catch {
-    access = previous;
-    return { access, products: catalogForAccess(access) || [] };
+    return { access: previous, products: catalogForAccess(previous) || [] };
   }
-  const cached = catalogForAccess(access);
-  if (cached && cached.length > 0 && accessKey(previous) === accessKey(access)) {
-    saveSalesCompanyAccess(access);
-    return { access, products: cached };
-  }
-  try {
-    const products = filterAllowedProducts(
-      await downloadSalesCatalog(userId),
-      access,
-    );
-    if (access.companyIds.length > 0) {
-      const allowedIds: string[] = [];
-      for (const companyId of access.companyIds) {
-        const companyProducts = await getAllCompanyProducts(companyId).catch(
-          () => [],
-        );
-        for (const product of companyProducts) allowedIds.push(product._id);
-      }
-      if (allowedIds.length > 0) saveAllowedProductIds(access, allowedIds);
+  if (accessKey(previous) === accessKey(access)) {
+    const ready = catalogForAccess(access);
+    if (ready && ready.length > 0) {
+      saveSalesCompanyAccess(access);
+      warmSalesInventoryIndex();
+      return { access, products: ready };
     }
-    if (products.length > 0) replaceCachedCatalog(access, products);
-    saveSalesCompanyAccess(access);
-    return { access, products };
-  } catch {
-    const leftover = filterAllowedProducts(
-      loadCachedCatalog()?.products || [],
-      access,
-    );
-    saveSalesCompanyAccess(access);
-    return { access, products: leftover };
   }
+  return downloadSalesCatalogForAccess(userId, access);
 }
 
 function allowedSalesProducts(list: Product[]) {
@@ -1604,6 +1692,80 @@ function productAtApiIndex(list: Product[], index: number) {
   return undefined;
 }
 
+type SalesCatalogRow = {
+  product: Product;
+  hay: string;
+  categories: string[];
+  subId: string;
+  subName: string;
+};
+
+let indexedSalesCatalog: Product[] | null = null;
+let indexedSalesRows: SalesCatalogRow[] | null = null;
+
+function salesCatalogRows(catalog: Product[]) {
+  if (indexedSalesCatalog === catalog && indexedSalesRows) return indexedSalesRows;
+  indexedSalesRows = catalog.map((product) => {
+    const category =
+      product.category && typeof product.category === "object" ? product.category : null;
+    const named = category as {
+      masterCategory?: string;
+      masterCategoryName?: string;
+      masterCategoryId?: string;
+      subCategory?: string;
+      _id?: string;
+    } | null;
+    return {
+      product,
+      hay: [product.itemName, product.itemRef, product.barCode, product.barcode]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" "),
+      categories: [
+        product.masterCategoryId,
+        product.masterCategoryName,
+        named?.masterCategoryId,
+        named?.masterCategoryName || named?.masterCategory,
+      ]
+        .map((value) => String(value || ""))
+        .filter(Boolean),
+      subId: named?._id
+        ? String(named._id)
+        : String(product.categoryId || product.subCategoryId || ""),
+      subName: named ? String(named.subCategory || "") : "",
+    };
+  });
+  indexedSalesCatalog = catalog;
+  return indexedSalesRows;
+}
+
+function sliceSalesInventoryPage(list: Product[], uiPage: number) {
+  const start = Math.max(0, uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
+  return {
+    products: list.slice(start, start + SALES_INVENTORY_PAGE_SIZE),
+    hasNext: start + SALES_INVENTORY_PAGE_SIZE < list.length,
+  };
+}
+
+export function localSalesInventoryPage(
+  uiPage: number,
+  tag: string,
+  cat = "",
+  subCat = "",
+) {
+  const catalog = catalogForAccess(loadSalesCompanyAccess());
+  if (!catalog || catalog.length === 0) return null;
+  const needle = tag.trim().toLowerCase();
+  if (!needle && !cat && !subCat) return sliceSalesInventoryPage(catalog, uiPage);
+  const matched: Product[] = [];
+  for (const row of salesCatalogRows(catalog)) {
+    if (needle && !row.hay.includes(needle)) continue;
+    if (cat && !row.categories.includes(cat)) continue;
+    if (subCat && row.subId !== subCat && row.subName !== subCat) continue;
+    matched.push(row.product);
+  }
+  return sliceSalesInventoryPage(matched, uiPage);
+}
+
 export async function loadSalesInventoryUiPage(
   storeId: string,
   userId: string,
@@ -1614,56 +1776,8 @@ export async function loadSalesInventoryUiPage(
   cat = "",
   subCat = "",
 ) {
-  const catalog = catalogForAccess(loadSalesCompanyAccess());
-  if (catalog && catalog.length > 0) {
-    const needle = tag.trim().toLowerCase();
-    const filtered = catalog.filter((product) => {
-      if (needle) {
-        const hay = [
-          product.itemName,
-          product.itemRef,
-          product.barCode,
-          product.barcode,
-        ]
-          .map((value) => String(value || "").toLowerCase())
-          .join(" ");
-        if (!hay.includes(needle)) return false;
-      }
-      if (cat) {
-        const names = [
-          product.masterCategoryId,
-          product.masterCategoryName,
-          typeof product.category === "object"
-            ? product.category?.masterCategoryId
-            : "",
-          typeof product.category === "object"
-            ? (product.category as { masterCategory?: string; masterCategoryName?: string })
-                .masterCategoryName ||
-              (product.category as { masterCategory?: string }).masterCategory
-            : "",
-        ].map((value) => String(value || ""));
-        if (!names.includes(cat)) return false;
-      }
-      if (subCat) {
-        const subId =
-          typeof product.category === "object" && product.category?._id
-            ? String(product.category._id)
-            : String(product.categoryId || product.subCategoryId || "");
-        const subName =
-          typeof product.category === "object"
-            ? String(product.category.subCategory || "")
-            : "";
-        if (subId !== subCat && subName !== subCat) return false;
-      }
-      return true;
-    });
-    const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
-    const products = filtered.slice(start, start + SALES_INVENTORY_PAGE_SIZE);
-    return {
-      products,
-      hasNext: start + SALES_INVENTORY_PAGE_SIZE < filtered.length,
-    };
-  }
+  const local = localSalesInventoryPage(uiPage, tag, cat, subCat);
+  if (local) return local;
 
   const needed = uiPage * SALES_INVENTORY_PAGE_SIZE;
   const collected: Product[] = [];

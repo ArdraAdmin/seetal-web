@@ -8,6 +8,7 @@ import {
   createSalesProductCache,
   getCategories,
   loadSalesInventoryUiPage,
+  localSalesInventoryPage,
   SALES_INVENTORY_PAGE_SIZE,
   syncSalesInventory,
 } from "@/lib/api";
@@ -93,6 +94,8 @@ export default function SalesStoreProductsPage() {
   const tempStore = searchParams.get("temp") === "1";
 
   const cacheRef = useRef(createSalesProductCache());
+  const loadGen = useRef(0);
+  const filtersRef = useRef({ category: "", subCategory: "", appliedQuery: "" });
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
@@ -104,6 +107,7 @@ export default function SalesStoreProductsPage() {
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [category, setCategory] = useState("");
   const [subCategory, setSubCategory] = useState("");
+  filtersRef.current = { category, subCategory, appliedQuery };
 
   useEffect(() => {
     setCount(cartCount(storeId));
@@ -111,13 +115,30 @@ export default function SalesStoreProductsPage() {
   }, [storeId]);
 
   const load = useCallback(
-    async (nextPage = 1, searchTag = "", cat = category, sub = subCategory) => {
+    async (
+      nextPage = 1,
+      searchTag = "",
+      cat = filtersRef.current.category,
+      sub = filtersRef.current.subCategory,
+    ) => {
       if (!user?.id || !storeId) return;
+      const gen = ++loadGen.current;
       const tag = searchTag.trim();
+      const local = localSalesInventoryPage(nextPage, tag, cat, sub);
+      if (local) {
+        if (gen !== loadGen.current) return;
+        setProducts(local.products);
+        setHasNext(local.hasNext);
+        setPage(nextPage);
+        setAppliedQuery(tag);
+        setError(null);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError(null);
+      void syncSalesInventory(user.id);
       try {
-        await syncSalesInventory(user.id);
         const data = await loadSalesInventoryUiPage(
           storeId,
           user.id,
@@ -128,17 +149,19 @@ export default function SalesStoreProductsPage() {
           cat,
           sub,
         );
+        if (gen !== loadGen.current) return;
         setProducts(data.products);
         setHasNext(data.hasNext);
         setPage(nextPage);
         setAppliedQuery(tag);
       } catch (e) {
+        if (gen !== loadGen.current) return;
         setError(e instanceof Error ? e.message : "Failed to load products");
       } finally {
-        setLoading(false);
+        if (gen === loadGen.current) setLoading(false);
       }
     },
-    [storeId, user?.id, tempStore, category, subCategory],
+    [storeId, user?.id, tempStore],
   );
 
   useEffect(() => {
@@ -149,9 +172,10 @@ export default function SalesStoreProductsPage() {
   useEffect(() => {
     return onSalesAccessChange(() => {
       cacheRef.current = createSalesProductCache();
-      void load(1, appliedQuery);
+      const filters = filtersRef.current;
+      void load(1, filters.appliedQuery, filters.category, filters.subCategory);
     });
-  }, [load, appliedQuery]);
+  }, [load]);
 
   useEffect(() => {
     void getCategories()
@@ -246,7 +270,6 @@ export default function SalesStoreProductsPage() {
                 const next = e.target.value;
                 setCategory(next);
                 setSubCategory("");
-                cacheRef.current = createSalesProductCache();
                 void load(1, appliedQuery, next, "");
               }}
               className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
@@ -272,7 +295,6 @@ export default function SalesStoreProductsPage() {
               onChange={(e) => {
                 const next = e.target.value;
                 setSubCategory(next);
-                cacheRef.current = createSalesProductCache();
                 void load(1, appliedQuery, category, next);
               }}
               className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand disabled:bg-[#f7f5f0]"

@@ -52,11 +52,15 @@ export function loadSalesCompanyAccess(): SalesCompanyAccess {
   }
 }
 
-export function saveSalesCompanyAccess(access: SalesCompanyAccess) {
-  if (typeof window === "undefined") return;
+function writeSalesCompanyAccess(access: SalesCompanyAccess) {
+  if (typeof window === "undefined") return false;
   const previous = loadSalesCompanyAccess();
   localStorage.setItem(ACCESS_KEY, JSON.stringify(access));
-  if (accessKey(previous) !== accessKey(access)) notify();
+  return accessKey(previous) !== accessKey(access);
+}
+
+export function saveSalesCompanyAccess(access: SalesCompanyAccess) {
+  if (writeSalesCompanyAccess(access)) notify();
 }
 
 export function resolveCatalogAccess(
@@ -128,7 +132,26 @@ export function filterAllowedProducts(
   products: Product[],
   access: SalesCompanyAccess,
 ) {
-  return products.filter((product) => isProductAllowed(product, access));
+  const allowedIds = new Set(access.companyIds);
+  const allowedNames = allowedCompanyNames(access);
+  const extraIds = loadAllowedProductIds(access);
+  const filtered: Product[] = [];
+  for (const product of products) {
+    const id = productCompanyId(product);
+    const name = productCompanyName(product);
+    if (id) {
+      if (allowedIds.has(id) || (name && allowedNames.includes(name))) {
+        filtered.push(product);
+      }
+      continue;
+    }
+    if (name) {
+      if (allowedNames.includes(name)) filtered.push(product);
+      continue;
+    }
+    if (extraIds?.has(product._id)) filtered.push(product);
+  }
+  return filtered;
 }
 
 export function companyQueryPayload(access: SalesCompanyAccess) {
@@ -148,17 +171,119 @@ export function defaultSalesCompanyAccess(
   };
 }
 
+let memoryCatalog: { accessKey: string; products: Product[] } | null = null;
+let filteredCatalog: { key: string; products: Product[] } | null = null;
+let allowedIdsCache: { key: string; ids: Set<string> | null } | null = null;
+
+function slimSalesProduct(product: Product): Product {
+  const category = product.category;
+  let slimCategory: Product["category"] = category;
+  if (category && typeof category === "object") {
+    const record = category as {
+      _id?: string;
+      subCategory?: string;
+      masterCategory?: string;
+      masterCategoryId?: string;
+      masterCategoryName?: string;
+    };
+    slimCategory = {
+      _id: record._id,
+      subCategory: record.subCategory,
+      masterCategory: record.masterCategory,
+      masterCategoryId: record.masterCategoryId,
+    };
+    if (record.masterCategoryName) {
+      (slimCategory as { masterCategoryName?: string }).masterCategoryName =
+        record.masterCategoryName;
+    }
+  }
+  const company = product.company;
+  const slimCompany: Product["company"] =
+    company && typeof company === "object"
+      ? { _id: company._id, name: company.name, prefix: company.prefix }
+      : company;
+  const inQty = product.inQty;
+  return {
+    _id: product._id,
+    itemRef: product.itemRef,
+    itemName: product.itemName,
+    barCode: product.barCode,
+    barcode: product.barcode,
+    unit: product.unit,
+    ratio: product.ratio,
+    sellingPrice: product.sellingPrice,
+    currentStorePrice: product.currentStorePrice,
+    isDisplay: product.isDisplay,
+    inQty: inQty
+      ? {
+          amountInCartons: inQty.amountInCartons,
+          amountInUnits: inQty.amountInUnits,
+        }
+      : undefined,
+    amountInCartons: product.amountInCartons,
+    amountInUnits: product.amountInUnits,
+    category: slimCategory,
+    categoryId: product.categoryId,
+    subCategoryId: product.subCategoryId,
+    masterCategoryId: product.masterCategoryId,
+    masterCategoryName:
+      typeof product.masterCategoryName === "string"
+        ? product.masterCategoryName
+        : undefined,
+    company: slimCompany,
+  };
+}
+
+function scheduleSlimPersist(
+  entry: { accessKey: string; products: Product[] },
+  rawLength: number,
+) {
+  const payload = JSON.stringify(entry);
+  if (payload.length >= rawLength * 0.9) return;
+  const write = () => {
+    if (
+      memoryCatalog?.accessKey !== entry.accessKey ||
+      memoryCatalog.products !== entry.products
+    ) {
+      return;
+    }
+    try {
+      localStorage.setItem(CATALOG_KEY, payload);
+    } catch {
+      /* Keep the previous copy if the slim one cannot be stored. */
+    }
+  };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(write);
+  else setTimeout(write, 200);
+}
+
+export function dropSalesCatalogCache() {
+  memoryCatalog = null;
+  filteredCatalog = null;
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(CATALOG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function loadCachedCatalog(): { accessKey: string; products: Product[] } | null {
+  if (memoryCatalog) return memoryCatalog;
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(CATALOG_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { accessKey?: string; products?: Product[] };
     if (!Array.isArray(parsed.products)) return null;
-    return {
+    memoryCatalog = {
       accessKey: String(parsed.accessKey || ""),
-      products: parsed.products,
+      products: parsed.products.map(slimSalesProduct),
     };
+    if (memoryCatalog.products.length > 0) {
+      scheduleSlimPersist(memoryCatalog, raw.length);
+    }
+    return memoryCatalog;
   } catch {
     return null;
   }
@@ -166,11 +291,13 @@ export function loadCachedCatalog(): { accessKey: string; products: Product[] } 
 
 export function saveCachedCatalog(access: SalesCompanyAccess, products: Product[]) {
   if (typeof window === "undefined") return;
+  memoryCatalog = {
+    accessKey: accessKey(access),
+    products: products.map(slimSalesProduct),
+  };
+  filteredCatalog = null;
   try {
-    localStorage.setItem(
-      CATALOG_KEY,
-      JSON.stringify({ accessKey: accessKey(access), products }),
-    );
+    localStorage.setItem(CATALOG_KEY, JSON.stringify(memoryCatalog));
   } catch {
     try {
       localStorage.removeItem(CATALOG_KEY);
@@ -184,12 +311,14 @@ export function saveAllowedProductIds(
   access: SalesCompanyAccess,
   ids: string[],
 ) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  allowedIdsCache = { key: accessKey(access), ids: new Set(unique) };
   if (typeof window === "undefined") return;
   localStorage.setItem(
     ALLOWED_IDS_KEY,
     JSON.stringify({
       accessKey: accessKey(access),
-      ids: [...new Set(ids.filter(Boolean))],
+      ids: unique,
     }),
   );
 }
@@ -197,26 +326,39 @@ export function saveAllowedProductIds(
 export function loadAllowedProductIds(
   access: SalesCompanyAccess,
 ): Set<string> | null {
+  const key = accessKey(access);
+  if (allowedIdsCache?.key === key) return allowedIdsCache.ids;
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(ALLOWED_IDS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { accessKey?: string; ids?: string[] };
-    if (parsed.accessKey !== accessKey(access) || !Array.isArray(parsed.ids)) {
+    if (!raw) {
+      allowedIdsCache = { key, ids: null };
       return null;
     }
-    return new Set(parsed.ids.map(String).filter(Boolean));
+    const parsed = JSON.parse(raw) as { accessKey?: string; ids?: string[] };
+    if (parsed.accessKey !== key || !Array.isArray(parsed.ids)) {
+      allowedIdsCache = { key, ids: null };
+      return null;
+    }
+    const ids = new Set(parsed.ids.map(String).filter(Boolean));
+    allowedIdsCache = { key, ids };
+    return ids;
   } catch {
     return null;
   }
 }
 
 export function catalogForAccess(access: SalesCompanyAccess): Product[] | null {
+  const key = accessKey(access);
+  if (filteredCatalog?.key === key) {
+    return filteredCatalog.products.length > 0 ? filteredCatalog.products : null;
+  }
   const cached = loadCachedCatalog();
-  if (!cached || cached.accessKey !== accessKey(access)) return null;
-  if (!cached.products.length) return null;
+  if (!cached || cached.accessKey !== key || cached.products.length === 0) return null;
   const allowed = filterAllowedProducts(cached.products, access);
-  return allowed.length > 0 ? allowed : null;
+  if (allowed.length === 0) return null;
+  filteredCatalog = { key, products: allowed };
+  return allowed;
 }
 
 export function replaceCachedCatalog(
@@ -224,6 +366,7 @@ export function replaceCachedCatalog(
   products: Product[],
 ) {
   saveCachedCatalog(access, filterAllowedProducts(products, access));
+  writeSalesCompanyAccess(access);
   notify();
 }
 

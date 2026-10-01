@@ -1,4 +1,5 @@
 import type { Product, SalesCartLine } from "./types";
+import { dropSalesCatalogCache } from "./sales-company";
 import {
   productCategoryId,
   productMasterCategoryId,
@@ -12,6 +13,7 @@ const CATALOG_KEY = "stl_sales_catalog";
 const EVENT = "stl-sales-cart";
 
 export function clearCatalogCache() {
+  dropSalesCatalogCache();
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(CATALOG_KEY);
