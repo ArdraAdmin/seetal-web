@@ -6,9 +6,17 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Search, ShoppingCart } from "lucide-react";
 import {
   createSalesProductCache,
+  getCategories,
   loadSalesInventoryUiPage,
   SALES_INVENTORY_PAGE_SIZE,
+  syncSalesInventory,
 } from "@/lib/api";
+import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
+import {
+  catalogForAccess,
+  loadSalesCompanyAccess,
+  onSalesAccessChange,
+} from "@/lib/sales-company";
 import {
   cartCount,
   cartLineFromProduct,
@@ -36,6 +44,44 @@ import {
   SecondaryButton,
 } from "@/components/ui";
 
+function categoriesFromCatalog(): CategoryGroup[] {
+  const products = catalogForAccess(loadSalesCompanyAccess()) || [];
+  const groups = new Map<string, CategoryGroup>();
+  for (const product of products) {
+    const category =
+      typeof product.category === "object" && product.category
+        ? product.category
+        : null;
+    const name = String(
+      (category as { masterCategoryName?: string } | null)?.masterCategoryName ||
+        category?.masterCategory ||
+        product.masterCategoryName ||
+        "",
+    );
+    if (!name) continue;
+    const masterId = String(
+      product.masterCategoryId || category?.masterCategoryId || name,
+    );
+    const current = groups.get(name) || {
+      name,
+      masterCategoryId: masterId,
+      awsMasterCatDir: "",
+      items: [],
+    };
+    const sub = String(category?.subCategory || "");
+    if (sub && !current.items.some((item) => item.subCategory === sub)) {
+      current.items.push({
+        _id: category?._id,
+        masterCategoryId: masterId,
+        masterCategoryName: name,
+        subCategory: sub,
+      });
+    }
+    groups.set(name, current);
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export default function SalesStoreProductsPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -44,6 +90,7 @@ export default function SalesStoreProductsPage() {
   const storeId = params.id;
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
+  const tempStore = searchParams.get("temp") === "1";
 
   const cacheRef = useRef(createSalesProductCache());
   const [products, setProducts] = useState<Product[]>([]);
@@ -54,6 +101,9 @@ export default function SalesStoreProductsPage() {
   const [count, setCount] = useState(0);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
+  const [categories, setCategories] = useState<CategoryGroup[]>([]);
+  const [category, setCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
 
   useEffect(() => {
     setCount(cartCount(storeId));
@@ -61,18 +111,22 @@ export default function SalesStoreProductsPage() {
   }, [storeId]);
 
   const load = useCallback(
-    async (nextPage = 1, searchTag = "") => {
+    async (nextPage = 1, searchTag = "", cat = category, sub = subCategory) => {
       if (!user?.id || !storeId) return;
       const tag = searchTag.trim();
       setLoading(true);
       setError(null);
       try {
+        await syncSalesInventory(user.id);
         const data = await loadSalesInventoryUiPage(
           storeId,
           user.id,
           nextPage,
           tag,
           cacheRef.current,
+          tempStore,
+          cat,
+          sub,
         );
         setProducts(data.products);
         setHasNext(data.hasNext);
@@ -84,13 +138,33 @@ export default function SalesStoreProductsPage() {
         setLoading(false);
       }
     },
-    [storeId, user?.id],
+    [storeId, user?.id, tempStore, category, subCategory],
   );
 
   useEffect(() => {
     cacheRef.current = createSalesProductCache();
     void load(1, "");
   }, [load]);
+
+  useEffect(() => {
+    return onSalesAccessChange(() => {
+      cacheRef.current = createSalesProductCache();
+      void load(1, appliedQuery);
+    });
+  }, [load, appliedQuery]);
+
+  useEffect(() => {
+    void getCategories()
+      .then((data) => {
+        const groups = parseCategoryGroups(data);
+        if (groups.length > 0) {
+          setCategories(groups);
+          return;
+        }
+        setCategories(categoriesFromCatalog());
+      })
+      .catch(() => setCategories(categoriesFromCatalog()));
+  }, []);
 
   function applySearch() {
     void load(1, query.trim());
@@ -121,7 +195,7 @@ export default function SalesStoreProductsPage() {
           <p className="mt-1 text-sm text-slate-500">Select product</p>
         </div>
         <Link
-          href={`/sales/stores/${storeId}/cart?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}`}
+          href={`/sales/stores/${storeId}/cart?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`}
           className="relative inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand text-black"
           aria-label="Open cart"
         >
@@ -148,8 +222,8 @@ export default function SalesStoreProductsPage() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search this store's inventory"
-              aria-label="Search this store's inventory"
+              placeholder="Search by name, item code, or barcode"
+              aria-label="Search by name, item code, or barcode"
               autoComplete="off"
               className="h-11 w-full rounded-xl border border-line bg-white pl-10 pr-3 text-base text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
             />
@@ -163,6 +237,60 @@ export default function SalesStoreProductsPage() {
             </SecondaryButton>
           ) : null}
         </form>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-medium text-slate-700">Category</span>
+            <select
+              value={category}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCategory(next);
+                setSubCategory("");
+                cacheRef.current = createSalesProductCache();
+                void load(1, appliedQuery, next, "");
+              }}
+              className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+            >
+              <option value="">All categories</option>
+              {categories.map((group) => (
+                <option
+                  key={group.masterCategoryId || group.name}
+                  value={group.name}
+                >
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-medium text-slate-700">
+              Subcategory
+            </span>
+            <select
+              value={subCategory}
+              disabled={!category}
+              onChange={(e) => {
+                const next = e.target.value;
+                setSubCategory(next);
+                cacheRef.current = createSalesProductCache();
+                void load(1, appliedQuery, category, next);
+              }}
+              className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand disabled:bg-[#f7f5f0]"
+            >
+              <option value="">All subcategories</option>
+              {(categories.find((group) => group.name === category)?.items || []).map(
+                (item) => (
+                  <option
+                    key={item._id || item.subCategory}
+                    value={item.subCategory || ""}
+                  >
+                    {item.subCategory}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+        </div>
         {appliedQuery && !loading ? (
           <p className="mt-2 text-xs text-slate-500">
             {products.length} item{products.length === 1 ? "" : "s"} matching “{appliedQuery}”

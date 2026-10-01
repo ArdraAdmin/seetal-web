@@ -32,14 +32,34 @@ function mongoUri(): string {
 
 export function getMongoClient(): Promise<MongoClient> {
   if (!clientPromise) {
-    clientPromise = new MongoClient(mongoUri()).connect();
+    clientPromise = new MongoClient(mongoUri())
+      .connect()
+      .catch((error) => {
+        clientPromise = null;
+        throw error;
+      });
   }
   return clientPromise;
+}
+
+function isMongoUnavailable(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("querysrv") ||
+    message.includes("etimeout") ||
+    message.includes("enotfound") ||
+    message.includes("ebadresp") ||
+    message.includes("mongoserverselectionerror") ||
+    error.name === "MongoServerSelectionError" ||
+    error.name === "MongoNetworkError"
+  );
 }
 
 export function isDatabaseNotConfigured(error: unknown): boolean {
   return (
     error instanceof DatabaseNotConfiguredError ||
-    (error instanceof Error && error.message === "Database is not configured")
+    (error instanceof Error && error.message === "Database is not configured") ||
+    isMongoUnavailable(error)
   );
 }

@@ -19,6 +19,17 @@ import type {
   SalesCartLine,
 } from "./types";
 import { asProductList, asStoreList, cartTotals, lineAggregate } from "./sales";
+import {
+  companyQueryPayload,
+  filterAllowedProducts,
+  loadSalesCompanyAccess,
+  replaceCachedCatalog,
+  accessKey,
+  catalogForAccess,
+  loadCachedCatalog,
+  saveSalesCompanyAccess,
+  type SalesCompanyAccess,
+} from "./sales-company";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -273,9 +284,8 @@ export const searchProfiles = (tag: string, role: string) =>
     body: JSON.stringify({ tag, role }),
   });
 export const deleteUser = (id: string) =>
-  siteRequest<string>("/api/admin/profiles/delete", {
-    method: "POST",
-    body: JSON.stringify({ userId: id }),
+  request<unknown>(`/admin/edit/deleteUser/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 
 export async function getProfile(role: "sales" | "warehouse", id: string) {
@@ -550,6 +560,10 @@ export function normalizeItemRef(ref: string) {
 export interface ExistingInventoryItem {
   itemRef: string;
   itemName?: string;
+  ratio?: number;
+  amountInCartons?: number;
+  amountInUnits?: number;
+  sellingPrice?: number;
 }
 
 function asExistingInventoryItems(data: unknown): ExistingInventoryItem[] {
@@ -564,9 +578,17 @@ function asExistingInventoryItems(data: unknown): ExistingInventoryItem[] {
     const o = row as Record<string, unknown>;
     const itemRef = normalizeItemRef(String(o.itemRef ?? ""));
     if (!itemRef) continue;
+    const asNum = (value: unknown) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
     items.push({
       itemRef,
       itemName: o.itemName ? String(o.itemName) : undefined,
+      ratio: asNum(o.ratio),
+      amountInCartons: asNum(o.amountInCartons),
+      amountInUnits: asNum(o.amountInUnits),
+      sellingPrice: asNum(o.sellingPrice),
     });
   }
   return items;
@@ -1281,7 +1303,136 @@ export async function loadSalesStoreSearchPage(
   };
 }
 
-export const downloadSalesStores = () => request<StoreProfile[]>("/sales/store");
+export async function downloadSalesStores(userId?: string) {
+  const downloaded = asStoreList(await request<unknown>("/sales/store"));
+  const byId = new Map(downloaded.map((store) => [store._id, store]));
+  if (userId) {
+    try {
+      const data = await request<{ myStoreArr?: StoreProfile[] }>("/sales/store", {
+        method: "POST",
+        body: JSON.stringify({ userId, page: 1 }),
+      });
+      for (const store of data.myStoreArr || []) {
+        const existing = byId.get(store._id);
+        const isTemp = Boolean(
+          store.isTemp ||
+            store.isTempStore ||
+            existing?.isTemp ||
+            existing?.isTempStore ||
+            (downloaded.length > 0 && !existing),
+        );
+        byId.set(store._id, {
+          ...existing,
+          ...store,
+          isTemp,
+          isTempStore: isTemp,
+        });
+      }
+    } catch {
+      /* Keep the full store download even if my-store paging fails. */
+    }
+  }
+  return [...byId.values()];
+}
+
+function parseSalesCompanyAccess(data: unknown): SalesCompanyAccess | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  if (!Array.isArray(o.companyIds) && o.includeUnassigned == null) return null;
+  const ids = Array.isArray(o.companyIds)
+    ? o.companyIds.map((id) => String(id || "")).filter(Boolean)
+    : [];
+  return {
+    companyIds: ids,
+    includeUnassigned: Boolean(o.includeUnassigned),
+  };
+}
+
+export async function getSalesCompanyAccess(
+  userId: string,
+): Promise<SalesCompanyAccess> {
+  try {
+    const data = await request<unknown>(
+      `/sales/access?userId=${encodeURIComponent(userId)}`,
+    );
+    const parsed = parseSalesCompanyAccess(data);
+    if (parsed) return parsed;
+  } catch {
+    /* Origin may not have /sales/access yet. */
+  }
+  const data = await siteRequest<unknown>(
+    `/api/sales/access?userId=${encodeURIComponent(userId)}`,
+  );
+  return (
+    parseSalesCompanyAccess(data) || {
+      companyIds: [],
+      includeUnassigned: true,
+    }
+  );
+}
+
+export async function refreshSalesCompanyAccess(userId: string) {
+  try {
+    const access = await getSalesCompanyAccess(userId);
+    saveSalesCompanyAccess(access);
+    return access;
+  } catch {
+    return loadSalesCompanyAccess();
+  }
+}
+
+export async function downloadSalesCatalog(userId: string) {
+  const data = await request<unknown>(
+    `/sales/product?salesId=${encodeURIComponent(userId)}`,
+  );
+  return asProductList(data);
+}
+
+export async function syncSalesInventory(userId: string) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    const access = loadSalesCompanyAccess();
+    return { access, products: catalogForAccess(access) || [] };
+  }
+  const previous = loadSalesCompanyAccess();
+  let access: SalesCompanyAccess;
+  try {
+    access = await getSalesCompanyAccess(userId);
+  } catch {
+    access = previous;
+    return { access, products: catalogForAccess(access) || [] };
+  }
+  const cached = catalogForAccess(access);
+  if (cached && accessKey(previous) === accessKey(access)) {
+    saveSalesCompanyAccess(access);
+    return { access, products: cached };
+  }
+  try {
+    const products = filterAllowedProducts(
+      await downloadSalesCatalog(userId),
+      access,
+    );
+    replaceCachedCatalog(access, products);
+    saveSalesCompanyAccess(access);
+    return { access, products };
+  } catch {
+    const leftover = filterAllowedProducts(
+      loadCachedCatalog()?.products || [],
+      access,
+    );
+    replaceCachedCatalog(access, leftover);
+    saveSalesCompanyAccess(access);
+    return { access, products: leftover };
+  }
+}
+
+function allowedSalesProducts(list: Product[]) {
+  return filterAllowedProducts(list, loadSalesCompanyAccess());
+}
+
+function withCompanyBody(body: Record<string, unknown>) {
+  const access = loadSalesCompanyAccess();
+  return { ...body, ...companyQueryPayload(access) };
+}
 
 export async function getStoreProducts(
   storeId: string,
@@ -1291,14 +1442,16 @@ export async function getStoreProducts(
 ) {
   const data = await request<unknown>("/sales/products", {
     method: "POST",
-    body: JSON.stringify({
-      storeId,
-      userId,
-      page,
-      tempStore: tempStore ? "true" : "false",
-    }),
+    body: JSON.stringify(
+      withCompanyBody({
+        storeId,
+        userId,
+        page,
+        tempStore: tempStore ? "true" : "false",
+      }),
+    ),
   });
-  return asProductList(data);
+  return allowedSalesProducts(asProductList(data));
 }
 
 export async function searchStoreProducts(
@@ -1309,14 +1462,40 @@ export async function searchStoreProducts(
 ) {
   const data = await request<unknown>("/sales/search", {
     method: "POST",
-    body: JSON.stringify({
-      storeId,
-      tag,
-      page,
-      tempStore: tempStore ? "true" : "false",
-    }),
+    body: JSON.stringify(
+      withCompanyBody({
+        storeId,
+        tag,
+        page,
+        userId: getStoredAuth()?.id,
+        tempStore: tempStore ? "true" : "false",
+      }),
+    ),
   });
-  return asProductList(data);
+  return allowedSalesProducts(asProductList(data));
+}
+
+export async function filterStoreProducts(
+  storeId: string,
+  page = 1,
+  tempStore = false,
+  cat: string,
+  subCat = "",
+) {
+  const data = await request<unknown>("/sales/filter", {
+    method: "POST",
+    body: JSON.stringify(
+      withCompanyBody({
+        storeId,
+        page,
+        userId: getStoredAuth()?.id,
+        tempStore: tempStore ? "true" : "false",
+        cat,
+        subCat,
+      }),
+    ),
+  });
+  return allowedSalesProducts(asProductList(data));
 }
 
 export const SALES_INVENTORY_PAGE_SIZE = 30;
@@ -1328,8 +1507,14 @@ export function createSalesProductCache(): SalesProductCache {
   return new Map();
 }
 
-function productCacheKey(storeId: string, tag: string) {
-  return `${storeId}::${tag}`;
+function productCacheKey(
+  storeId: string,
+  tag: string,
+  tempStore: boolean,
+  cat: string,
+  subCat: string,
+) {
+  return `${storeId}::${tempStore ? "t" : "s"}::${tag}::${cat}::${subCat}`;
 }
 
 async function inventoryApiPage(
@@ -1338,8 +1523,11 @@ async function inventoryApiPage(
   tag: string,
   apiPage: number,
   cache: SalesProductCache,
+  tempStore = false,
+  cat = "",
+  subCat = "",
 ) {
-  const key = productCacheKey(storeId, tag);
+  const key = productCacheKey(storeId, tag, tempStore, cat, subCat);
   let pages = cache.get(key);
   if (!pages) {
     pages = new Map();
@@ -1348,9 +1536,30 @@ async function inventoryApiPage(
   const cached = pages.get(apiPage);
   if (cached) return cached;
   try {
-    const list = tag
-      ? await searchStoreProducts(storeId, tag, apiPage, false)
-      : await getStoreProducts(storeId, userId, apiPage, false);
+    let list: Product[];
+    if (tag && (cat || subCat)) {
+      const data = await request<unknown>("/sales/searchFilter", {
+        method: "POST",
+        body: JSON.stringify(
+          withCompanyBody({
+            storeId,
+            tag,
+            page: apiPage,
+            userId,
+            tempStore: tempStore ? "true" : "false",
+            cat,
+            subCat,
+          }),
+        ),
+      });
+      list = allowedSalesProducts(asProductList(data));
+    } else if (tag) {
+      list = await searchStoreProducts(storeId, tag, apiPage, tempStore);
+    } else if (cat || subCat) {
+      list = await filterStoreProducts(storeId, apiPage, tempStore, cat, subCat);
+    } else {
+      list = await getStoreProducts(storeId, userId, apiPage, tempStore);
+    }
     pages.set(apiPage, list);
     return list;
   } catch {
@@ -1372,12 +1581,75 @@ export async function loadSalesInventoryUiPage(
   uiPage: number,
   tag: string,
   cache: SalesProductCache,
+  tempStore = false,
+  cat = "",
+  subCat = "",
 ) {
+  const catalog = catalogForAccess(loadSalesCompanyAccess());
+  if (catalog) {
+    const needle = tag.trim().toLowerCase();
+    const filtered = catalog.filter((product) => {
+      if (needle) {
+        const hay = [
+          product.itemName,
+          product.itemRef,
+          product.barCode,
+          product.barcode,
+        ]
+          .map((value) => String(value || "").toLowerCase())
+          .join(" ");
+        if (!hay.includes(needle)) return false;
+      }
+      if (cat) {
+        const names = [
+          product.masterCategoryId,
+          product.masterCategoryName,
+          typeof product.category === "object"
+            ? product.category?.masterCategoryId
+            : "",
+          typeof product.category === "object"
+            ? (product.category as { masterCategory?: string; masterCategoryName?: string })
+                .masterCategoryName ||
+              (product.category as { masterCategory?: string }).masterCategory
+            : "",
+        ].map((value) => String(value || ""));
+        if (!names.includes(cat)) return false;
+      }
+      if (subCat) {
+        const subId =
+          typeof product.category === "object" && product.category?._id
+            ? String(product.category._id)
+            : String(product.categoryId || product.subCategoryId || "");
+        const subName =
+          typeof product.category === "object"
+            ? String(product.category.subCategory || "")
+            : "";
+        if (subId !== subCat && subName !== subCat) return false;
+      }
+      return true;
+    });
+    const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
+    const products = filtered.slice(start, start + SALES_INVENTORY_PAGE_SIZE);
+    return {
+      products,
+      hasNext: start + SALES_INVENTORY_PAGE_SIZE < filtered.length,
+    };
+  }
+
   const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
   const products: Product[] = [];
   for (let i = start; i < start + SALES_INVENTORY_PAGE_SIZE; i++) {
     const apiPage = Math.floor(i / SALES_INVENTORY_API_PAGE_SIZE) + 1;
-    const list = await inventoryApiPage(storeId, userId, tag, apiPage, cache);
+    const list = await inventoryApiPage(
+      storeId,
+      userId,
+      tag,
+      apiPage,
+      cache,
+      tempStore,
+      cat,
+      subCat,
+    );
     const item = productAtApiIndex(list, i);
     if (!item) break;
     products.push(item);
@@ -1391,6 +1663,9 @@ export async function loadSalesInventoryUiPage(
     tag,
     nextApiPage,
     cache,
+    tempStore,
+    cat,
+    subCat,
   );
   return {
     products,
@@ -1436,6 +1711,7 @@ export function placeSalesOrderPayload({
   payableAmount,
   payableEdited,
   date,
+  tempStore = false,
 }: {
   salesId: string;
   storeId: string;
@@ -1444,6 +1720,7 @@ export function placeSalesOrderPayload({
   payableAmount: number;
   payableEdited: boolean;
   date: string;
+  tempStore?: boolean;
 }) {
   const { totalCost, totalQuantity } = cartTotals(lines);
   const needsApproval = discount > 0 || payableEdited;
@@ -1476,7 +1753,7 @@ export function placeSalesOrderPayload({
     totalQuantity,
     totalCost,
     date,
-    isTempStore: "false",
+    isTempStore: tempStore ? "true" : "false",
     editFlag: false,
     payableAmount,
     payableEdited,
@@ -1640,7 +1917,12 @@ export const toggleGrvDamaged = (
   });
 
 export const updateInventoryQuantities = (
-  updates: { itemRef: string; closingQty: number }[],
+  updates: {
+    itemRef: string;
+    closingQty: number;
+    mode?: "append" | "replace";
+    sellingPrice?: number;
+  }[],
 ) =>
   request<unknown>("/admin/product/updateQuantities", {
     method: "POST",

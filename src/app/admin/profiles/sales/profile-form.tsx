@@ -12,11 +12,12 @@ import {
   type CompanyRecord,
 } from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
-import { companyIds, dateInputValue, salesCompanyIdsOrStl, salesField } from "@/lib/profiles";
+import { companyIds, dateInputValue, salesField } from "@/lib/profiles";
 import { useToast } from "@/components/Toast";
 import {
   Card,
   ErrorState,
+  FieldLabel,
   LoadingState,
   PageHeader,
   PrimaryButton,
@@ -113,7 +114,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
     }
     setSaving(true);
     try {
-      const company = salesCompanyIdsOrStl(form.companyIds, companies);
+      const company = form.companyIds;
       const payload: Record<string, unknown> = {
         role: "Sales",
         name: form.name.trim(),
@@ -125,7 +126,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         joiningDate: form.joiningDate,
         address: form.address.trim(),
         company,
-        accessToInv: company.length > 0,
+        accessToInv: true,
       };
       if (form.password.trim()) payload.password = form.password.trim();
       if (creating) {
@@ -205,6 +206,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
               label="Password"
               type="password"
               required={creating}
+              optional={!creating}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder={creating ? "" : "Leave blank to keep current password"}
@@ -217,11 +219,13 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
             />
             <TextField
               label="Alternate mobile"
+              optional
               value={form.altMobileNumber}
               onChange={(e) => setForm({ ...form, altMobileNumber: e.target.value })}
             />
             <TextField
               label="Spouse name"
+              optional
               value={form.spouseName}
               onChange={(e) => setForm({ ...form, spouseName: e.target.value })}
             />
@@ -240,7 +244,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
               onChange={(e) => setForm({ ...form, joiningDate: e.target.value })}
             />
             <label className="block space-y-1.5 sm:col-span-2">
-              <span className="text-[13px] font-medium text-slate-700">Address</span>
+              <FieldLabel label="Address" required />
               <textarea
                 required
                 rows={3}
@@ -250,11 +254,11 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
               />
             </label>
             <div className="sm:col-span-2">
-              <p className="text-[13px] font-medium text-slate-700">
-                Inventory companies
-              </p>
+              <FieldLabel label="Inventory companies" optional />
               <p className="mt-1 text-xs text-slate-500">
-                If none are selected, this salesperson sees STL stock by default.
+                If none are selected, this salesperson sees STL stock plus
+                products that have no company. Selecting companies hides
+                unassigned products.
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {companies.map((company) => (

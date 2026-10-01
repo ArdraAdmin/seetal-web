@@ -29,6 +29,7 @@ export default function SalesCartPage() {
   const storeId = params.id;
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
+  const tempStore = searchParams.get("temp") === "1";
 
   const [lines, setLines] = useState<SalesCartLine[]>([]);
   const [discount, setDiscount] = useState(0);
@@ -91,6 +92,7 @@ export default function SalesCartPage() {
         payableAmount: payable,
         payableEdited,
         date: deliveryDate,
+        tempStore,
       });
       const result = await placeSalesOrder(body);
       clearCart(storeId);
@@ -113,7 +115,7 @@ export default function SalesCartPage() {
   }
 
   const needsApproval = discount > 0 || payableEdited;
-  const productsHref = `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}`;
+  const productsHref = `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
 
   return (
     <div className="mx-auto max-w-3xl">

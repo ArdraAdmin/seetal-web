@@ -56,12 +56,8 @@ export function stlCompanyId(
   companies: { _id: string; name?: string; prefix?: string }[],
 ) {
   return (
-    companies.find((company) => {
-      const hay = `${company.name ?? ""} ${company.prefix ?? ""}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-      return hay === "stl";
-    })?._id || ""
+    companies.find((company) => String(company.name || "").trim() === "STL")
+      ?._id || ""
   );
 }
 

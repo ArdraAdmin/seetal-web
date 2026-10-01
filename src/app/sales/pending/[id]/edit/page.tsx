@@ -6,10 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { getSalesOrder, resubmitApprovalOrder } from "@/lib/api";
 import type { ApprovalOrder } from "@/lib/types";
 import {
+  addProductToApprovalOrder,
   apiMessage,
   computedPayable,
   resubmitTempOrderPayload,
+  storeIdFromOrder,
 } from "@/lib/approval";
+import { SalesOrderProductPicker } from "@/components/SalesOrderProductPicker";
 import { dateInputValue } from "@/lib/profiles";
 import { todayDateInput } from "@/lib/sales";
 import { useAuth } from "@/components/AuthProvider";
@@ -147,6 +150,32 @@ export default function SalesPendingOrderEditPage() {
       ) : (
         <form onSubmit={onSubmit} className="space-y-4">
           <ApprovalDetails order={order} />
+          {storeIdFromOrder(order) ? (
+            <SalesOrderProductPicker
+              storeId={storeIdFromOrder(order)}
+              tempStore={Boolean(order.isTempStore)}
+              onAdd={(product, quantity, unitReq) => {
+                const result = addProductToApprovalOrder(
+                  order,
+                  product,
+                  quantity,
+                  unitReq,
+                );
+                if (result.error) return result.error;
+                setOrder(result.order);
+                if (!payableTouched) {
+                  setPayable(
+                    computedPayable(
+                      Number(result.order.totalCost) || 0,
+                      discountValue,
+                      Boolean(result.order.isVat),
+                    ).toFixed(2),
+                  );
+                }
+                return null;
+              }}
+            />
+          ) : null}
           <Card>
             <div className="grid gap-3 sm:grid-cols-2">
               <TextField

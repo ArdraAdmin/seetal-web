@@ -15,6 +15,7 @@ import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import {
   addInventoryUploadRows,
   parseInventoryUploadFile,
+  syncInventoryUploadRows,
   type InventoryUploadRow,
   type InventoryUploadTable,
 } from "@/lib/inventory-upload";
@@ -202,50 +203,34 @@ export function InventoryBulkUpload() {
       const existing = await checkProductsByItemRefs(
         table.rows.map((row) => row.itemRef),
       );
-      const existingRefs = new Set(existing.map((item) => item.itemRef));
-      const nextNewRows = table.rows.filter(
-        (row) => !existingRefs.has(row.itemRef),
+      const created = await syncInventoryUploadRows(
+        table.rows,
+        existing,
+        groups,
+        companies,
       );
-
-      if (existing.length > 0) {
-        const labels = new Map(
-          table.rows.map((row) => [row.itemRef, row.itemName]),
-        );
-        setExistingItems(
-          existing.map((item) => ({
-            ...item,
-            itemName: item.itemName || labels.get(item.itemRef) || "",
-          })),
-        );
-        setNewRows(nextNewRows);
-        setPendingTable(table);
-        toast(
-          existing.length === 1
-            ? "This item already exists"
-            : `${existing.length} items already exist`,
-          "info",
-        );
+      if (created.errors.length > 0 && created.added === 0 && created.updated === 0) {
+        toast(created.errors.slice(0, 4).join(". "), "error");
         return;
       }
-
-      const created = await addNewRows(nextNewRows);
-      if (created.errors.length > 0 && created.added === 0) {
-        toast(
-          created.errors.slice(0, 4).join(". "),
-          "error",
+      const parts: string[] = [];
+      if (created.added > 0) {
+        parts.push(
+          `${created.added} new item${created.added === 1 ? "" : "s"} added`,
         );
-        return;
+      }
+      if (created.updated > 0) {
+        parts.push(
+          `${created.updated} existing item${created.updated === 1 ? "" : "s"} updated`,
+        );
       }
       if (created.errors.length > 0) {
         toast(
-          `${created.added} added. ${created.errors.slice(0, 3).join(". ")}`,
+          `${parts.join(". ")}. ${created.errors.slice(0, 3).join(". ")}`,
           "error",
         );
-      } else {
-        toast(
-          `${created.added} new item${created.added === 1 ? "" : "s"} added`,
-          "success",
-        );
+      } else if (parts.length > 0) {
+        toast(parts.join(". "), "success");
       }
       if (created.errors.length === 0) chooseFile(null);
     } catch (err) {
@@ -267,10 +252,10 @@ export function InventoryBulkUpload() {
               Upload spreadsheet
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Accepts Excel (.xlsx / .xls) and CSV. Required columns: Item Ref,
-              Item Details, Unit, SP, PCS/CTNS, MASTER CATEGORY, SUB CATEGORY,
-              Cl. Qty, Company. Existing item refs are checked first and will not
-              be added again.
+              Accepts Excel (.xlsx / .xls) and CSV. Y appends quantity and
+              replaces the price, unless the price is 0. R replaces quantity and
+              price. N adds a new item. A price of 0 leaves the current price
+              unchanged.
             </p>
           </div>
           <SecondaryButton type="button" onClick={downloadTemplate}>

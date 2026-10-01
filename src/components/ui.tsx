@@ -188,19 +188,55 @@ export function RecordPager({
   );
 }
 
+export function FieldLabel({
+  label,
+  required = false,
+  optional = false,
+}: {
+  label: string;
+  required?: boolean;
+  optional?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+      <span>
+        {label}
+        {required ? (
+          <span className="ml-0.5 text-red-600" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </span>
+      {optional ? (
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          optional
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function TextField({
   label,
   type = "text",
   className = "",
+  optional = false,
   ...props
-}: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+}: {
+  label: string;
+  optional?: boolean;
+} & React.InputHTMLAttributes<HTMLInputElement>) {
   const [visible, setVisible] = useState(false);
   const isPassword = type === "password";
   const inputType = isPassword ? (visible ? "text" : "password") : type;
 
   return (
     <label className="block space-y-1.5">
-      <span className="text-[13px] font-medium text-slate-700">{label}</span>
+      <FieldLabel
+        label={label}
+        required={Boolean(props.required)}
+        optional={optional}
+      />
       <span className="relative block">
         <input
           {...props}

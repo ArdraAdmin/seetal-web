@@ -141,10 +141,23 @@ export function productMatchesQuery(product: Product, query: string) {
 }
 
 export function storeSalesmanId(store: StoreProfile) {
-  const salesman = store.salesman;
+  const salesman = store.salesPerson ?? store.salesman;
   if (typeof salesman === "string") return salesman;
-  if (salesman && typeof salesman === "object") return salesman._id || "";
+  if (salesman && typeof salesman === "object") {
+    return String((salesman as { _id?: string })._id || "");
+  }
   return "";
+}
+
+export function isTempStoreRecord(store: StoreProfile) {
+  return Boolean(store.isTemp || store.isTempStore);
+}
+
+export function storeProductsHref(store: StoreProfile) {
+  const title = storeTitle(store);
+  const marks = storeMarks(store);
+  const temp = isTempStoreRecord(store) ? "&temp=1" : "";
+  return `/sales/stores/${store._id}?name=${encodeURIComponent(title)}&marks=${encodeURIComponent(marks)}${temp}`;
 }
 
 export function asStoreList(data: unknown): StoreProfile[] {

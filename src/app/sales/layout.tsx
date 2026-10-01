@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
-import { clearCatalogCache } from "@/lib/sales-cart";
+import { syncSalesInventory } from "@/lib/api";
 
 export default function SalesLayout({
   children,
@@ -16,8 +16,25 @@ export default function SalesLayout({
   const router = useRouter();
 
   useEffect(() => {
-    clearCatalogCache();
-  }, []);
+    if (!user?.id || user.role !== "Sales") return;
+    const userId = user.id;
+    function sync() {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      void syncSalesInventory(userId);
+    }
+    sync();
+    window.addEventListener("focus", sync);
+    window.addEventListener("online", sync);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("online", sync);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "Sales")) {

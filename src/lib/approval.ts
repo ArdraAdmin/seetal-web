@@ -1,5 +1,8 @@
-import type { ApprovalLineItem, ApprovalOrder } from "./types";
+import type { ApprovalLineItem, ApprovalOrder, Product } from "./types";
 import { formatInvoiceDate } from "./invoice";
+import { cartLineFromProduct } from "./sales-cart";
+import { asId } from "./profiles";
+import { lineAggregate, roundMoney } from "./sales";
 
 export function approvalInvoice(order: ApprovalOrder) {
   if (typeof order.invoiceNumber === "string" && order.invoiceNumber.trim()) {
@@ -127,18 +130,78 @@ export function storeIdFromOrder(order: ApprovalOrder) {
   return order.store?._id || "";
 }
 
+export function addProductToApprovalOrder(
+  order: ApprovalOrder,
+  product: Product,
+  quantity: number,
+  unitReq: string,
+): { order: ApprovalOrder; error?: string } {
+  const line = cartLineFromProduct(product, quantity, unitReq);
+  if (!line) {
+    return {
+      order,
+      error: "This product is missing a category and cannot be ordered",
+    };
+  }
+  if (quantity <= 0) {
+    return { order, error: "Enter a quantity first" };
+  }
+  const details = [...(order.productDetails || [])];
+  const index = details.findIndex((item) => lineProductId(item) === line.productId);
+  const nextLine: ApprovalLineItem = {
+    product: {
+      _id: line.productId,
+      itemName: line.itemName,
+      itemRef: line.itemRef,
+      unit: line.unit,
+      sellingPrice: line.storeCost,
+    },
+    categoryId: line.categoryId,
+    storeCost: line.storeCost,
+    aggregateCost: lineAggregate(line),
+    quantityReq: line.quantityReq,
+    quantityAv: line.quantityReq,
+    unitReq: line.unitReq,
+    unitAv: line.unitReq,
+    isChecked: false,
+  };
+  if (index >= 0) details[index] = { ...details[index], ...nextLine };
+  else details.push(nextLine);
+
+  const categoryList = [...(order.categoryList || [])];
+  if (
+    line.masterCategoryId &&
+    !categoryList.some(
+      (item) => asId(item.masterCategoryId) === line.masterCategoryId,
+    )
+  ) {
+    categoryList.push({
+      masterCategoryId: line.masterCategoryId,
+      isDone: false,
+    });
+  }
+
+  const totalCost = roundMoney(
+    details.reduce((sum, item) => sum + (Number(item.aggregateCost) || 0), 0),
+  );
+  const totalQuantity = details.reduce(
+    (sum, item) => sum + (Number(item.quantityReq) || 0),
+    0,
+  );
+  return {
+    order: {
+      ...order,
+      productDetails: details,
+      categoryList,
+      totalCost,
+      totalQuantity,
+    },
+  };
+}
+
 export function salesIdFromOrder(order: ApprovalOrder) {
   if (typeof order.sales === "string") return order.sales;
   return order.sales?._id || "";
-}
-
-function asId(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "object" && "_id" in value) {
-    return String((value as { _id?: unknown })._id ?? "");
-  }
-  return String(value);
 }
 
 export function resubmitTempOrderPayload(

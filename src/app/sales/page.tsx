@@ -5,12 +5,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ShoppingCart } from "lucide-react";
 import {
   createSalesStoreCache,
+  downloadSalesStores,
   loadSalesStoreSearchPage,
   loadSalesStoreUiPage,
   SALES_STORE_PAGE_SIZE,
 } from "@/lib/api";
-import { cartCount, clearCatalogCache, onCartChange } from "@/lib/sales-cart";
-import { storeLocation, storeMarks, storeTitle } from "@/lib/sales";
+import { cartCount, onCartChange } from "@/lib/sales-cart";
+import {
+  loadDownloadedStores,
+  saveDownloadedStores,
+} from "@/lib/sales-company";
+import {
+  storeLocation,
+  storeMarks,
+  storeProductsHref,
+  storeSalesmanId,
+  storeTitle,
+} from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -24,10 +35,21 @@ import {
   TextField,
 } from "@/components/ui";
 
+function splitStores(list: StoreProfile[], userId: string) {
+  const mine: StoreProfile[] = [];
+  const other: StoreProfile[] = [];
+  for (const store of list) {
+    if (userId && storeSalesmanId(store) === userId) mine.push(store);
+    else other.push(store);
+  }
+  return { mine, other };
+}
+
 export default function SalesHomePage() {
   const { user } = useAuth();
   const firstName = (user?.name || "Sales").trim().split(/\s+/)[0];
   const cacheRef = useRef(createSalesStoreCache());
+  const loadGen = useRef(0);
   const [myStores, setMyStores] = useState<StoreProfile[]>([]);
   const [otherStores, setOtherStores] = useState<StoreProfile[]>([]);
   const [page, setPage] = useState(1);
@@ -36,19 +58,60 @@ export default function SalesHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+
+  const showLists = (list: StoreProfile[], nextPage: number, tag: string) => {
+    if (!user?.id) return;
+    const { mine, other } = splitStores(list, user.id);
+    if (tag) {
+      setMyStores([]);
+      setOtherStores(list);
+    } else {
+      setMyStores(mine);
+      setOtherStores(other);
+    }
+    setPage(nextPage);
+    setAppliedQuery(tag);
+    setHasNext(false);
+  };
 
   const loadStores = useCallback(
     async (nextPage = 1, tag = "") => {
       if (!user?.id) return;
+      const gen = ++loadGen.current;
       setLoading(true);
       setError(null);
       try {
+        const cached = loadDownloadedStores();
+        if (cached.length > 0) {
+          const filtered = tag
+            ? cached.filter((store) => {
+                const hay = [
+                  store.storeName,
+                  store.name,
+                  store.marks,
+                  store.city,
+                  store.country,
+                  store.alias,
+                ]
+                  .map((value) => String(value || "").toLowerCase())
+                  .join(" ");
+                return hay.includes(tag.trim().toLowerCase());
+              })
+            : cached;
+          if (gen !== loadGen.current) return;
+          showLists(filtered as StoreProfile[], nextPage, tag);
+          setDownloaded(true);
+          return;
+        }
         if (tag) {
           const data = await loadSalesStoreSearchPage(
             tag,
             nextPage,
             cacheRef.current,
           );
+          if (gen !== loadGen.current) return;
           setMyStores([]);
           setOtherStores(data.stores);
           setHasNext(data.hasNext);
@@ -58,6 +121,7 @@ export default function SalesHomePage() {
             nextPage,
             cacheRef.current,
           );
+          if (gen !== loadGen.current) return;
           setMyStores(data.myStores);
           setOtherStores(data.otherStores);
           setHasNext(data.hasNext);
@@ -65,9 +129,10 @@ export default function SalesHomePage() {
         setPage(nextPage);
         setAppliedQuery(tag);
       } catch (e) {
+        if (gen !== loadGen.current) return;
         setError(e instanceof Error ? e.message : "Failed to load stores");
       } finally {
-        setLoading(false);
+        if (gen === loadGen.current) setLoading(false);
       }
     },
     [user?.id],
@@ -75,9 +140,30 @@ export default function SalesHomePage() {
 
   useEffect(() => {
     cacheRef.current = createSalesStoreCache();
-    clearCatalogCache();
     void loadStores(1, "");
   }, [loadStores]);
+
+  async function onDownloadStores() {
+    if (!user?.id) return;
+    const gen = ++loadGen.current;
+    setDownloading(true);
+    setError(null);
+    try {
+      const stores = await downloadSalesStores(user.id);
+      const list = Array.isArray(stores) ? stores : [];
+      saveDownloadedStores(list);
+      if (gen !== loadGen.current) return;
+      showLists(list, 1, "");
+      setQuery("");
+      setDownloaded(true);
+      setLoading(false);
+    } catch (e) {
+      if (gen !== loadGen.current) return;
+      setError(e instanceof Error ? e.message : "Failed to download stores");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   function applySearch() {
     void loadStores(1, query.trim());
@@ -126,6 +212,13 @@ export default function SalesHomePage() {
                   Clear
                 </SecondaryButton>
               ) : null}
+              <SecondaryButton
+                type="button"
+                onClick={() => void onDownloadStores()}
+                disabled={downloading}
+              >
+                {downloading ? "Downloading…" : "Download stores"}
+              </SecondaryButton>
             </div>
           </Card>
           {loading ? (
@@ -166,15 +259,17 @@ export default function SalesHomePage() {
                   />
                 </>
               )}
-              <RecordPager
-                page={page}
-                hasNext={hasNext}
-                loading={loading}
-                rangeStart={rangeStart}
-                rangeEnd={rangeEnd}
-                pageSize={SALES_STORE_PAGE_SIZE}
-                onPage={(next) => void loadStores(next, appliedQuery)}
-              />
+              {downloaded ? null : (
+                <RecordPager
+                  page={page}
+                  hasNext={hasNext}
+                  loading={loading}
+                  rangeStart={rangeStart}
+                  rangeEnd={rangeEnd}
+                  pageSize={SALES_STORE_PAGE_SIZE}
+                  onPage={(next) => void loadStores(next, appliedQuery)}
+                />
+              )}
             </div>
           )}
         </>
@@ -234,11 +329,10 @@ function StoreSection({
             const titleText = storeTitle(store);
             const marks = storeMarks(store);
             const location = storeLocation(store);
-            const href = `/sales/stores/${store._id}?name=${encodeURIComponent(titleText)}&marks=${encodeURIComponent(marks)}`;
             return (
               <Link
                 key={store._id}
-                href={href}
+                href={storeProductsHref(store)}
                 className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 hover:bg-[#f7f5f0]"
               >
                 <div className="min-w-0">

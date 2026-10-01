@@ -31,7 +31,9 @@ export interface StoreProfile {
   mobileNumber?: string;
   email?: string;
   salesman?: string | { name?: string; _id?: string };
+  salesPerson?: string | { name?: string; _id?: string };
   isTemp?: boolean;
+  isTempStore?: boolean;
   marks?: string;
   city?: string;
   country?: string;

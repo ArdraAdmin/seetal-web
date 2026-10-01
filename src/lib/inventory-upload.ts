@@ -1,4 +1,10 @@
-import { addProductManual, type CompanyRecord, normalizeItemRef } from "./api";
+import {
+  addProductManual,
+  updateInventoryQuantities,
+  type CompanyRecord,
+  type ExistingInventoryItem,
+  normalizeItemRef,
+} from "./api";
 import type { CategoryGroup } from "./categories";
 
 export interface InventoryUploadRow {
@@ -12,6 +18,7 @@ export interface InventoryUploadRow {
   subCategory: string;
   barcode: string;
   company: string;
+  addFlag: string;
   cells: string[];
 }
 
@@ -40,6 +47,7 @@ function columnIndexes(header: string[]) {
     subCategory: -1,
     barcode: -1,
     company: -1,
+    addFlag: -1,
   };
   header.forEach((cell, index) => {
     const key = normalizeHeader(cell);
@@ -95,6 +103,11 @@ function columnIndexes(header: string[]) {
       indexes.barcode = index;
     } else if (indexes.company < 0 && key === "company") {
       indexes.company = index;
+    } else if (
+      indexes.addFlag < 0 &&
+      (key === "add" || key === "addyrn" || key === "addy")
+    ) {
+      indexes.addFlag = index;
     }
   });
   return indexes;
@@ -113,6 +126,11 @@ function parseQty(value: string) {
 function parseNumber(value: string) {
   const parsed = Number(value.replace(/,/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseAddFlag(value: string) {
+  const flag = value.trim().toUpperCase();
+  return flag === "Y" || flag === "R" || flag === "N" ? flag : "";
 }
 
 function parseCsvLine(line: string) {
@@ -174,6 +192,7 @@ function tableFromRows(rows: string[][]): InventoryUploadTable {
       subCategory: cellAt(cells, indexes.subCategory),
       barcode: cellAt(cells, indexes.barcode),
       company: cellAt(cells, indexes.company),
+      addFlag: parseAddFlag(cellAt(cells, indexes.addFlag)),
       cells,
     });
   }
@@ -305,4 +324,50 @@ export async function addInventoryUploadRows(
   }
 
   return { added, errors };
+}
+
+export async function syncInventoryUploadRows(
+  rows: InventoryUploadRow[],
+  existing: ExistingInventoryItem[],
+  groups: CategoryGroup[],
+  companies: CompanyRecord[],
+) {
+  const existingByRef = new Map(
+    existing.map((item) => [normalizeItemRef(item.itemRef), item]),
+  );
+  const creates: InventoryUploadRow[] = [];
+  const updates: {
+    itemRef: string;
+    closingQty: number;
+    mode: "replace";
+    sellingPrice: number;
+  }[] = [];
+
+  for (const row of rows) {
+    const current = existingByRef.get(row.itemRef);
+    if (!current) {
+      creates.push(row);
+      continue;
+    }
+    if (row.addFlag !== "Y" && row.addFlag !== "N" && row.addFlag !== "R") {
+      continue;
+    }
+    const previous =
+      (current.amountInCartons || 0) * (current.ratio || 0) +
+      (current.amountInUnits || 0);
+    updates.push({
+      itemRef: row.itemRef,
+      closingQty: row.addFlag === "R" ? row.closingQty : previous + row.closingQty,
+      mode: "replace",
+      sellingPrice: row.sellingPrice,
+    });
+  }
+
+  let updated = 0;
+  if (updates.length > 0) {
+    await updateInventoryQuantities(updates);
+    updated = updates.length;
+  }
+  const created = await addInventoryUploadRows(creates, groups, companies);
+  return { added: created.added, updated, errors: created.errors };
 }
