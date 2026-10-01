@@ -986,6 +986,16 @@ export const generateWarehouseInvoice = (orderId: string, userId: string) =>
     body: JSON.stringify({ orderId, userId }),
   });
 
+export const updateWarehouseDeliveryDate = (
+  orderId: string,
+  userId: string,
+  date: string,
+) =>
+  request<unknown>("/warehouse/date", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId, date }),
+  });
+
 export type WarehouseActionTag = "customs" | "daily" | "loading";
 
 export const sendWarehouseActionSheet = (

@@ -129,3 +129,12 @@ export function formatOrderDate(value?: string) {
     year: "numeric",
   });
 }
+
+export function orderDateInputValue(value?: string) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text.slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}

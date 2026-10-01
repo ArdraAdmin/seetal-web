@@ -12,6 +12,7 @@ import {
   markWarehouseLineMissing,
   saveWarehouseCheck,
   toggleWarehouseLineCheck,
+  updateWarehouseDeliveryDate,
 } from "@/lib/api";
 import type { WarehouseCheckLine, WarehouseCheckOrder } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -25,6 +26,7 @@ import {
   formatOrderDate,
   invoiceLabel,
   lineIsChecked,
+  orderDateInputValue,
   parseCheckStep,
   storeMarks,
   storeTitle,
@@ -55,6 +57,8 @@ export function WarehouseCheckView() {
   const [confirming, setConfirming] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [savingDate, setSavingDate] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id || !params.id) return;
@@ -64,6 +68,7 @@ export function WarehouseCheckView() {
       const data = await getWarehouseCheckOrder(params.id, user.id, step);
       setOrder(data);
       setLines(Array.isArray(data.productDetails) ? data.productDetails : []);
+      setDeliveryDate(orderDateInputValue(data.date));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
@@ -127,6 +132,31 @@ export function WarehouseCheckView() {
       toast(e instanceof Error ? e.message : "Confirm failed", "error");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function onSaveDate() {
+    if (!user?.id || !order) return;
+    const next = deliveryDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+      toast("Choose a delivery date", "info");
+      return;
+    }
+    if (next === orderDateInputValue(order.date)) {
+      toast("Delivery date is unchanged", "info");
+      return;
+    }
+    setSavingDate(true);
+    try {
+      await updateWarehouseDeliveryDate(order._id, user.id, next);
+      setOrder((prev) =>
+        prev ? { ...prev, date: `${next}T00:00:00.000Z` } : prev,
+      );
+      toast("Delivery date updated", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not update date", "error");
+    } finally {
+      setSavingDate(false);
     }
   }
 
@@ -279,9 +309,38 @@ export function WarehouseCheckView() {
               <p className="mt-1 text-[15px] font-bold text-slate-900">
                 {storeTitle(order)}
               </p>
-              <p className="mt-1 text-[13px] font-medium text-slate-600">
-                {formatOrderDate(order.date)}
-              </p>
+              {step === 1 || step === 2 ? (
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <label className="min-w-[11rem] flex-1 space-y-1.5">
+                    <span className="text-[13px] font-medium text-slate-700">
+                      Delivery date
+                    </span>
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={
+                      savingDate ||
+                      loading ||
+                      !deliveryDate ||
+                      deliveryDate === orderDateInputValue(order.date)
+                    }
+                    onClick={() => void onSaveDate()}
+                    className="min-h-10 rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {savingDate ? "Saving…" : "Update date"}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1 text-[13px] font-medium text-slate-600">
+                  {formatOrderDate(order.date)}
+                </p>
+              )}
               {storeMarks(order) ? (
                 <p className="mt-3 inline-flex rounded-lg bg-brand/15 px-2.5 py-1 text-[13px] font-extrabold text-ink">
                   Marks: {storeMarks(order)}
