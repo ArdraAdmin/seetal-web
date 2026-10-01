@@ -6,6 +6,7 @@ import type { PendingOrder } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { formatInvoiceDate } from "@/lib/invoice";
+import { salesMoney } from "@/lib/sales";
 import {
   Card,
   EmptyState,
@@ -151,7 +152,7 @@ export default function PendingOrdersPage() {
                   </p>
                   <p className="text-sm text-slate-600">{storeName}</p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Amount: ₹{amount}
+                    Amount: {salesMoney(Number(amount) || 0)}
                     {o.createdAt || o.date
                       ? ` · ${formatInvoiceDate(String(o.createdAt || o.date))}`
                       : ""}

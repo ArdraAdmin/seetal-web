@@ -81,6 +81,14 @@ export function invoiceLabel(order: PendingOrder | WarehouseCheckOrder) {
   return "";
 }
 
+export function storeId(order: PendingOrder | WarehouseCheckOrder) {
+  if (order.store && typeof order.store === "object" && order.store._id) {
+    return String(order.store._id);
+  }
+  if (typeof order.store === "string") return order.store;
+  return "";
+}
+
 export function storeTitle(order: PendingOrder | WarehouseCheckOrder) {
   if (order.store && typeof order.store === "object") {
     return order.store.storeName || order.store.name || "";

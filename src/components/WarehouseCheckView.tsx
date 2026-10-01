@@ -8,13 +8,16 @@ import {
   checkAllWarehouseLines,
   confirmWarehouseCheck,
   generateWarehouseInvoice,
+  downloadSalesStores,
   getWarehouseCheckOrder,
   markWarehouseLineMissing,
   saveWarehouseCheck,
   toggleWarehouseLineCheck,
   updateWarehouseDeliveryDate,
+  updateWarehouseOrderStore,
 } from "@/lib/api";
-import type { WarehouseCheckLine, WarehouseCheckOrder } from "@/lib/types";
+import type { StoreProfile, WarehouseCheckLine, WarehouseCheckOrder } from "@/lib/types";
+import { storeDisplayName, uniqueStores } from "@/lib/stores";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { ErrorState, LoadingState, PrimaryButton } from "@/components/ui";
@@ -28,6 +31,7 @@ import {
   lineIsChecked,
   orderDateInputValue,
   parseCheckStep,
+  storeId,
   storeMarks,
   storeTitle,
   warehouseBasePath,
@@ -59,6 +63,11 @@ export function WarehouseCheckView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState("");
   const [savingDate, setSavingDate] = useState(false);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [storeQuery, setStoreQuery] = useState("");
+  const [storeOptions, setStoreOptions] = useState<StoreProfile[]>([]);
+  const [storesLoading, setStoresLoading] = useState(false);
+  const [savingStoreId, setSavingStoreId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id || !params.id) return;
@@ -79,6 +88,11 @@ export function WarehouseCheckView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setStoreOpen(false);
+    setStoreQuery("");
+  }, [step, params.id]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -132,6 +146,53 @@ export function WarehouseCheckView() {
       toast(e instanceof Error ? e.message : "Confirm failed", "error");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  const storeMatches = useMemo(() => {
+    const q = storeQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return storeOptions
+      .filter((store) => {
+        const blob = [store.storeName, store.name, store.marks, store.alias, store.city]
+          .join(" ")
+          .toLowerCase();
+        return blob.includes(q);
+      })
+      .slice(0, 8);
+  }, [storeOptions, storeQuery]);
+
+  async function openStorePicker() {
+    const next = !storeOpen;
+    setStoreOpen(next);
+    if (!next || storeOptions.length || storesLoading) return;
+    setStoresLoading(true);
+    try {
+      setStoreOptions(uniqueStores(await downloadSalesStores()));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not load stores", "error");
+    } finally {
+      setStoresLoading(false);
+    }
+  }
+
+  async function onChangeStore(store: StoreProfile) {
+    if (!order || !store._id || store._id === storeId(order)) return;
+    setSavingStoreId(store._id);
+    try {
+      const result = await updateWarehouseOrderStore(order._id, store._id);
+      setOrder((prev) =>
+        prev
+          ? { ...prev, isTempStore: result.isTempStore, store: result.store }
+          : prev,
+      );
+      toast(`Store changed to ${storeDisplayName(result.store)}`, "success");
+      setStoreOpen(false);
+      setStoreQuery("");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not change store", "error");
+    } finally {
+      setSavingStoreId(null);
     }
   }
 
@@ -309,6 +370,70 @@ export function WarehouseCheckView() {
               <p className="mt-1 text-[15px] font-bold text-slate-900">
                 {storeTitle(order)}
               </p>
+              {step === 1 || step === 2 ? (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => void openStorePicker()}
+                    className="text-sm font-semibold text-ink underline decoration-brand underline-offset-2"
+                  >
+                    Change store
+                  </button>
+                  {storeOpen ? (
+                    <div className="mt-2 rounded-xl border border-line bg-[#f7f5f0] p-3">
+                      <label className="block space-y-1.5">
+                        <span className="text-[13px] font-medium text-slate-700">
+                          Store
+                        </span>
+                        <input
+                          value={storeQuery}
+                          onChange={(e) => setStoreQuery(e.target.value)}
+                          placeholder="Search by name or marks"
+                          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                        />
+                      </label>
+                      {storesLoading ? (
+                        <p className="mt-2 text-sm text-slate-500">Loading stores…</p>
+                      ) : storeQuery.trim().length < 2 ? (
+                        <p className="mt-2 text-sm text-slate-500">
+                          Type at least 2 letters
+                        </p>
+                      ) : storeMatches.length === 0 ? (
+                        <p className="mt-2 text-sm text-slate-500">No stores match</p>
+                      ) : (
+                        <div className="mt-2 space-y-1">
+                          {storeMatches.map((store) => {
+                            const current = store._id === storeId(order);
+                            const busy = savingStoreId === store._id;
+                            return (
+                              <button
+                                key={store._id}
+                                type="button"
+                                disabled={current || Boolean(savingStoreId)}
+                                onClick={() => void onChangeStore(store)}
+                                className="flex w-full items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-left text-sm hover:bg-brand/10 disabled:cursor-default disabled:opacity-70"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate font-semibold text-slate-900">
+                                    {storeDisplayName(store)}
+                                  </span>
+                                  <span className="block truncate text-xs text-slate-500">
+                                    {store.marks ? `Marks: ${store.marks}` : "No marks"}
+                                    {store.city ? ` · ${store.city}` : ""}
+                                  </span>
+                                </span>
+                                <span className="shrink-0 text-xs font-semibold text-slate-500">
+                                  {current ? "Current" : busy ? "Saving…" : "Select"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {step === 1 || step === 2 ? (
                 <div className="mt-3 flex flex-wrap items-end gap-2">
                   <label className="min-w-[11rem] flex-1 space-y-1.5">

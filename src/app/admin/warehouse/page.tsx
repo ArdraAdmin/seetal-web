@@ -12,6 +12,7 @@ import {
 import type { PendingOrder, WarehouseCounts } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
+import { LoadListWizard } from "@/components/LoadListWizard";
 import {
   Card,
   EmptyState,
@@ -36,6 +37,7 @@ const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Confirmed" },
   { id: 3, label: "Pending" },
+  { id: 4, label: "Load list" },
 ];
 
 const ACTION_BUTTONS: {
@@ -105,6 +107,14 @@ export default function WarehousePage() {
   const load = useCallback(
     async (tabIndex: WarehouseTabIndex, tag = "") => {
       if (!user?.id) return;
+      if (tabIndex === 4) {
+        setTab(4);
+        setError(null);
+        setLoading(false);
+        setOrders([]);
+        setCounts(null);
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
@@ -177,40 +187,44 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      <Card className="mb-5">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-0 w-full flex-1 sm:min-w-[220px]">
-            <TextField
-              label="Search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Store, invoice, or marks"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void load(tab, query.trim());
-              }}
-            />
-          </div>
-          <PrimaryButton
-            type="button"
-            onClick={() => void load(tab, query.trim())}
-          >
-            Search
-          </PrimaryButton>
-          {appliedQuery ? (
-            <SecondaryButton
+      {tab !== 4 ? (
+        <Card className="mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-0 w-full flex-1 sm:min-w-[220px]">
+              <TextField
+                label="Search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Store, invoice, or marks"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void load(tab, query.trim());
+                }}
+              />
+            </div>
+            <PrimaryButton
               type="button"
-              onClick={() => {
-                setQuery("");
-                void load(tab, "");
-              }}
+              onClick={() => void load(tab, query.trim())}
             >
-              Clear
-            </SecondaryButton>
-          ) : null}
-        </div>
-      </Card>
+              Search
+            </PrimaryButton>
+            {appliedQuery ? (
+              <SecondaryButton
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  void load(tab, "");
+                }}
+              >
+                Clear
+              </SecondaryButton>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
-      {tab === 0 && counts ? (
+      {tab === 4 ? <LoadListWizard /> : null}
+
+      {tab !== 4 && tab === 0 && counts ? (
         <Card className="mb-5">
           <p className="text-center text-base font-semibold text-black">
             Total cartons: {counts.totalPkgCount}
@@ -243,72 +257,77 @@ export default function WarehousePage() {
         </div>
       ) : null}
 
-      {loading ? (
-        <LoadingState label="Loading warehouse orders…" />
-      ) : error ? (
-        <ErrorState message={error} onRetry={() => void load(tab, appliedQuery)} />
-      ) : orders.length === 0 ? (
-        <EmptyState title="No warehouse orders" />
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-slate-600">
-            Showing {orders.length} order{orders.length === 1 ? "" : "s"}
-          </p>
-          {orders.map((order, index) => {
-            const status = checkStatus(order);
-            const title = storeTitle(order) || "Store";
-            const marks = storeMarks(order);
-            const description = storeDescription(order);
-            const invoice = invoiceLabel(order);
-            const pkg = order.totalPkg;
-            const href =
-              tab === 2 ? null : `${base}/${order._id}?step=1`;
-            const rowKey = order._id || `order-${index}`;
-            const body = (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500">
-                    {formatDate(order.date)}
-                  </p>
-                  <p className="mt-1 font-semibold text-black">{title}</p>
-                  {marks ? (
-                    <p className="mt-0.5 text-sm font-medium text-slate-700">
-                      {marks}
+      {tab !== 4 ? (
+        loading ? (
+          <LoadingState label="Loading warehouse orders…" />
+        ) : error ? (
+          <ErrorState
+            message={error}
+            onRetry={() => void load(tab, appliedQuery)}
+          />
+        ) : orders.length === 0 ? (
+          <EmptyState title="No warehouse orders" />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Showing {orders.length} order{orders.length === 1 ? "" : "s"}
+            </p>
+            {orders.map((order, index) => {
+              const status = checkStatus(order);
+              const title = storeTitle(order) || "Store";
+              const marks = storeMarks(order);
+              const description = storeDescription(order);
+              const invoice = invoiceLabel(order);
+              const pkg = order.totalPkg;
+              const href =
+                tab === 2 ? null : `${base}/${order._id}?step=1`;
+              const rowKey = order._id || `order-${index}`;
+              const body = (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-500">
+                      {formatDate(order.date)}
                     </p>
-                  ) : null}
-                  <p className="mt-1 text-sm text-slate-600">
-                    {[description, invoice].filter(Boolean).join(" · ") || "—"}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Created {formatDate(order.createdAt)} · Assignee{" "}
-                    {assigneeLabel(order)}
-                    {pkg != null
-                      ? ` · ${order.firstCheck ? "" : "Approx: "}${pkg} PKGS`
-                      : ""}
-                    {order.isGRV ? " · GRV" : ""}
-                  </p>
+                    <p className="mt-1 font-semibold text-black">{title}</p>
+                    {marks ? (
+                      <p className="mt-0.5 text-sm font-medium text-slate-700">
+                        {marks}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-sm text-slate-600">
+                      {[description, invoice].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Created {formatDate(order.createdAt)} · Assignee{" "}
+                      {assigneeLabel(order)}
+                      {pkg != null
+                        ? ` · ${order.firstCheck ? "" : "Approx: "}${pkg} PKGS`
+                        : ""}
+                      {order.isGRV ? " · GRV" : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex h-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
+                  >
+                    {status.label}
+                  </span>
                 </div>
-                <span
-                  className={`inline-flex h-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
+              );
+              return href ? (
+                <Link
+                  key={rowKey}
+                  href={href}
+                  className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
                 >
-                  {status.label}
-                </span>
-              </div>
-            );
-            return href ? (
-              <Link
-                key={rowKey}
-                href={href}
-                className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
-              >
-                {body}
-              </Link>
-            ) : (
-              <Card key={rowKey}>{body}</Card>
-            );
-          })}
-        </div>
-      )}
+                  {body}
+                </Link>
+              ) : (
+                <Card key={rowKey}>{body}</Card>
+              );
+            })}
+          </div>
+        )
+      ) : null}
     </div>
   );
 }

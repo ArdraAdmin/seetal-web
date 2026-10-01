@@ -13,6 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { loadDashboardStats, type DashboardStats } from "@/lib/api";
+import { salesMoney } from "@/lib/sales";
 import {
   ErrorState,
   PageHeader,
@@ -95,14 +96,6 @@ function formatCount(value: number) {
   return new Intl.NumberFormat("en-IN").format(value);
 }
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function MetricCard({
   metric,
   value,
@@ -130,7 +123,7 @@ function MetricCard({
         <span className="mt-3 block h-8 w-24 animate-pulse rounded bg-slate-100" />
       ) : (
         <p className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          {metric.format === "money" ? formatMoney(value) : formatCount(value)}
+          {metric.format === "money" ? salesMoney(value) : formatCount(value)}
         </p>
       )}
     </Link>

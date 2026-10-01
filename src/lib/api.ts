@@ -267,6 +267,48 @@ export const getExpiredTradeLicenses = async () => {
 };
 export const deleteStore = (id: string) =>
   request<unknown>(`/admin/edit/deleteStore/${id}`, { method: "DELETE" });
+
+export type AdminStoreList = {
+  stores: StoreProfile[];
+  duplicateCount: number;
+};
+
+export type StoreEditInput = {
+  storeId: string;
+  storeName: string;
+  marks?: string;
+  alias?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  addressLine3?: string;
+  city?: string;
+  country?: string;
+  contactNumber?: string;
+  uid?: string;
+  trnNo?: string;
+  salesPerson?: string;
+};
+
+export const getAdminStores = () =>
+  siteRequest<AdminStoreList>("/api/admin/stores");
+
+export const editAdminStore = (body: StoreEditInput) =>
+  siteRequest<string>("/api/admin/stores/edit", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const deleteAdminStore = (storeId: string) =>
+  siteRequest<{ removed: number }>("/api/admin/stores/delete", {
+    method: "POST",
+    body: JSON.stringify({ storeId }),
+  });
+
+export const removeDuplicateStores = () =>
+  siteRequest<{ removed: number }>("/api/admin/stores/dedupe", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 export const filterStores = (body: Record<string, unknown>) =>
   request<StoreProfile[]>("/admin/storeProfile/filter", {
     method: "POST",
@@ -689,7 +731,7 @@ export const getPendingOrders = (userId: string, page = 1, tabIndex = 0) =>
     `/mock/warehouse/order/pending?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
   );
 
-export type WarehouseTabIndex = 0 | 1 | 2 | 3;
+export type WarehouseTabIndex = 0 | 1 | 2 | 3 | 4;
 
 export interface WarehouseOrdersResult {
   orders: PendingOrder[];
@@ -1075,6 +1117,22 @@ export const updateWarehouseDeliveryDate = (
     body: JSON.stringify({ orderId, userId, date }),
   });
 
+export const updateWarehouseOrderStore = (orderId: string, storeId: string) =>
+  siteRequest<{
+    isTempStore: boolean;
+    store: {
+      _id: string;
+      storeName: string;
+      marks: string;
+      alias: string;
+      city: string;
+      country: string;
+    };
+  }>("/api/warehouse/order-store", {
+    method: "POST",
+    body: JSON.stringify({ orderId, storeId }),
+  });
+
 export type WarehouseActionTag = "customs" | "daily" | "loading";
 
 export const sendWarehouseActionSheet = (
@@ -1085,6 +1143,22 @@ export const sendWarehouseActionSheet = (
     `/mock/warehouse/action/${encodeURIComponent(tag)}?userId=${encodeURIComponent(userId)}`,
     { method: "GET", cache: "no-store" },
   );
+
+export const createLoadList = (body: {
+  userId: string;
+  driverName: string;
+  vehicleNumber: string;
+  orderIds: string[];
+}) =>
+  request<{
+    message: string;
+    orderCount: number;
+    mailedTo: string;
+    cc: string;
+  }>("/mock/warehouse/load-list", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 function warehouseLineProductId(line: WarehouseCheckLine) {
   if (typeof line.product === "string") return line.product;

@@ -2,7 +2,7 @@ import type { ApprovalLineItem, ApprovalOrder, Product } from "./types";
 import { formatInvoiceDate } from "./invoice";
 import { cartLineFromProduct } from "./sales-cart";
 import { asId } from "./profiles";
-import { lineAggregate, roundMoney } from "./sales";
+import { lineAggregate, roundMoney, salesMoney } from "./sales";
 
 export function approvalInvoice(order: ApprovalOrder) {
   if (typeof order.invoiceNumber === "string" && order.invoiceNumber.trim()) {
@@ -88,11 +88,7 @@ export function approvalMoney(value: unknown) {
     typeof value === "number"
       ? value
       : Number.parseFloat(String(value ?? 0)) || 0;
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
-    maximumFractionDigits: 2,
-  }).format(parsed);
+  return salesMoney(parsed);
 }
 
 export function approvalPayable(order: ApprovalOrder) {

@@ -9,6 +9,7 @@ import {
   searchProducts,
 } from "@/lib/api";
 import type { Product } from "@/lib/types";
+import { salesMoney } from "@/lib/sales";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
@@ -200,8 +201,8 @@ export default function InventoryPage() {
                   {p.itemName || "Unnamed"}
                 </p>
                 <p className="text-sm text-slate-500">
-                  Ref: {p.itemRef || "—"} · {p.unit || "—"} · ₹
-                  {p.sellingPrice ?? 0}
+                  Ref: {p.itemRef || "—"} · {p.unit || "—"} ·{" "}
+                  {salesMoney(Number(p.sellingPrice) || 0)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Qty: {p.inQty?.amountInCartons ?? 0} CTN /{" "}

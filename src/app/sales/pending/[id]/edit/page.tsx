@@ -207,7 +207,7 @@ export default function SalesPendingOrderEditPage() {
                 }}
               />
               <TextField
-                label="Payable (AED)"
+                label="Payable (Dirhams)"
                 type="number"
                 step="0.01"
                 value={payable}

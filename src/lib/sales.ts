@@ -1,11 +1,12 @@
 import type { Product, SalesCartLine, StoreProfile } from "./types";
 
 export function salesMoney(value: number) {
-  return new Intl.NumberFormat("en-AE", {
-    style: "currency",
-    currency: "AED",
+  const amount = Number.isFinite(value) ? value : 0;
+  const formatted = new Intl.NumberFormat("en-AE", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(Number.isFinite(value) ? value : 0);
+  }).format(amount);
+  return `Dhs ${formatted}`;
 }
 
 export function roundMoney(value: number) {
