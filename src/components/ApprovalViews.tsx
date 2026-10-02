@@ -11,7 +11,26 @@ import {
   salesQueueStatus,
   salesQueueStatusLabel,
 } from "@/lib/approval";
+import { lineUnitPriceEdited } from "@/lib/sales";
 import { Card } from "@/components/ui";
+
+function orderUnitPriceEdited(order: ApprovalOrder) {
+  if (order.unitPriceEdited === true) return true;
+  const lines = Array.isArray(order.productDetails) ? order.productDetails : [];
+  return lines.some((line) => {
+    const catalog =
+      line.catalogStoreCost != null
+        ? Number(line.catalogStoreCost)
+        : line.product && typeof line.product === "object"
+          ? Number(line.product.sellingPrice)
+          : NaN;
+    return lineUnitPriceEdited({
+      storeCost: Number(line.storeCost) || 0,
+      catalogStoreCost: Number.isFinite(catalog) ? catalog : undefined,
+      priceChangeReq: line.priceChangeReq,
+    });
+  });
+}
 
 export function statusClass(status?: string) {
   if (status === "approved") return "text-emerald-700";
@@ -46,6 +65,9 @@ export function ApprovalSummary({
       ) : null}
       {order.payableEdited ? (
         <p className="text-sm text-slate-600">Payable was edited by salesman</p>
+      ) : null}
+      {orderUnitPriceEdited(order) ? (
+        <p className="text-sm text-slate-600">Unit price was edited by salesman</p>
       ) : null}
       <p className={`mt-2 text-sm font-semibold ${statusClass(status)}`}>
         {salesQueueStatusLabel(order)}
@@ -90,6 +112,25 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         ) : (
           <ul className="divide-y divide-line">
             {lines.map((line, index) => {
+              const unitPrice = Number(line.storeCost) || 0;
+              const catalogFromLine =
+                line.catalogStoreCost != null
+                  ? Number(line.catalogStoreCost)
+                  : NaN;
+              const catalogFromProduct =
+                line.product && typeof line.product === "object"
+                  ? Number(line.product.sellingPrice)
+                  : NaN;
+              const catalogPrice = Number.isFinite(catalogFromLine)
+                ? catalogFromLine
+                : Number.isFinite(catalogFromProduct)
+                  ? catalogFromProduct
+                  : null;
+              const priceEdited = lineUnitPriceEdited({
+                storeCost: unitPrice,
+                catalogStoreCost: catalogPrice ?? undefined,
+                priceChangeReq: line.priceChangeReq,
+              });
               return (
                 <li
                   key={`${lineProductKey(line, index)}`}
@@ -102,6 +143,17 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
                     <p className="text-xs text-slate-500">
                       {line.quantityReq ?? 0} {line.unitReq || ""}
                     </p>
+                    {unitPrice > 0 ? (
+                      <p
+                        className={`text-xs ${
+                          priceEdited ? "font-semibold text-ink" : "text-slate-500"
+                        }`}
+                      >
+                        {priceEdited && catalogPrice != null
+                          ? `Unit ${approvalMoney(unitPrice)} (was ${approvalMoney(catalogPrice)})`
+                          : `Unit ${approvalMoney(unitPrice)}`}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="text-sm font-semibold text-black">
                     {approvalMoney(line.aggregateCost ?? line.storeCost ?? 0)}
@@ -120,6 +172,9 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         {order.isVat ? <DetailRow label="VAT" value="5%" /> : null}
         {order.payableEdited ? (
           <DetailRow label="Payable edited" value="Yes" />
+        ) : null}
+        {orderUnitPriceEdited(order) ? (
+          <DetailRow label="Unit price edited" value="Yes" />
         ) : null}
         <div className="mt-3 border-t border-line pt-3">
           <DetailRow

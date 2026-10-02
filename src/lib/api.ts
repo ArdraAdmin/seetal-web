@@ -18,7 +18,7 @@ import type {
   AuthUser,
   SalesCartLine,
 } from "./types";
-import { asProductList, asStoreList, cartTotals, lineAggregate } from "./sales";
+import { asProductList, asStoreList, cartTotals, cartUnitPriceEdited, lineAggregate } from "./sales";
 import { companyIds, salesField } from "./profiles";
 import {
   companyQueryPayload,
@@ -1929,7 +1929,8 @@ export function placeSalesOrderPayload({
   tempStore?: boolean;
 }) {
   const { totalCost, totalQuantity } = cartTotals(lines);
-  const needsApproval = discount > 0 || payableEdited;
+  const unitPriceEdited = cartUnitPriceEdited(lines);
+  const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
   const masterIds = new Set<string>();
   const categoryList: { masterCategoryId: string; isDone: boolean }[] = [];
   for (const line of lines) {
@@ -1942,16 +1943,26 @@ export function placeSalesOrderPayload({
     invoiceType: "ld",
     salesId,
     storeId,
-    productDetails: lines.map((line) => ({
-      product: line.productId,
-      categoryId: line.categoryId,
-      storeCost: Number(line.storeCost) || 0,
-      aggregateCost: lineAggregate(line),
-      quantityReq: Number(line.quantityReq) || 0,
-      quantityAv: Number(line.quantityReq) || 0,
-      unitReq: line.unitReq,
-      unitAv: line.unitReq,
-    })),
+    productDetails: lines.map((line) => {
+      const storeCost = Number(line.storeCost) || 0;
+      const catalogStoreCost =
+        line.catalogStoreCost == null
+          ? storeCost
+          : Number(line.catalogStoreCost) || 0;
+      const priceChangeReq = Math.abs(storeCost - catalogStoreCost) > 0.009;
+      return {
+        product: line.productId,
+        categoryId: line.categoryId,
+        storeCost,
+        catalogStoreCost,
+        priceChangeReq,
+        aggregateCost: lineAggregate(line),
+        quantityReq: Number(line.quantityReq) || 0,
+        quantityAv: Number(line.quantityReq) || 0,
+        unitReq: line.unitReq,
+        unitAv: line.unitReq,
+      };
+    }),
     categoryList,
     note: "No note",
     discount,
@@ -1963,6 +1974,7 @@ export function placeSalesOrderPayload({
     editFlag: false,
     payableAmount,
     payableEdited,
+    unitPriceEdited,
     needsApproval,
   };
 }

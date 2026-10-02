@@ -2,7 +2,7 @@ import type { ApprovalLineItem, ApprovalOrder, Product } from "./types";
 import { formatInvoiceDate } from "./invoice";
 import { cartLineFromProduct } from "./sales-cart";
 import { asId } from "./profiles";
-import { lineAggregate, roundMoney, salesMoney } from "./sales";
+import { lineAggregate, lineUnitPriceEdited, roundMoney, salesMoney } from "./sales";
 
 export function approvalInvoice(order: ApprovalOrder) {
   if (typeof order.invoiceNumber === "string" && order.invoiceNumber.trim()) {
@@ -150,10 +150,12 @@ export function addProductToApprovalOrder(
       itemName: line.itemName,
       itemRef: line.itemRef,
       unit: line.unit,
-      sellingPrice: line.storeCost,
+      sellingPrice: line.catalogStoreCost ?? line.storeCost,
     },
     categoryId: line.categoryId,
     storeCost: line.storeCost,
+    catalogStoreCost: line.catalogStoreCost ?? line.storeCost,
+    priceChangeReq: false,
     aggregateCost: lineAggregate(line),
     quantityReq: line.quantityReq,
     quantityAv: line.quantityReq,
@@ -224,21 +226,39 @@ export function resubmitTempOrderPayload(
     order.invoiceType === "exports" || order.invoiceType === "supermarkets"
       ? order.invoiceType
       : "ld";
-  return {
-    invoiceType,
-    salesId: salesId || salesIdFromOrder(order),
-    storeId: storeIdFromOrder(order),
-    productDetails: (order.productDetails || []).map((line) => ({
+  const productDetails = (order.productDetails || []).map((line) => {
+    const storeCost = Number(line.storeCost) || 0;
+    const catalogRaw = line.catalogStoreCost;
+    const catalogStoreCost =
+      catalogRaw == null || !Number.isFinite(Number(catalogRaw))
+        ? storeCost
+        : Number(catalogRaw) || 0;
+    const priceChangeReq = lineUnitPriceEdited({
+      storeCost,
+      catalogStoreCost,
+      priceChangeReq: line.priceChangeReq,
+    });
+    return {
       product: lineProductId(line),
       categoryId: asId(line.categoryId),
-      storeCost: Number(line.storeCost) || 0,
+      storeCost,
+      catalogStoreCost,
+      priceChangeReq,
       aggregateCost: Number(line.aggregateCost) || 0,
       quantityReq: Number(line.quantityReq) || 0,
       quantityAv: Number(line.quantityAv) || 0,
       unitReq: String(line.unitReq || "CARTONS"),
       unitAv: String(line.unitAv || line.unitReq || "CARTONS"),
       isChecked: Boolean(line.isChecked),
-    })),
+    };
+  });
+  const unitPriceEdited =
+    order.unitPriceEdited === true || productDetails.some((line) => line.priceChangeReq);
+  return {
+    invoiceType,
+    salesId: salesId || salesIdFromOrder(order),
+    storeId: storeIdFromOrder(order),
+    productDetails,
     categoryList: (order.categoryList || []).map((item) => ({
       masterCategoryId: asId(item.masterCategoryId),
       isDone: Boolean(item.isDone),
@@ -254,7 +274,8 @@ export function resubmitTempOrderPayload(
     tempOrderId: order._id,
     payableAmount,
     payableEdited,
-    needsApproval,
+    unitPriceEdited,
+    needsApproval: needsApproval || unitPriceEdited,
     ...(invoiceType === "exports" && order.billOfEntry != null
       ? { billOfEntry: Number(order.billOfEntry) || 0 }
       : {}),

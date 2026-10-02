@@ -86,6 +86,8 @@ export interface SalesCartLine {
   unit: string;
   ratio: number;
   storeCost: number;
+  /** Catalog / original unit price when the line was added. */
+  catalogStoreCost: number;
   quantityReq: number;
   unitReq: string;
   categoryId: string;
@@ -287,6 +289,8 @@ export interface ApprovalLineItem {
     | { _id?: string; itemName?: string; itemRef?: string; sellingPrice?: number; unit?: string };
   categoryId?: string;
   storeCost?: number;
+  catalogStoreCost?: number;
+  priceChangeReq?: boolean;
   aggregateCost?: number;
   quantityReq?: number;
   quantityAv?: number;
@@ -312,6 +316,7 @@ export interface ApprovalOrder {
   totalCost?: number;
   payableAmount?: number;
   payableEdited?: boolean;
+  unitPriceEdited?: boolean;
   needsApproval?: boolean;
   approvalStatus?: ApprovalStatus | string;
   isAdminApproved?: boolean;

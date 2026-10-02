@@ -9,8 +9,10 @@ import { apiMessage } from "@/lib/approval";
 import { clearCart, loadCart, saveCart } from "@/lib/sales-cart";
 import {
   cartTotals,
+  cartUnitPriceEdited,
   computedPayable,
   lineAggregate,
+  lineUnitPriceEdited,
   roundMoney,
   salesMoney,
   todayDateInput,
@@ -43,6 +45,7 @@ export default function SalesCartPage() {
   }, [storeId]);
 
   const { totalCost, totalQuantity } = useMemo(() => cartTotals(lines), [lines]);
+  const unitPriceEdited = useMemo(() => cartUnitPriceEdited(lines), [lines]);
   const payable = payableEdited
     ? Number(payableText) || 0
     : computedPayable(totalCost, discount, true);
@@ -96,7 +99,7 @@ export default function SalesCartPage() {
       });
       const result = await placeSalesOrder(body);
       clearCart(storeId);
-      const needsApproval = discount > 0 || payableEdited;
+      const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
       toast(
         apiMessage(
           result,
@@ -114,7 +117,7 @@ export default function SalesCartPage() {
     }
   }
 
-  const needsApproval = discount > 0 || payableEdited;
+  const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
   const productsHref = `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
 
   return (
@@ -132,54 +135,89 @@ export default function SalesCartPage() {
       ) : (
         <>
           <div className="mt-4 space-y-2">
-            {lines.map((line) => (
-              <article
-                key={line.productId}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4"
-              >
-                <div className="min-w-0">
-                  {line.itemRef ? (
-                    <p className="text-xs font-bold tracking-wide text-ink">{line.itemRef}</p>
-                  ) : null}
-                  <p className="font-semibold text-slate-900">{line.itemName}</p>
-                  <p className="text-xs text-slate-500">
-                    {salesMoney(line.storeCost)} / {line.unit}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={line.unitReq}
-                    onChange={(e) => updateLine(line.productId, { unitReq: e.target.value })}
-                    className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
-                  >
-                    <option value={line.unit}>{line.unit}</option>
-                    <option value="CARTONS">CTN</option>
-                  </select>
-                  <input
-                    type="number"
-                    min={0}
-                    value={line.quantityReq}
-                    onChange={(e) =>
-                      updateLine(line.productId, {
-                        quantityReq: Number(e.target.value) || 0,
-                      })
-                    }
-                    className="h-9 w-20 rounded-lg border border-line px-2 text-sm"
-                  />
-                  <p className="w-24 text-right text-sm font-bold">
-                    {salesMoney(lineAggregate(line))}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(line.productId)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50"
-                    aria-label={`Remove ${line.itemName}`}
-                  >
-                    <Trash2 className="h-4 w-4" strokeWidth={2} />
-                  </button>
-                </div>
-              </article>
-            ))}
+            {lines.map((line) => {
+              const priceEdited = lineUnitPriceEdited(line);
+              return (
+                <article
+                  key={line.productId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4"
+                >
+                  <div className="min-w-0 flex-1">
+                    {line.itemRef ? (
+                      <p className="text-xs font-bold tracking-wide text-ink">{line.itemRef}</p>
+                    ) : null}
+                    <p className="font-semibold text-slate-900">{line.itemName}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-1 text-xs text-slate-500">
+                        <span>AED</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={Number.isFinite(line.storeCost) ? line.storeCost : 0}
+                          onChange={(e) => {
+                            const next = Math.max(0, Number(e.target.value) || 0);
+                            updateLine(line.productId, { storeCost: next });
+                            setPayableEdited(false);
+                          }}
+                          className={`h-8 w-24 rounded-lg border border-line px-2 text-sm ${
+                            priceEdited ? "font-semibold text-ink" : "text-slate-700"
+                          }`}
+                          aria-label={`Unit price for ${line.itemName}`}
+                        />
+                        <span>/ {line.unit}</span>
+                      </label>
+                      {priceEdited ? (
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-ink hover:underline"
+                          onClick={() => {
+                            updateLine(line.productId, {
+                              storeCost: Number(line.catalogStoreCost) || 0,
+                            });
+                            setPayableEdited(false);
+                          }}
+                        >
+                          Reset ({salesMoney(Number(line.catalogStoreCost) || 0)})
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={line.unitReq}
+                      onChange={(e) => updateLine(line.productId, { unitReq: e.target.value })}
+                      className="h-9 rounded-lg border border-line bg-white px-2 text-sm"
+                    >
+                      <option value={line.unit}>{line.unit}</option>
+                      <option value="CARTONS">CTN</option>
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      value={line.quantityReq}
+                      onChange={(e) =>
+                        updateLine(line.productId, {
+                          quantityReq: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="h-9 w-20 rounded-lg border border-line px-2 text-sm"
+                    />
+                    <p className="w-24 text-right text-sm font-bold">
+                      {salesMoney(lineAggregate(line))}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(line.productId)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50"
+                      aria-label={`Remove ${line.itemName}`}
+                    >
+                      <Trash2 className="h-4 w-4" strokeWidth={2} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
           <div className="mt-5 space-y-3 rounded-2xl border border-line bg-white p-4">
@@ -237,6 +275,11 @@ export default function SalesCartPage() {
             <p className="text-lg font-bold text-slate-900">
               Payable {salesMoney(payable)}
             </p>
+            {needsApproval ? (
+              <p className="text-sm text-slate-600">
+                This order will be sent to admin for approval.
+              </p>
+            ) : null}
             <PrimaryButton
               type="button"
               disabled={submitting}

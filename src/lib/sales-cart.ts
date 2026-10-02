@@ -33,7 +33,15 @@ export function loadCart(storeId: string): SalesCartLine[] {
     const raw = localStorage.getItem(key(storeId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SalesCartLine[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((line) => {
+      const storeCost = Number(line.storeCost) || 0;
+      const catalog =
+        line.catalogStoreCost == null || Number.isNaN(Number(line.catalogStoreCost))
+          ? storeCost
+          : Number(line.catalogStoreCost);
+      return { ...line, storeCost, catalogStoreCost: catalog };
+    });
   } catch {
     return [];
   }
@@ -75,13 +83,15 @@ export function cartLineFromProduct(
   const categoryId = productCategoryId(product);
   const masterCategoryId = productMasterCategoryId(product);
   if (!productId || !categoryId) return null;
+  const unitPrice = productUnitPrice(product);
   return {
     productId,
     itemName: product.itemName || product.itemRef || "Product",
     itemRef: product.itemRef || "",
     unit: productUnit(product),
     ratio: productRatio(product),
-    storeCost: productUnitPrice(product),
+    storeCost: unitPrice,
+    catalogStoreCost: unitPrice,
     quantityReq: quantity,
     unitReq,
     categoryId,

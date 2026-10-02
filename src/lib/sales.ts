@@ -13,6 +13,24 @@ export function roundMoney(value: number) {
   return Number((Number(value) || 0).toFixed(2));
 }
 
+export function lineUnitPriceEdited(line: {
+  storeCost?: number;
+  catalogStoreCost?: number;
+  priceChangeReq?: boolean;
+}) {
+  if (line.priceChangeReq === true) return true;
+  const storeCost = Number(line.storeCost) || 0;
+  const catalog = Number(line.catalogStoreCost);
+  if (!Number.isFinite(catalog)) return false;
+  return Math.abs(storeCost - catalog) > 0.009;
+}
+
+export function cartUnitPriceEdited(
+  lines: { storeCost?: number; catalogStoreCost?: number; priceChangeReq?: boolean }[],
+) {
+  return lines.some(lineUnitPriceEdited);
+}
+
 export function productUnitPrice(product: Product) {
   const store = Number(product.currentStorePrice);
   if (Number.isFinite(store) && store > 0) return store;

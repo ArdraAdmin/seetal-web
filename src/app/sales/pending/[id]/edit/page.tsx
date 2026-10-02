@@ -12,6 +12,7 @@ import {
   resubmitTempOrderPayload,
   storeIdFromOrder,
 } from "@/lib/approval";
+import { lineUnitPriceEdited } from "@/lib/sales";
 import { SalesOrderProductPicker } from "@/components/SalesOrderProductPicker";
 import { dateInputValue } from "@/lib/profiles";
 import { todayDateInput } from "@/lib/sales";
@@ -95,7 +96,25 @@ export default function SalesPendingOrderEditPage() {
   const payableValue = Number(payable) || 0;
   const payableEdited =
     payableTouched && Math.abs(payableValue - computed) > 0.009;
-  const needsApproval = discountValue > 0 || payableEdited;
+  const unitPriceEdited = useMemo(() => {
+    if (!order) return false;
+    if (order.unitPriceEdited === true) return true;
+    const lines = Array.isArray(order.productDetails) ? order.productDetails : [];
+    return lines.some((line) => {
+      const catalog =
+        line.catalogStoreCost != null
+          ? Number(line.catalogStoreCost)
+          : line.product && typeof line.product === "object"
+            ? Number(line.product.sellingPrice)
+            : NaN;
+      return lineUnitPriceEdited({
+        storeCost: Number(line.storeCost) || 0,
+        catalogStoreCost: Number.isFinite(catalog) ? catalog : undefined,
+        priceChangeReq: line.priceChangeReq,
+      });
+    });
+  }, [order]);
+  const needsApproval = discountValue > 0 || payableEdited || unitPriceEdited;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -229,12 +248,14 @@ export default function SalesPendingOrderEditPage() {
             {needsApproval ? (
               <p className="mt-3 text-sm text-slate-600">
                 This order will be sent to admin for approval because a discount
-                was entered or the payable amount was edited.
+                was entered, a unit price was changed, or the payable amount was
+                edited.
               </p>
             ) : (
               <p className="mt-3 text-sm text-slate-600">
-                Clear the discount and restore the original payable to place
-                without approval. Otherwise admin must approve first.
+                Clear the discount, restore catalog unit prices, and restore the
+                original payable to place without approval. Otherwise admin must
+                approve first.
               </p>
             )}
             <div className="mt-4 flex gap-2">
