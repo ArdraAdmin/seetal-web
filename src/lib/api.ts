@@ -287,6 +287,8 @@ export type StoreEditInput = {
   uid?: string;
   trnNo?: string;
   salesPerson?: string;
+  isTemp?: boolean;
+  isTempStore?: boolean;
 };
 
 export const getAdminStores = () =>

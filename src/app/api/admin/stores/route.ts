@@ -1,4 +1,9 @@
-import { listAdminStores, storeError } from "@/lib/server/stores";
+import {
+  isStoreDbUnconfigured,
+  listAdminStores,
+  proxyListAdminStores,
+  storeError,
+} from "@/lib/server/stores";
 
 export const runtime = "nodejs";
 
@@ -8,6 +13,9 @@ export async function GET(req: Request) {
   try {
     return Response.json(await listAdminStores(token));
   } catch (error) {
+    if (isStoreDbUnconfigured(error)) {
+      return proxyListAdminStores(req);
+    }
     return storeError(error);
   }
 }

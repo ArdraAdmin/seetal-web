@@ -1,7 +1,14 @@
 import { ObjectId, type Document, type UpdateFilter } from "mongodb";
-import { storeIdentity } from "@/lib/stores";
-import { getMongoClient } from "./mongo";
+import { storeDisplayName, storeIdentity } from "@/lib/stores";
+import {
+  getMongoClient,
+  isDatabaseNotConfigured,
+} from "./mongo";
 import { userIdFromAuthHeader } from "./password";
+
+const REMOTE_API = (
+  process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
+).replace(/\/$/, "");
 
 type StoreDoc = {
   _id: ObjectId;
@@ -461,4 +468,215 @@ export function storeError(error: unknown) {
   const status =
     message === "Not signed in" || message === "Not allowed" ? 401 : 400;
   return new Response(message, { status });
+}
+
+export function isStoreDbUnconfigured(error: unknown) {
+  return isDatabaseNotConfigured(error);
+}
+
+function authHeaders(req: Request) {
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  const auth =
+    req.headers.get("authorization") || req.headers.get("Authorization");
+  if (auth) {
+    headers.set("Authorization", auth);
+    headers.set("auth-token", auth);
+  }
+  return headers;
+}
+
+async function remoteJson(path: string, req: Request, init?: RequestInit) {
+  const res = await fetch(`${REMOTE_API}${path}`, {
+    ...init,
+    headers: authHeaders(req),
+  });
+  const textBody = await res.text();
+  let body: unknown = textBody;
+  try {
+    body = textBody ? JSON.parse(textBody) : null;
+  } catch {
+    /* keep text */
+  }
+  return { res, body, textBody };
+}
+
+function remoteErrorMessage(body: unknown, fallback: string) {
+  if (typeof body === "string" && body.trim()) return body;
+  if (body && typeof body === "object") {
+    const o = body as Record<string, unknown>;
+    if (typeof o.error === "string") return o.error;
+    if (typeof o.name === "string") return o.name;
+    if (typeof o.message === "string") return o.message;
+  }
+  return fallback;
+}
+
+function asRemoteStoreList(body: unknown) {
+  if (Array.isArray(body)) return body as Record<string, unknown>[];
+  return [];
+}
+
+function remoteStoreRow(store: Record<string, unknown>, copyCount: number): AdminStoreRow {
+  const phone = text(store.contactNumber || store.mobileNumber);
+  const sales =
+    store.salesPerson && typeof store.salesPerson === "object"
+      ? (store.salesPerson as { _id?: unknown; name?: unknown })
+      : store.salesman && typeof store.salesman === "object"
+        ? (store.salesman as { _id?: unknown; name?: unknown })
+        : null;
+  const salesId = sales
+    ? text(sales._id)
+    : text(store.salesPerson || store.salesman);
+  const salesName = sales ? text(sales.name) : "";
+  const isTemp = Boolean(store.isTemp || store.isTempStore);
+  return {
+    _id: text(store._id),
+    storeName: storeDisplayName({
+      storeName: text(store.storeName),
+      name: text(store.name),
+    }),
+    alias: text(store.alias),
+    marks: text(store.marks),
+    addressLine1: text(store.addressLine1),
+    addressLine2: text(store.addressLine2),
+    addressLine3: text(store.addressLine3),
+    city: text(store.city),
+    country: text(store.country),
+    contactNumber: phone,
+    mobileNumber: phone,
+    uid: text(store.uid),
+    trnNo: store.trnNo == null || store.trnNo === "" ? "" : String(store.trnNo),
+    isTemp,
+    isTempStore: isTemp,
+    salesPerson: salesId,
+    salesman: salesId && salesName ? { _id: salesId, name: salesName } : undefined,
+    copyCount,
+  };
+}
+
+export async function proxyListAdminStores(req: Request): Promise<Response> {
+  const { res, body } = await remoteJson("/sales/store", req, { method: "GET" });
+  if (!res.ok) {
+    return new Response(
+      remoteErrorMessage(body, "Unable to load stores from the API"),
+      { status: res.status || 400 },
+    );
+  }
+  const list = asRemoteStoreList(body);
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const store of list) {
+    const key = storeIdentity(store);
+    const group = groups.get(key) || [];
+    group.push(store);
+    groups.set(key, group);
+  }
+  let duplicateCount = 0;
+  const stores: AdminStoreRow[] = [];
+  for (const group of groups.values()) {
+    if (group.length > 1) duplicateCount += group.length - 1;
+    const keeper =
+      group.find((store) => !store.isTemp && !store.isTempStore) || group[0];
+    stores.push(remoteStoreRow(keeper, group.length));
+  }
+  stores.sort((a, b) => a.storeName.localeCompare(b.storeName));
+  return Response.json({ stores, duplicateCount });
+}
+
+export async function proxyUpdateStoreRecord(
+  req: Request,
+  body: unknown,
+): Promise<Response> {
+  const input =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const storeId = text(input.storeId);
+  if (!storeId) return new Response("Store not found", { status: 400 });
+  const isTemp = Boolean(input.isTemp || input.isTempStore);
+  const role = isTemp ? "tempStore" : "store";
+
+  let location = text(input.location || input.gpsLocation);
+  let salesPerson = text(input.salesPerson);
+  let uid = text(input.uid);
+  let city = text(input.city);
+  let country = text(input.country);
+  let trnNo = text(input.trnNo);
+
+  if (!isTemp) {
+    const listed = await remoteJson("/sales/store", req, { method: "GET" });
+    if (listed.res.ok) {
+      const current = asRemoteStoreList(listed.body).find(
+        (store) => text(store._id) === storeId,
+      );
+      if (current) {
+        if (!location) location = text(current.gpsLocation || current.location) || "—";
+        if (!salesPerson) {
+          salesPerson =
+            current.salesPerson && typeof current.salesPerson === "object"
+              ? text((current.salesPerson as { _id?: unknown })._id)
+              : text(current.salesPerson);
+        }
+        if (!uid) uid = text(current.uid);
+        if (!city) city = text(current.city);
+        if (!country) country = text(current.country);
+        if (!trnNo && current.trnNo != null) trnNo = String(current.trnNo);
+      }
+    }
+    if (!uid) return new Response("Enter a store code", { status: 400 });
+    if (!city) return new Response("Enter a city", { status: 400 });
+    if (!country) return new Response("Enter a country", { status: 400 });
+    if (!trnNo) return new Response("Enter a TRN", { status: 400 });
+    if (!salesPerson) {
+      return new Response("Choose a sales person", { status: 400 });
+    }
+    if (!location) location = "—";
+  }
+
+  const payload = {
+    uid: uid || undefined,
+    storeName: text(input.storeName),
+    alias: text(input.alias),
+    marks: text(input.marks),
+    addressLine1: text(input.addressLine1),
+    addressLine2: text(input.addressLine2),
+    addressLine3: text(input.addressLine3),
+    location,
+    city,
+    country,
+    trnNo: trnNo || undefined,
+    contactNumber: text(input.contactNumber),
+    salesPerson: salesPerson || undefined,
+  };
+
+  const { res, body: result } = await remoteJson(
+    `/admin/edit/${role}/${encodeURIComponent(storeId)}`,
+    req,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+  if (!res.ok) {
+    return new Response(
+      remoteErrorMessage(result, "Unable to update store"),
+      { status: res.status || 400 },
+    );
+  }
+  return new Response("Store updated", { status: 200 });
+}
+
+export async function proxyDeleteStoreRecord(
+  req: Request,
+  storeId: unknown,
+): Promise<Response> {
+  const id = text(storeId);
+  if (!id) return new Response("Store not found", { status: 400 });
+  const { res, body } = await remoteJson(
+    `/admin/edit/deleteStore/${encodeURIComponent(id)}`,
+    req,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    return new Response(
+      remoteErrorMessage(body, "Unable to delete store"),
+      { status: res.status || 400 },
+    );
+  }
+  return Response.json({ removed: 1 });
 }

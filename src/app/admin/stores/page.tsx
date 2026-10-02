@@ -285,6 +285,8 @@ function StoreCard({
         uid: form.uid.trim(),
         trnNo: form.trnNo.trim(),
         salesPerson: form.salesPerson,
+        isTemp,
+        isTempStore: isTemp,
       });
       toast("Store updated", "success");
       setEditing(false);

@@ -1,4 +1,9 @@
-import { deleteStoreRecord, storeError } from "@/lib/server/stores";
+import {
+  deleteStoreRecord,
+  isStoreDbUnconfigured,
+  proxyDeleteStoreRecord,
+  storeError,
+} from "@/lib/server/stores";
 
 export const runtime = "nodejs";
 
@@ -9,6 +14,9 @@ export async function POST(req: Request) {
   try {
     return Response.json(await deleteStoreRecord(token, body.storeId));
   } catch (error) {
+    if (isStoreDbUnconfigured(error)) {
+      return proxyDeleteStoreRecord(req, body.storeId);
+    }
     return storeError(error);
   }
 }
