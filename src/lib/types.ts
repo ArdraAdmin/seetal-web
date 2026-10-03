@@ -37,6 +37,11 @@ export interface StoreProfile {
   marks?: string;
   city?: string;
   country?: string;
+  uid?: string;
+  trnNo?: string | number;
+  contactNumber?: string;
+  tradeLicenseExpiry?: string | Date | null;
+  copyCount?: number;
   [key: string]: unknown;
 }
 

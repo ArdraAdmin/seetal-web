@@ -24,6 +24,7 @@ type StoreDoc = {
   uid?: string;
   trnNo?: number | string;
   salesPerson?: ObjectId;
+  tradeLicenseExpiry?: Date | string | null;
   isTemp: boolean;
 };
 
@@ -46,6 +47,7 @@ export type AdminStoreRow = {
   mobileNumber: string;
   uid: string;
   trnNo: string;
+  tradeLicenseExpiry: string;
   isTemp: boolean;
   isTempStore: boolean;
   salesPerson: string;
@@ -80,6 +82,19 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function parseTradeLicenseExpiry(value: unknown): Date | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function tradeLicenseExpiryIso(value: unknown) {
+  const parsed = parseTradeLicenseExpiry(value);
+  return parsed ? parsed.toISOString() : "";
+}
+
 function idVariants(ids: ObjectId[]) {
   return [...ids, ...ids.map((id) => id.toHexString())];
 }
@@ -99,6 +114,7 @@ async function loadStores(): Promise<StoreDoc[]> {
     uid: 1,
     trnNo: 1,
     salesPerson: 1,
+    tradeLicenseExpiry: 1,
   };
   const [permanent, temporary] = await Promise.all([
     database.collection("stores").find({}, { projection }).toArray(),
@@ -264,6 +280,7 @@ function toRow(
     mobileNumber: phone,
     uid: text(doc.uid),
     trnNo: doc.trnNo == null || doc.trnNo === "" ? "" : String(doc.trnNo),
+    tradeLicenseExpiry: tradeLicenseExpiryIso(doc.tradeLicenseExpiry),
     isTemp: doc.isTemp,
     isTempStore: doc.isTemp,
     salesPerson: salesId,
@@ -362,6 +379,8 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
     salesPerson = user._id;
   }
 
+  const tradeLicenseExpiry = parseTradeLicenseExpiry(input.tradeLicenseExpiry);
+
   const $set: Record<string, unknown> = {
     storeName,
     marks,
@@ -376,11 +395,20 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
   if (uid) $set.uid = uid;
   if (trnNo !== undefined) $set.trnNo = trnNo;
   if (salesPerson) $set.salesPerson = salesPerson;
+  if (tradeLicenseExpiry) {
+    $set.tradeLicenseExpiry = tradeLicenseExpiry;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (tradeLicenseExpiry.getTime() >= today.getTime()) {
+      $set.tradeLicenseExpiryNotifiedAt = null;
+    }
+  }
 
   const update: Record<string, unknown> = { $set };
   const $unset: Record<string, string> = {};
   if (!salesPerson) $unset.salesPerson = "";
   if (trnNo === undefined) $unset.trnNo = "";
+  if (!tradeLicenseExpiry) $unset.tradeLicenseExpiry = "";
   if (Object.keys($unset).length) update.$unset = $unset;
 
   const database = await mongoDb();
@@ -547,6 +575,7 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
     mobileNumber: phone,
     uid: text(store.uid),
     trnNo: store.trnNo == null || store.trnNo === "" ? "" : String(store.trnNo),
+    tradeLicenseExpiry: tradeLicenseExpiryIso(store.tradeLicenseExpiry),
     isTemp,
     isTempStore: isTemp,
     salesPerson: salesId,
@@ -631,6 +660,8 @@ export async function proxyUpdateStoreRecord(
     if (!location) location = "—";
   }
 
+  const tradeLicenseExpiry = text(input.tradeLicenseExpiry);
+
   const payload = {
     uid: uid || undefined,
     storeName: text(input.storeName),
@@ -645,6 +676,7 @@ export async function proxyUpdateStoreRecord(
     trnNo: trnNo || undefined,
     contactNumber: text(input.contactNumber),
     salesPerson: salesPerson || undefined,
+    tradeLicenseExpiry: tradeLicenseExpiry || undefined,
   };
 
   const { res, body: result } = await remoteJson(

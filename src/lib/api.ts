@@ -287,8 +287,26 @@ export type StoreEditInput = {
   uid?: string;
   trnNo?: string;
   salesPerson?: string;
+  tradeLicenseExpiry?: string;
   isTemp?: boolean;
   isTempStore?: boolean;
+};
+
+export type StoreCreateInput = {
+  storeName: string;
+  marks?: string;
+  alias?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  addressLine3?: string;
+  city?: string;
+  country?: string;
+  contactNumber?: string;
+  uid?: string;
+  trnNo?: string;
+  salesPerson?: string;
+  location?: string;
+  tradeLicenseExpiry?: string;
 };
 
 export const getAdminStores = () =>
@@ -296,6 +314,12 @@ export const getAdminStores = () =>
 
 export const editAdminStore = (body: StoreEditInput) =>
   siteRequest<string>("/api/admin/stores/edit", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const createAdminStore = (body: StoreCreateInput) =>
+  request<{ store?: StoreProfile }>("/admin/create/store", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -863,6 +887,47 @@ export async function getWarehouseOrdersPage(
     orders,
     counts:
       tabIndex === 0 ? countsFromOrders(orders) : asWarehouseCounts(data),
+  };
+}
+
+/** One API page for a warehouse tab — used for fast initial loads. */
+export async function fetchWarehouseTabPage(
+  userId: string,
+  page: number,
+  tabIndex: 0 | 1 | 2 | 3,
+  tag = "",
+): Promise<WarehouseOrdersResult & { pageSize: number; fetchedCount: number }> {
+  const pageSize = tabIndex === 0 ? 100 : 50;
+  const query = tag.trim();
+  const data = query
+    ? await request<unknown>(
+        `/warehouse/search?tag=${encodeURIComponent(query)}&userId=${encodeURIComponent(userId)}&orderType=${
+          tabIndex === 2 ? "confirm" : "temp"
+        }&tabIndex=${tabIndex}&page=${page}`,
+      )
+    : await request<unknown>(
+        `/warehouse/order/${tabIndex === 2 ? "confirmed" : "pending"}?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
+      );
+
+  const raw = asWarehouseOrders(data).filter((order) => !order.isDraft);
+  // Trust server tab filters for today/upcoming/confirmed. Pending keeps the
+  // stricter incomplete-overdue filter used across the web app.
+  let orders =
+    tabIndex === 3
+      ? visibleWarehouseOrders(raw, 3)
+      : tabIndex === 0 || tabIndex === 1
+        ? visibleWarehouseOrders(raw, tabIndex)
+        : raw;
+  if (tabIndex === 1) orders = [...orders].sort(byDeliveryDateAsc);
+
+  return {
+    orders,
+    counts:
+      tabIndex === 0
+        ? asWarehouseCounts(data) ?? countsFromOrders(orders)
+        : undefined,
+    pageSize,
+    fetchedCount: raw.length,
   };
 }
 

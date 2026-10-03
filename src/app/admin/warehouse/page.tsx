@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import {
   deleteWarehouseOrders,
+  fetchWarehouseTabPage,
   getAllWarehouseOrders,
   sendWarehouseActionSheet,
   type WarehouseActionTag,
@@ -37,10 +39,10 @@ import {
 const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([1, 2, 3]);
 
 const TABS: { id: WarehouseTabIndex; label: string }[] = [
+  { id: 3, label: "Pending" },
   { id: 0, label: "Today" },
   { id: 1, label: "Upcoming" },
-  { id: 2, label: "Confirmed" },
-  { id: 3, label: "Pending" },
+  { id: 2, label: "Delivered" },
   { id: 4, label: "Load list" },
 ];
 
@@ -110,6 +112,11 @@ export default function WarehousePage() {
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
 
   const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
   const orderIds = orders.map((order) => String(order._id || "")).filter(Boolean);
@@ -128,22 +135,24 @@ export default function WarehousePage() {
         setOrders([]);
         setCounts(null);
         setSelected(new Set());
+        setConfirmDeleteOpen(false);
+        setPage(1);
+        setHasMore(false);
         return;
       }
       setLoading(true);
       setError(null);
       setSelected(new Set());
+      setConfirmDeleteOpen(false);
+      setHasMore(false);
       try {
-        const data = await getAllWarehouseOrders(
-          user.id,
-          tabIndex,
-          tag,
-          tabIndex === 2 ? 6 : 80,
-        );
+        const data = await fetchWarehouseTabPage(user.id, 1, tabIndex, tag);
         setOrders(data.orders);
         setCounts(data.counts ?? null);
         setTab(tabIndex);
         setAppliedQuery(tag);
+        setPage(1);
+        setHasMore(data.fetchedCount >= data.pageSize);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load warehouse orders");
       } finally {
@@ -156,6 +165,61 @@ export default function WarehousePage() {
   useEffect(() => {
     void load(0);
   }, [load]);
+
+  async function loadMore() {
+    if (!user?.id || tab === 4 || loading || loadingMore || loadingAll || !hasMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const data = await fetchWarehouseTabPage(
+        user.id,
+        nextPage,
+        tab,
+        appliedQuery,
+      );
+      setOrders((prev) => {
+        const seen = new Set(prev.map((order) => String(order._id || "")));
+        const merged = [...prev];
+        for (const order of data.orders) {
+          const id = String(order._id || "");
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          merged.push(order);
+        }
+        return merged;
+      });
+      setPage(nextPage);
+      setHasMore(data.fetchedCount >= data.pageSize);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to load more orders", "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function loadAll() {
+    if (!user?.id || tab === 4 || loading || loadingMore || loadingAll || !hasMore) {
+      return;
+    }
+    setLoadingAll(true);
+    try {
+      const data = await getAllWarehouseOrders(
+        user.id,
+        tab,
+        appliedQuery,
+        tab === 2 ? 6 : 80,
+      );
+      setOrders(data.orders);
+      if (data.counts) setCounts(data.counts);
+      setHasMore(false);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to load all orders", "error");
+    } finally {
+      setLoadingAll(false);
+    }
+  }
 
   function toggleOrder(id: string) {
     setSelected((prev) => {
@@ -174,16 +238,14 @@ export default function WarehousePage() {
     setSelected(new Set(orderIds));
   }
 
+  function requestDeleteSelected() {
+    if (!canManageOrders || selected.size === 0 || deleting) return;
+    setConfirmDeleteOpen(true);
+  }
+
   async function deleteSelected() {
     if (!canManageOrders || selected.size === 0 || deleting) return;
     const count = selected.size;
-    if (
-      !confirm(
-        `Delete ${count} selected order${count === 1 ? "" : "s"}? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
     setDeleting(true);
     try {
       await deleteWarehouseOrders([...selected]);
@@ -192,6 +254,7 @@ export default function WarehousePage() {
         "success",
       );
       setSelected(new Set());
+      setConfirmDeleteOpen(false);
       await load(tab, appliedQuery);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to delete orders", "error");
@@ -347,9 +410,10 @@ export default function WarehousePage() {
                   <SecondaryButton
                     type="button"
                     disabled={selected.size === 0 || deleting}
-                    onClick={() => void deleteSelected()}
-                    className="border-red-200 text-red-700 hover:bg-red-50"
+                    onClick={requestDeleteSelected}
+                    className="inline-flex items-center gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
                   >
+                    <Trash2 className="h-4 w-4" strokeWidth={2} />
                     {deleting
                       ? "Deleting…"
                       : selected.size > 0
@@ -446,8 +510,71 @@ export default function WarehousePage() {
                 </div>
               );
             })}
+            {hasMore ? (
+              <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                <SecondaryButton
+                  type="button"
+                  disabled={loadingMore || loadingAll}
+                  onClick={() => void loadMore()}
+                  className="w-full sm:w-auto"
+                >
+                  {loadingMore ? "Loading…" : "Load more"}
+                </SecondaryButton>
+                <SecondaryButton
+                  type="button"
+                  disabled={loadingMore || loadingAll}
+                  onClick={() => void loadAll()}
+                  className="w-full sm:w-auto"
+                >
+                  {loadingAll ? "Loading…" : "Load all"}
+                </SecondaryButton>
+              </div>
+            ) : null}
           </div>
         )
+      ) : null}
+
+      {confirmDeleteOpen ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="warehouse-delete-title"
+            aria-describedby="warehouse-delete-desc"
+            className="w-full max-w-md rounded-2xl border border-line bg-white p-5 shadow-sm"
+          >
+            <h2
+              id="warehouse-delete-title"
+              className="text-base font-semibold text-ink"
+            >
+              Delete orders
+            </h2>
+            <p id="warehouse-delete-desc" className="mt-2 text-sm text-slate-600">
+              This action can&apos;t be undone. Are you sure you want to delete
+              {selected.size === 1
+                ? " this order"
+                : ` these ${selected.size} orders`}
+              ?
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <SecondaryButton
+                type="button"
+                disabled={deleting}
+                onClick={() => setConfirmDeleteOpen(false)}
+              >
+                Cancel
+              </SecondaryButton>
+              <SecondaryButton
+                type="button"
+                disabled={deleting || selected.size === 0}
+                onClick={() => void deleteSelected()}
+                className="border-red-200 text-red-700 hover:bg-red-50"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </SecondaryButton>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
