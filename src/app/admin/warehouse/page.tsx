@@ -9,6 +9,7 @@ import {
   fetchWarehouseTabPage,
   getAllWarehouseOrders,
   sendWarehouseActionSheet,
+  type DeleteWarehouseOrdersProgress,
   type WarehouseActionTag,
   type WarehouseTabIndex,
 } from "@/lib/api";
@@ -112,6 +113,8 @@ export default function WarehousePage() {
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] =
+    useState<DeleteWarehouseOrdersProgress | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -136,6 +139,7 @@ export default function WarehousePage() {
         setCounts(null);
         setSelected(new Set());
         setConfirmDeleteOpen(false);
+        setDeleteProgress(null);
         setPage(1);
         setHasMore(false);
         return;
@@ -144,6 +148,7 @@ export default function WarehousePage() {
       setError(null);
       setSelected(new Set());
       setConfirmDeleteOpen(false);
+      setDeleteProgress(null);
       setHasMore(false);
       try {
         const data = await fetchWarehouseTabPage(user.id, 1, tabIndex, tag);
@@ -245,16 +250,32 @@ export default function WarehousePage() {
 
   async function deleteSelected() {
     if (!canManageOrders || selected.size === 0 || deleting) return;
-    const count = selected.size;
+    const ids = [...selected];
     setDeleting(true);
+    setDeleteProgress({
+      total: ids.length,
+      deleted: 0,
+      failed: 0,
+      remaining: ids.length,
+    });
     try {
-      await deleteWarehouseOrders([...selected]);
-      toast(
-        count === 1 ? "Order deleted" : `${count} orders deleted`,
-        "success",
-      );
+      const result = await deleteWarehouseOrders(ids, setDeleteProgress);
+      if (result.failed > 0) {
+        toast(
+          `Deleted ${result.deleted} of ${result.total}. ${result.failed} failed.`,
+          "info",
+        );
+      } else {
+        toast(
+          result.deleted === 1
+            ? "Order deleted"
+            : `${result.deleted} orders deleted`,
+          "success",
+        );
+      }
       setSelected(new Set());
       setConfirmDeleteOpen(false);
+      setDeleteProgress(null);
       await load(tab, appliedQuery);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to delete orders", "error");
@@ -414,11 +435,13 @@ export default function WarehousePage() {
                     className="inline-flex items-center gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
                   >
                     <Trash2 className="h-4 w-4" strokeWidth={2} />
-                    {deleting
-                      ? "Deleting…"
-                      : selected.size > 0
-                        ? `Delete (${selected.size})`
-                        : "Delete"}
+                    {deleting && deleteProgress
+                      ? `Deleting ${deleteProgress.deleted}/${deleteProgress.total}`
+                      : deleting
+                        ? "Deleting…"
+                        : selected.size > 0
+                          ? `Delete (${selected.size})`
+                          : "Delete"}
                   </SecondaryButton>
                 </div>
               ) : null}
@@ -547,20 +570,54 @@ export default function WarehousePage() {
               id="warehouse-delete-title"
               className="text-base font-semibold text-ink"
             >
-              Delete orders
+              {deleting ? "Deleting orders" : "Delete orders"}
             </h2>
-            <p id="warehouse-delete-desc" className="mt-2 text-sm text-slate-600">
-              This action can&apos;t be undone. Are you sure you want to delete
-              {selected.size === 1
-                ? " this order"
-                : ` these ${selected.size} orders`}
-              ?
-            </p>
+            {deleting && deleteProgress ? (
+              <div id="warehouse-delete-desc" className="mt-3 space-y-3">
+                <p className="text-sm text-slate-600">
+                  Deleted {deleteProgress.deleted} of {deleteProgress.total}
+                  {deleteProgress.remaining > 0
+                    ? ` · ${deleteProgress.remaining} remaining`
+                    : ""}
+                  {deleteProgress.failed > 0
+                    ? ` · ${deleteProgress.failed} failed`
+                    : ""}
+                </p>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-brand transition-[width] duration-200"
+                    style={{
+                      width: `${
+                        deleteProgress.total > 0
+                          ? Math.min(
+                              100,
+                              ((deleteProgress.deleted + deleteProgress.failed) /
+                                deleteProgress.total) *
+                                100,
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p id="warehouse-delete-desc" className="mt-2 text-sm text-slate-600">
+                This action can&apos;t be undone. Are you sure you want to delete
+                {selected.size === 1
+                  ? " this order"
+                  : ` these ${selected.size} orders`}
+                ?
+              </p>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <SecondaryButton
                 type="button"
                 disabled={deleting}
-                onClick={() => setConfirmDeleteOpen(false)}
+                onClick={() => {
+                  setConfirmDeleteOpen(false);
+                  setDeleteProgress(null);
+                }}
               >
                 Cancel
               </SecondaryButton>
@@ -570,7 +627,11 @@ export default function WarehousePage() {
                 onClick={() => void deleteSelected()}
                 className="border-red-200 text-red-700 hover:bg-red-50"
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting
+                  ? deleteProgress
+                    ? `${deleteProgress.deleted}/${deleteProgress.total}`
+                    : "Deleting…"
+                  : "Delete"}
               </SecondaryButton>
             </div>
           </div>

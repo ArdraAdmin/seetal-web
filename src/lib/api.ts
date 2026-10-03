@@ -1244,11 +1244,76 @@ export const deleteTempOrder = (orderId: string) =>
     body: JSON.stringify({ orderId }),
   });
 
-export async function deleteWarehouseOrders(orderIds: string[]) {
+export type DeleteWarehouseOrdersProgress = {
+  total: number;
+  deleted: number;
+  failed: number;
+  remaining: number;
+};
+
+const DELETE_ORDER_CHUNK = 25;
+
+async function deleteOrderChunk(orderIds: string[]) {
+  return request<{ message?: string; removed?: number; requested?: number } | string>(
+    "/admin/edit/deleteTempOrder",
+    {
+      method: "POST",
+      body: JSON.stringify({ orderIds }),
+    },
+  );
+}
+
+export async function deleteWarehouseOrders(
+  orderIds: string[],
+  onProgress?: (progress: DeleteWarehouseOrdersProgress) => void,
+) {
   const ids = [...new Set(orderIds.map(String).filter(Boolean))];
-  for (const orderId of ids) {
-    await deleteTempOrder(orderId);
+  const total = ids.length;
+  let deleted = 0;
+  let failed = 0;
+  const failures: string[] = [];
+
+  const report = () => {
+    onProgress?.({
+      total,
+      deleted,
+      failed,
+      remaining: Math.max(0, total - deleted - failed),
+    });
+  };
+
+  report();
+
+  for (let i = 0; i < ids.length; i += DELETE_ORDER_CHUNK) {
+    const chunk = ids.slice(i, i + DELETE_ORDER_CHUNK);
+    try {
+      await deleteOrderChunk(chunk);
+      deleted += chunk.length;
+      report();
+      continue;
+    } catch {
+      // Fall back one-by-one so one bad id does not block the rest of the chunk.
+    }
+
+    for (const orderId of chunk) {
+      try {
+        await deleteTempOrder(orderId);
+        deleted += 1;
+      } catch (err) {
+        failed += 1;
+        failures.push(
+          err instanceof Error ? err.message : "Failed to delete order",
+        );
+      }
+      report();
+    }
   }
+
+  if (deleted === 0) {
+    throw new Error(failures[0] || "Failed to delete orders");
+  }
+
+  return { total, deleted, failed };
 }
 
 export const exportInventory = (userId: string) =>
