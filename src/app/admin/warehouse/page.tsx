@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
+  deleteWarehouseOrders,
   getAllWarehouseOrders,
   sendWarehouseActionSheet,
   type WarehouseActionTag,
   type WarehouseTabIndex,
 } from "@/lib/api";
+import { isAdmin } from "@/lib/auth";
 import type { PendingOrder, WarehouseCounts } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
@@ -31,6 +33,8 @@ import {
   storeTitle,
   warehouseBasePath,
 } from "@/lib/warehouse";
+
+const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([1, 2, 3]);
 
 const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 0, label: "Today" },
@@ -93,6 +97,7 @@ export default function WarehousePage() {
   const { toast } = useToast();
   const pathname = usePathname();
   const base = warehouseBasePath(pathname);
+  const adminUser = isAdmin(user);
   const [tab, setTab] = useState<WarehouseTabIndex>(0);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [counts, setCounts] = useState<WarehouseCounts | null>(null);
@@ -103,6 +108,15 @@ export default function WarehousePage() {
   const [sendingAction, setSendingAction] = useState<WarehouseActionTag | null>(
     null,
   );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
+  const orderIds = orders.map((order) => String(order._id || "")).filter(Boolean);
+  const allSelected =
+    canManageOrders &&
+    orderIds.length > 0 &&
+    orderIds.every((id) => selected.has(id));
 
   const load = useCallback(
     async (tabIndex: WarehouseTabIndex, tag = "") => {
@@ -113,10 +127,12 @@ export default function WarehousePage() {
         setLoading(false);
         setOrders([]);
         setCounts(null);
+        setSelected(new Set());
         return;
       }
       setLoading(true);
       setError(null);
+      setSelected(new Set());
       try {
         const data = await getAllWarehouseOrders(
           user.id,
@@ -140,6 +156,49 @@ export default function WarehousePage() {
   useEffect(() => {
     void load(0);
   }, [load]);
+
+  function toggleOrder(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelected(new Set());
+      return;
+    }
+    setSelected(new Set(orderIds));
+  }
+
+  async function deleteSelected() {
+    if (!canManageOrders || selected.size === 0 || deleting) return;
+    const count = selected.size;
+    if (
+      !confirm(
+        `Delete ${count} selected order${count === 1 ? "" : "s"}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteWarehouseOrders([...selected]);
+      toast(
+        count === 1 ? "Order deleted" : `${count} orders deleted`,
+        "success",
+      );
+      setSelected(new Set());
+      await load(tab, appliedQuery);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to delete orders", "error");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function sendAction(tag: WarehouseActionTag) {
     if (!user?.id || sendingAction) return;
@@ -269,9 +328,37 @@ export default function WarehousePage() {
           <EmptyState title="No warehouse orders" />
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              Showing {orders.length} order{orders.length === 1 ? "" : "s"}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-600">
+                Showing {orders.length} order{orders.length === 1 ? "" : "s"}
+                {canManageOrders && selected.size > 0
+                  ? ` · ${selected.size} selected`
+                  : ""}
+              </p>
+              {canManageOrders ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <SecondaryButton
+                    type="button"
+                    disabled={orders.length === 0 || deleting}
+                    onClick={toggleSelectAll}
+                  >
+                    {allSelected ? "Deselect all" : "Select all"}
+                  </SecondaryButton>
+                  <SecondaryButton
+                    type="button"
+                    disabled={selected.size === 0 || deleting}
+                    onClick={() => void deleteSelected()}
+                    className="border-red-200 text-red-700 hover:bg-red-50"
+                  >
+                    {deleting
+                      ? "Deleting…"
+                      : selected.size > 0
+                        ? `Delete (${selected.size})`
+                        : "Delete"}
+                  </SecondaryButton>
+                </div>
+              ) : null}
+            </div>
             {orders.map((order, index) => {
               const status = checkStatus(order);
               const title = storeTitle(order) || "Store";
@@ -282,6 +369,8 @@ export default function WarehousePage() {
               const href =
                 tab === 2 ? null : `${base}/${order._id}?step=1`;
               const rowKey = order._id || `order-${index}`;
+              const orderId = String(order._id || "");
+              const checked = Boolean(orderId) && selected.has(orderId);
               const body = (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
@@ -313,16 +402,48 @@ export default function WarehousePage() {
                   </span>
                 </div>
               );
-              return href ? (
+              const content = href ? (
                 <Link
-                  key={rowKey}
                   href={href}
-                  className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
+                  className="min-w-0 flex-1 rounded-lg hover:bg-[#f7f5f0]"
                 >
                   {body}
                 </Link>
               ) : (
-                <Card key={rowKey}>{body}</Card>
+                <div className="min-w-0 flex-1">{body}</div>
+              );
+              if (!canManageOrders) {
+                return href ? (
+                  <Link
+                    key={rowKey}
+                    href={href}
+                    className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <Card key={rowKey}>{body}</Card>
+                );
+              }
+              return (
+                <div
+                  key={rowKey}
+                  className={`flex items-start gap-3 rounded-xl border bg-white p-4 ${
+                    checked ? "border-brand" : "border-line"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 accent-brand"
+                    checked={checked}
+                    disabled={!orderId || deleting}
+                    aria-label={`Select order ${title}`}
+                    onChange={() => {
+                      if (orderId) toggleOrder(orderId);
+                    }}
+                  />
+                  {content}
+                </div>
               );
             })}
           </div>

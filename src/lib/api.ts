@@ -1173,6 +1173,19 @@ export const exportTempOrders = (orderId: string[], userId: string) =>
     body: JSON.stringify({ orderId, userId }),
   });
 
+export const deleteTempOrder = (orderId: string) =>
+  request<unknown>("/admin/edit/deleteTempOrder", {
+    method: "POST",
+    body: JSON.stringify({ orderId }),
+  });
+
+export async function deleteWarehouseOrders(orderIds: string[]) {
+  const ids = [...new Set(orderIds.map(String).filter(Boolean))];
+  for (const orderId of ids) {
+    await deleteTempOrder(orderId);
+  }
+}
+
 export const exportInventory = (userId: string) =>
   request<unknown>("/admin/export/products", {
     method: "POST",
