@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getAdminPerformance,
   setAdminSalesTarget,
@@ -16,6 +16,7 @@ import {
   PageHeader,
   PrimaryButton,
   SecondaryButton,
+  TextField,
 } from "@/components/ui";
 
 function money(value: unknown) {
@@ -34,28 +35,37 @@ function CompanyBlock({
   title,
   block,
   salesId,
-  onSet,
+  onSave,
   busy,
 }: {
   title: string;
   block: PerformanceCompanyBlock;
   salesId: string;
-  onSet: (salesId: string, companyId: string, amount: number) => Promise<void>;
+  onSave: (
+    salesId: string,
+    companyId: string,
+    amount: number,
+    isEdit: boolean,
+  ) => Promise<void>;
   busy: boolean;
 }) {
-  const [amount, setAmount] = useState("");
+  const isEdit = block.targetSet === true;
+  const [amount, setAmount] = useState(
+    isEdit && block.target != null ? String(block.target) : "",
+  );
   const pct =
     block.targetSet && typeof block.progress === "number"
       ? Math.min(100, Math.max(0, block.progress))
       : null;
 
+  useEffect(() => {
+    setAmount(isEdit && block.target != null ? String(block.target) : "");
+  }, [block.target, isEdit]);
+
   return (
     <div className="rounded-xl border border-line p-3">
       <div className="flex items-center justify-between gap-2">
         <h4 className="font-semibold">{title}</h4>
-        {block.targetSet ? (
-          <span className="text-xs text-slate-500">Locked</span>
-        ) : null}
       </div>
       <p className="mt-2 text-sm">Delivered: {money(block.delivered)}</p>
       <p className="text-sm">
@@ -69,16 +79,14 @@ function CompanyBlock({
           <p className="mt-1 text-xs text-slate-500">{pct.toFixed(1)}%</p>
         </div>
       ) : null}
-      {!block.targetSet && block.companyId ? (
+      {block.companyId ? (
         <form
           className="mt-3 flex flex-wrap gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(amount);
             if (!Number.isFinite(n) || n < 0) return;
-            void onSet(salesId, String(block.companyId), n).then(() =>
-              setAmount(""),
-            );
+            void onSave(salesId, String(block.companyId), n, isEdit);
           }}
         >
           <input
@@ -91,7 +99,7 @@ function CompanyBlock({
             onChange={(e) => setAmount(e.target.value)}
           />
           <PrimaryButton type="submit" disabled={busy}>
-            Set target
+            {isEdit ? "Update target" : "Set target"}
           </PrimaryButton>
         </form>
       ) : null}
@@ -108,6 +116,7 @@ export default function AdminTargetsPage() {
   const [year, setYear] = useState<number | null>(null);
   const [month, setMonth] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,7 +137,22 @@ export default function AdminTargetsPage() {
     void load();
   }, [load]);
 
-  async function onSet(salesId: string, companyId: string, amount: number) {
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const name = (row.sales.name || "").toLowerCase();
+      const email = (row.sales.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [query, rows]);
+
+  async function onSave(
+    salesId: string,
+    companyId: string,
+    amount: number,
+    isEdit: boolean,
+  ) {
     setBusy(true);
     try {
       await setAdminSalesTarget({
@@ -137,10 +161,10 @@ export default function AdminTargetsPage() {
         amount,
         userId: user?.id,
       });
-      toast("Target set", "success");
+      toast(isEdit ? "Target updated" : "Target set", "success");
       await load();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to set target", "error");
+      toast(e instanceof Error ? e.message : "Failed to save target", "error");
     } finally {
       setBusy(false);
     }
@@ -152,7 +176,7 @@ export default function AdminTargetsPage() {
         title="Sales targets"
         subtitle={
           month && year
-            ? `Achieved vs target for ${month}/${year}. Targets can be set once and cannot be edited.`
+            ? `Achieved vs target for ${month}/${year}. Targets can be set or edited anytime.`
             : "Achieved vs target for the current month."
         }
         actions={
@@ -169,37 +193,56 @@ export default function AdminTargetsPage() {
       ) : rows.length === 0 ? (
         <EmptyState title="No salesmen found" />
       ) : (
-        <div className="space-y-3">
-          {rows.map((row) => (
-            <Card key={row.sales._id} className="p-4">
-              <div className="mb-3">
-                <p className="font-semibold">{row.sales.name || "Salesman"}</p>
-                {row.sales.email ? (
-                  <p className="text-sm text-slate-500">{row.sales.email}</p>
-                ) : null}
-                <p className="mt-1 text-sm font-medium">
-                  Total delivered: {money(row.totalDelivered)}
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <CompanyBlock
-                  title="STL"
-                  block={row.stl}
-                  salesId={row.sales._id}
-                  onSet={onSet}
-                  busy={busy}
-                />
-                <CompanyBlock
-                  title="SHMP"
-                  block={row.shmp}
-                  salesId={row.sales._id}
-                  onSet={onSet}
-                  busy={busy}
-                />
-              </div>
-            </Card>
-          ))}
-        </div>
+        <>
+          <Card className="mb-4 p-4">
+            <TextField
+              label="Search sales people"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name"
+            />
+            <p className="mt-2 text-sm text-slate-500">
+              {filteredRows.length} sales person
+              {filteredRows.length === 1 ? "" : "s"}
+            </p>
+          </Card>
+
+          {filteredRows.length === 0 ? (
+            <EmptyState title="No matching sales people" />
+          ) : (
+            <div className="space-y-3">
+              {filteredRows.map((row) => (
+                <Card key={row.sales._id} className="p-4">
+                  <div className="mb-3">
+                    <p className="font-semibold">{row.sales.name || "Salesman"}</p>
+                    {row.sales.email ? (
+                      <p className="text-sm text-slate-500">{row.sales.email}</p>
+                    ) : null}
+                    <p className="mt-1 text-sm font-medium">
+                      Total delivered: {money(row.totalDelivered)}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <CompanyBlock
+                      title="STL"
+                      block={row.stl}
+                      salesId={row.sales._id}
+                      onSave={onSave}
+                      busy={busy}
+                    />
+                    <CompanyBlock
+                      title="SHMP"
+                      block={row.shmp}
+                      salesId={row.sales._id}
+                      onSave={onSave}
+                      busy={busy}
+                    />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
