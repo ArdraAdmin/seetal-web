@@ -2569,3 +2569,125 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   await loadDashboardStats((partial) => Object.assign(stats, partial));
   return stats;
 }
+
+
+// —— Sales performance / leave / targets ——
+export type PerformanceCompanyBlock = {
+  delivered: number;
+  target: number | null;
+  progress: number | null;
+  companyId?: string | null;
+  targetSet: boolean;
+};
+
+export type SalesPerformance = {
+  year: number;
+  month: number;
+  totalDelivered: number;
+  orderCount?: number;
+  stl: PerformanceCompanyBlock;
+  shmp: PerformanceCompanyBlock;
+};
+
+export type LeaveRequestRow = {
+  _id: string;
+  sales?: { _id?: string; name?: string; email?: string } | string;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+  status: string;
+  dayCount: number;
+  decidedBy?: { name?: string } | string;
+  decidedAt?: string;
+  createdAt?: string;
+};
+
+export async function getSalesPerformance(userId: string) {
+  return request<SalesPerformance>(
+    `/sales/performance?userId=${encodeURIComponent(userId)}`,
+  );
+}
+
+export async function getSalesLeave(userId: string, status?: string) {
+  const qs = new URLSearchParams({ userId });
+  if (status) qs.set("status", status);
+  return request<{
+    approvedCount: number;
+    pendingCount: number;
+    leaves: LeaveRequestRow[];
+  }>(`/sales/leave?${qs.toString()}`);
+}
+
+export async function applySalesLeave(payload: {
+  userId: string;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}) {
+  return request<LeaveRequestRow>("/sales/leave", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function cancelSalesLeave(userId: string, leaveId: string) {
+  return request<LeaveRequestRow>(`/sales/leave/${leaveId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export async function getAdminPerformance() {
+  return request<{
+    year: number;
+    month: number;
+    salesmen: Array<{
+      sales: { _id: string; name?: string; email?: string };
+      year: number;
+      month: number;
+      totalDelivered: number;
+      stl: PerformanceCompanyBlock;
+      shmp: PerformanceCompanyBlock;
+    }>;
+  }>("/admin/performance");
+}
+
+export async function setAdminSalesTarget(payload: {
+  salesId: string;
+  companyId: string;
+  amount: number;
+  userId?: string;
+}) {
+  return request<unknown>("/admin/performance/target", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminLeaves(params?: {
+  status?: string;
+  salesId?: string;
+  from?: string;
+  to?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.salesId) qs.set("salesId", params.salesId);
+  if (params?.from) qs.set("from", params.from);
+  if (params?.to) qs.set("to", params.to);
+  const q = qs.toString();
+  return request<{ leaves: LeaveRequestRow[] }>(
+    `/admin/leave${q ? `?${q}` : ""}`,
+  );
+}
+
+export async function decideAdminLeave(
+  leaveId: string,
+  decision: "approved" | "rejected",
+  userId?: string,
+) {
+  return request<LeaveRequestRow>(`/admin/leave/${leaveId}/decide`, {
+    method: "POST",
+    body: JSON.stringify({ decision, userId }),
+  });
+}

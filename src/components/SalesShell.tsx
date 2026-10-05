@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  CalendarDays,
   ClipboardList,
   LogOut,
   Menu,
@@ -12,6 +13,7 @@ import {
   PanelLeftOpen,
   Settings,
   Store,
+  TrendingUp,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
@@ -23,6 +25,8 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/sales", label: "Stores", icon: Store },
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
+  { href: "/sales/performance", label: "Performance", icon: TrendingUp },
+  { href: "/sales/leave", label: "Leave", icon: CalendarDays },
   { href: "/sales/settings", label: "Settings", icon: Settings },
 ];
 
