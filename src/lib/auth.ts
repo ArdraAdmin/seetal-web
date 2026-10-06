@@ -1,5 +1,6 @@
 import type { AuthUser } from "./types";
 import { AUTH_COOKIE } from "./session";
+import { clearSelectedSalesCompany } from "./sales-selected-company";
 
 export { AUTH_COOKIE, parseAuthCookie } from "./session";
 export { homePathForRole } from "./roles";
@@ -34,6 +35,7 @@ export function saveAuth(user: AuthUser): void {
 
 export function clearAuth(): void {
   localStorage.removeItem(STORAGE_KEY);
+  clearSelectedSalesCompany();
   document.cookie = `${AUTH_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
 }
 

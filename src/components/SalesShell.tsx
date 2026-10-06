@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  ArrowLeftRight,
   CalendarDays,
   ClipboardList,
   LogOut,
@@ -18,6 +19,13 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
+import { dropSalesCatalogCache } from "@/lib/sales-company";
+import {
+  clearSelectedSalesCompany,
+  loadSelectedSalesCompany,
+  onSelectedSalesCompanyChange,
+  selectedCompanyDisplayName,
+} from "@/lib/sales-selected-company";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
@@ -35,14 +43,31 @@ const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
 export function SalesShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
+  const [companyLabel, setCompanyLabel] = useState("");
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
     setCollapseReady(true);
   }, []);
+
+  useEffect(() => {
+    function refresh() {
+      setCompanyLabel(selectedCompanyDisplayName(loadSelectedSalesCompany()));
+    }
+    refresh();
+    return onSelectedSalesCompanyChange(refresh);
+  }, []);
+
+  function switchCompany() {
+    clearSelectedSalesCompany();
+    dropSalesCatalogCache();
+    setMobileOpen(false);
+    router.replace("/sales/company");
+  }
 
   useEffect(() => {
     if (!collapseReady) return;
@@ -78,13 +103,16 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
           }`}
         >
           <BrandLogo size="sm" className={collapsed ? "lg:!h-9 lg:!w-9" : ""} />
-          <h1
-            className={`min-w-0 text-base font-semibold tracking-tight text-black ${
-              collapsed ? "lg:hidden" : ""
-            }`}
-          >
-            Seetal web
-          </h1>
+          <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
+            <h1 className="text-base font-semibold tracking-tight text-black">
+              Seetal web
+            </h1>
+            {companyLabel ? (
+              <p className="truncate text-xs font-medium text-black/70">
+                {companyLabel}
+              </p>
+            ) : null}
+          </div>
           <button
             type="button"
             className="ml-auto rounded-lg p-1 text-black hover:bg-white/50 lg:hidden"
@@ -120,6 +148,24 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
                 </li>
               );
             })}
+            <li>
+              <button
+                type="button"
+                title="Switch company"
+                onClick={switchCompany}
+                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition hover:bg-white/50 ${
+                  collapsed ? "lg:justify-center lg:px-2" : ""
+                }`}
+              >
+                <ArrowLeftRight
+                  className="h-4 w-4 shrink-0 text-black"
+                  strokeWidth={1.75}
+                />
+                <span className={collapsed ? "lg:hidden" : undefined}>
+                  Switch company
+                </span>
+              </button>
+            </li>
           </ul>
         </nav>
         <div

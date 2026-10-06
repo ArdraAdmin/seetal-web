@@ -118,13 +118,21 @@ export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
   const allowedNames = allowedCompanyNames(access);
   const id = productCompanyId(product);
   const name = productCompanyName(product);
-  if (id) {
-    if (access.companyIds.includes(id)) return true;
-    if (name && allowedNames.includes(name)) return true;
-    return false;
+  if (!id && !name) {
+    return (
+      access.includeUnassigned ||
+      Boolean(loadAllowedProductIds(access)?.has(product._id))
+    );
   }
-  if (name) return allowedNames.includes(name);
-  if (loadAllowedProductIds(access)?.has(product._id)) return true;
+  if (id && access.companyIds.includes(id)) return true;
+  if (name && allowedNames.includes(name)) return true;
+  if (
+    access.includeUnassigned &&
+    name &&
+    (name === "STL" || name === "SEETAL" || name.startsWith("STL"))
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -132,26 +140,7 @@ export function filterAllowedProducts(
   products: Product[],
   access: SalesCompanyAccess,
 ) {
-  const allowedIds = new Set(access.companyIds);
-  const allowedNames = allowedCompanyNames(access);
-  const extraIds = loadAllowedProductIds(access);
-  const filtered: Product[] = [];
-  for (const product of products) {
-    const id = productCompanyId(product);
-    const name = productCompanyName(product);
-    if (id) {
-      if (allowedIds.has(id) || (name && allowedNames.includes(name))) {
-        filtered.push(product);
-      }
-      continue;
-    }
-    if (name) {
-      if (allowedNames.includes(name)) filtered.push(product);
-      continue;
-    }
-    if (extraIds?.has(product._id)) filtered.push(product);
-  }
-  return filtered;
+  return products.filter((product) => isProductAllowed(product, access));
 }
 
 export function companyQueryPayload(access: SalesCompanyAccess) {

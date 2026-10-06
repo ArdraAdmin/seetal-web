@@ -32,8 +32,16 @@ import {
   saveSalesCompanyAccess,
   saveAllowedProductIds,
   resolveCatalogAccess,
+  dropSalesCatalogCache,
   type SalesCompanyAccess,
 } from "./sales-company";
+import {
+  accessFromSelectedCompany,
+  loadSelectedSalesCompany,
+  resolveSalesCompanyByKey,
+  saveSelectedSalesCompany,
+  type SalesCompanyKey,
+} from "./sales-selected-company";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -1590,6 +1598,9 @@ function parseSalesCompanyAccess(data: unknown): SalesCompanyAccess | null {
 export async function getSalesCompanyAccess(
   userId: string,
 ): Promise<SalesCompanyAccess> {
+  const selected = loadSelectedSalesCompany();
+  if (selected) return accessFromSelectedCompany(selected);
+
   try {
     const user = await getProfile("sales", userId);
     const companies = await getCompanies().catch(() => [] as CompanyRecord[]);
@@ -1619,6 +1630,26 @@ export async function getSalesCompanyAccess(
       includeUnassigned: false,
     }
   );
+}
+
+/** Persist STL/SHMP choice and reload inventory for that company only. */
+export async function selectSalesCompany(
+  userId: string,
+  key: SalesCompanyKey,
+) {
+  const companies = await getCompanies();
+  const resolved = resolveSalesCompanyByKey(key, companies);
+  if (!resolved) {
+    throw new Error(
+      `Could not find ${key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
+    );
+  }
+  const access = accessFromSelectedCompany(resolved);
+  dropSalesCatalogCache();
+  saveSalesCompanyAccess(access);
+  const result = await downloadSalesCatalogForAccess(userId, access);
+  saveSelectedSalesCompany(resolved);
+  return result;
 }
 
 export async function refreshSalesCompanyAccess(userId: string) {
