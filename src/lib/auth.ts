@@ -43,8 +43,16 @@ export function isAdmin(user: AuthUser | null): boolean {
   return user?.role === "Admin";
 }
 
+/** Tracking and attendance are limited to this admin account. */
+const TRACKING_ADMIN_EMAIL = "lav@shrseetal.com";
+
 export function isSuperAdmin(user: AuthUser | null): boolean {
-  return user?.role === "Admin" && user?.isSuperAdmin === true;
+  return (
+    user?.role === "Admin" &&
+    String(user.email || "")
+      .trim()
+      .toLowerCase() === TRACKING_ADMIN_EMAIL
+  );
 }
 
 export function isSales(user: AuthUser | null): boolean {
