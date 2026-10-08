@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Search, ShoppingCart } from "lucide-react";
 import {
   createSalesProductCache,
@@ -44,6 +44,7 @@ import {
   RecordPager,
   SecondaryButton,
 } from "@/components/ui";
+import { ensureLocationEnabled } from "@/lib/sales-location";
 
 function categoriesFromCatalog(): CategoryGroup[] {
   const products = catalogForAccess(loadSalesCompanyAccess()) || [];
@@ -86,12 +87,26 @@ function categoriesFromCatalog(): CategoryGroup[] {
 export default function SalesStoreProductsPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
   const storeId = params.id;
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
   const tempStore = searchParams.get("temp") === "1";
+
+  async function openCart() {
+    const ok = await ensureLocationEnabled();
+    if (!ok) {
+      toast(
+        "Turn on location on your device to open the cart and place orders.",
+        "info",
+      );
+      return;
+    }
+    const href = `/sales/stores/${storeId}/cart?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
+    router.push(href);
+  }
 
   const cacheRef = useRef(createSalesProductCache());
   const loadGen = useRef(0);
@@ -218,8 +233,9 @@ export default function SalesStoreProductsPage() {
           ) : null}
           <p className="mt-1 text-sm text-slate-500">Select product</p>
         </div>
-        <Link
-          href={`/sales/stores/${storeId}/cart?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`}
+        <button
+          type="button"
+          onClick={() => void openCart()}
           className="relative inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand text-black"
           aria-label="Open cart"
         >
@@ -229,7 +245,7 @@ export default function SalesStoreProductsPage() {
               {count}
             </span>
           ) : null}
-        </Link>
+        </button>
       </div>
 
       <Card className="mb-5">

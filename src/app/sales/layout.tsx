@@ -7,6 +7,10 @@ import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
 import { syncSalesInventory } from "@/lib/api";
 import {
+  promptEnableLocationOnce,
+  resumeTrackingIfCheckedIn,
+} from "@/lib/sales-location";
+import {
   hasSelectedSalesCompany,
   onSelectedSalesCompanyChange,
 } from "@/lib/sales-selected-company";
@@ -40,6 +44,8 @@ export default function SalesLayout({
       void syncSalesInventory(userId);
     }
     sync();
+    void promptEnableLocationOnce();
+    void resumeTrackingIfCheckedIn(userId);
     window.addEventListener("focus", sync);
     window.addEventListener("online", sync);
     const onVisible = () => {

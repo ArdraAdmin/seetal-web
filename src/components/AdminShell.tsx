@@ -11,6 +11,7 @@ import {
   Folders,
   LayoutDashboard,
   LogOut,
+  MapPinned,
   Menu,
   Package,
   PanelLeftClose,
@@ -28,10 +29,18 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
+import { isSuperAdmin } from "@/lib/auth";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
-const NAV: { href: string; label: string; icon: NavIcon }[] = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: NavIcon;
+  superAdminOnly?: boolean;
+};
+
+const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/drivers-vehicles", label: "Drivers & vehicles", icon: Truck },
   { href: "/admin/stores", label: "Stores", icon: Store },
@@ -46,6 +55,18 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/admin/pending-orders", label: "Pending orders", icon: ClipboardList },
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/admin/leave", label: "Leave", icon: CalendarDays },
+  {
+    href: "/admin/tracking",
+    label: "Tracking",
+    icon: MapPinned,
+    superAdminOnly: true,
+  },
+  {
+    href: "/admin/attendance",
+    label: "Attendance",
+    icon: CalendarDays,
+    superAdminOnly: true,
+  },
   { href: "/admin/targets", label: "Sales targets", icon: Target },
   { href: "/admin/grv", label: "GRV management", icon: RotateCcw },
   { href: "/admin/categories", label: "Categories", icon: Folders },
@@ -89,6 +110,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
+  const navItems = NAV.filter(
+    (item) => !item.superAdminOnly || isSuperAdmin(user),
+  );
+
   return (
     <div className="min-h-dvh bg-background">
       <aside
@@ -123,7 +148,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active =
                 item.href === "/admin"
                   ? pathname === "/admin"

@@ -7,6 +7,7 @@ export interface AuthUser {
   role: UserRole;
   token: string;
   mobileNumber?: string;
+  isSuperAdmin?: boolean;
 }
 
 export interface Driver {

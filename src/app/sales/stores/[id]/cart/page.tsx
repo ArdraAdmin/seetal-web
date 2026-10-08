@@ -21,6 +21,7 @@ import type { SalesCartLine } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { EmptyState, PrimaryButton, TextField } from "@/components/ui";
+import { ensureLocationEnabled } from "@/lib/sales-location";
 
 export default function SalesCartPage() {
   const params = useParams<{ id: string }>();
@@ -39,10 +40,30 @@ export default function SalesCartPage() {
   const [payableText, setPayableText] = useState("");
   const [payableEdited, setPayableEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [locationReady, setLocationReady] = useState(false);
 
   useEffect(() => {
-    setLines(loadCart(storeId));
-  }, [storeId]);
+    let cancelled = false;
+    (async () => {
+      const ok = await ensureLocationEnabled();
+      if (cancelled) return;
+      if (!ok) {
+        toast(
+          "Turn on location on your device to place orders.",
+          "info",
+        );
+        router.replace(
+          `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`,
+        );
+        return;
+      }
+      setLocationReady(true);
+      setLines(loadCart(storeId));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storeId, storeName, marks, tempStore, router, toast]);
 
   const { totalCost, totalQuantity } = useMemo(() => cartTotals(lines), [lines]);
   const unitPriceEdited = useMemo(() => cartUnitPriceEdited(lines), [lines]);
@@ -72,6 +93,11 @@ export default function SalesCartPage() {
 
   async function onPlace() {
     if (!user?.id) return;
+    const ok = await ensureLocationEnabled();
+    if (!ok) {
+      toast("Turn on location on your device to place orders.", "info");
+      return;
+    }
     if (lines.length === 0) {
       toast("Add products to the cart first", "info");
       return;
@@ -119,6 +145,14 @@ export default function SalesCartPage() {
 
   const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
   const productsHref = `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
+
+  if (!locationReady) {
+    return (
+      <div className="mx-auto max-w-3xl py-10 text-center text-sm text-slate-500">
+        Checking location…
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl">

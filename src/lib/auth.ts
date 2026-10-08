@@ -43,6 +43,10 @@ export function isAdmin(user: AuthUser | null): boolean {
   return user?.role === "Admin";
 }
 
+export function isSuperAdmin(user: AuthUser | null): boolean {
+  return user?.role === "Admin" && user?.isSuperAdmin === true;
+}
+
 export function isSales(user: AuthUser | null): boolean {
   return user?.role === "Sales";
 }

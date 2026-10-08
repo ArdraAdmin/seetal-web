@@ -191,6 +191,15 @@ export async function login(
     throw new ApiError("Login succeeded but no token was returned", 400);
   }
 
+  const field =
+    data.field && typeof data.field === "object"
+      ? (data.field as Record<string, unknown>)
+      : null;
+  const adminField =
+    field?.admin && typeof field.admin === "object"
+      ? (field.admin as Record<string, unknown>)
+      : null;
+
   return {
     id: String(data._id ?? ""),
     name: String(data.name ?? ""),
@@ -200,6 +209,7 @@ export async function login(
     mobileNumber: data.mobileNumber
       ? String(data.mobileNumber)
       : undefined,
+    isSuperAdmin: adminField?.isSuperAdmin === true,
   };
 }
 
@@ -2721,4 +2731,96 @@ export async function decideAdminLeave(
     method: "POST",
     body: JSON.stringify({ decision, userId }),
   });
+}
+
+export type AttendanceRecord = {
+  _id: string;
+  sales?:
+    | string
+    | { _id?: string; name?: string; email?: string; mobileNumber?: string };
+  date?: string;
+  checkInAt?: string;
+  checkOutAt?: string;
+  checkInLocation?: { lat?: number; lng?: number };
+  checkOutLocation?: { lat?: number; lng?: number };
+};
+
+export type TrackingLocation = {
+  _id?: string;
+  salesId?: string;
+  name?: string;
+  email?: string;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  updatedAt?: string;
+  isActive?: boolean;
+};
+
+export async function getSalesAttendanceToday(userId: string) {
+  return request<{
+    attendance: AttendanceRecord | null;
+    checkedIn: boolean;
+    checkedOut: boolean;
+  }>(`/sales/attendance/today?userId=${encodeURIComponent(userId)}`);
+}
+
+export async function salesCheckIn(payload: {
+  userId: string;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+}) {
+  return request<AttendanceRecord>(`/sales/attendance/checkin`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function salesCheckOut(payload: {
+  userId: string;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+}) {
+  return request<AttendanceRecord>(`/sales/attendance/checkout`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSalesLocation(payload: {
+  userId: string;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}) {
+  return request<unknown>(`/sales/location`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminAttendance(params: {
+  userId: string;
+  salesId?: string;
+  from?: string;
+  to?: string;
+  today?: boolean;
+}) {
+  const qs = new URLSearchParams();
+  qs.set("userId", params.userId);
+  if (params.salesId) qs.set("salesId", params.salesId);
+  if (params.from) qs.set("from", params.from);
+  if (params.to) qs.set("to", params.to);
+  if (params.today) qs.set("today", "1");
+  return request<{ attendance: AttendanceRecord[] }>(
+    `/admin/attendance?${qs.toString()}`,
+  );
+}
+
+export async function getAdminTrackingLocations(userId: string) {
+  return request<{ locations: TrackingLocation[] }>(
+    `/admin/tracking/locations?userId=${encodeURIComponent(userId)}`,
+  );
 }

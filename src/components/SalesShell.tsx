@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   CalendarDays,
   ClipboardList,
+  Clock,
   LogOut,
   Menu,
   PackageCheck,
@@ -34,6 +35,7 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
   { href: "/sales/performance", label: "Performance", icon: TrendingUp },
+  { href: "/sales/attendance", label: "Attendance", icon: Clock },
   { href: "/sales/leave", label: "Leave", icon: CalendarDays },
   { href: "/sales/settings", label: "Settings", icon: Settings },
 ];
