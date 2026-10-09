@@ -1202,8 +1202,12 @@ export const updateWarehouseDeliveryDate = (
     body: JSON.stringify({ orderId, userId, date }),
   });
 
-export const updateWarehouseOrderStore = (orderId: string, storeId: string) =>
-  siteRequest<{
+export const updateWarehouseOrderStore = (
+  orderId: string,
+  userId: string,
+  storeId: string,
+) =>
+  request<{
     isTempStore: boolean;
     store: {
       _id: string;
@@ -1213,9 +1217,9 @@ export const updateWarehouseOrderStore = (orderId: string, storeId: string) =>
       city: string;
       country: string;
     };
-  }>("/api/warehouse/order-store", {
-    method: "POST",
-    body: JSON.stringify({ orderId, storeId }),
+  }>("/warehouse/store", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId, storeId }),
   });
 
 export type WarehouseActionTag = "customs" | "daily" | "loading";

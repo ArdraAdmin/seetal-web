@@ -177,10 +177,10 @@ export function WarehouseCheckView() {
   }
 
   async function onChangeStore(store: StoreProfile) {
-    if (!order || !store._id || store._id === storeId(order)) return;
+    if (!user?.id || !order || !store._id || store._id === storeId(order)) return;
     setSavingStoreId(store._id);
     try {
-      const result = await updateWarehouseOrderStore(order._id, store._id);
+      const result = await updateWarehouseOrderStore(order._id, user.id, store._id);
       setOrder((prev) =>
         prev
           ? { ...prev, isTempStore: result.isTempStore, store: result.store }

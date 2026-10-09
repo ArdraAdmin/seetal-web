@@ -584,6 +584,38 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
   };
 }
 
+export async function proxyChangeOrderStore(
+  req: Request,
+  input: { orderId?: string; storeId?: string; userId?: string },
+): Promise<Response> {
+  const orderId = text(input.orderId);
+  const storeId = text(input.storeId);
+  if (!orderId) return new Response("Order not found", { status: 400 });
+  if (!storeId) return new Response("Store not found", { status: 400 });
+
+  let userId = text(input.userId);
+  if (!userId) {
+    try {
+      userId = userIdFromAuthHeader(
+        req.headers.get("authorization") || req.headers.get("Authorization"),
+      );
+    } catch (error) {
+      return storeError(error);
+    }
+  }
+
+  const { res, body } = await remoteJson("/warehouse/store", req, {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, storeId, userId }),
+  });
+  if (!res.ok) {
+    return new Response(remoteErrorMessage(body, "Could not change store"), {
+      status: res.status || 400,
+    });
+  }
+  return Response.json(body);
+}
+
 export async function proxyListAdminStores(req: Request): Promise<Response> {
   const { res, body } = await remoteJson("/sales/store", req, { method: "GET" });
   if (!res.ok) {
