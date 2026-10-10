@@ -37,15 +37,33 @@ import {
   warehouseBasePath,
 } from "@/lib/warehouse";
 
-const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([1, 2, 3]);
+const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([0, 1, 2]);
 
 const TABS: { id: WarehouseTabIndex; label: string }[] = [
-  { id: 3, label: "Pending" },
-  { id: 0, label: "Today" },
+  { id: 0, label: "Pending" },
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Delivered" },
   { id: 4, label: "Load list" },
 ];
+
+function mergeWarehouseOrders(
+  todayOrders: PendingOrder[],
+  overdueOrders: PendingOrder[],
+) {
+  const seen = new Set<string>();
+  const merged: PendingOrder[] = [];
+  for (const order of [...todayOrders, ...overdueOrders]) {
+    const id = String(order._id || "");
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    merged.push(order);
+  }
+  return merged;
+}
+
+function appendOrders(current: PendingOrder[], incoming: PendingOrder[]) {
+  return mergeWarehouseOrders(current, incoming);
+}
 
 const ACTION_BUTTONS: {
   tag: WarehouseActionTag;
@@ -117,12 +135,21 @@ export default function WarehousePage() {
     useState<DeleteWarehouseOrdersProgress | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [overduePage, setOverduePage] = useState(1);
+  const [todayOrders, setTodayOrders] = useState<PendingOrder[]>([]);
+  const [overdueOrders, setOverdueOrders] = useState<PendingOrder[]>([]);
+  const [todayHasMore, setTodayHasMore] = useState(false);
+  const [overdueHasMore, setOverdueHasMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
 
   const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
-  const orderIds = orders.map((order) => String(order._id || "")).filter(Boolean);
+  const displayOrders =
+    tab === 0 ? mergeWarehouseOrders(todayOrders, overdueOrders) : orders;
+  const orderIds = displayOrders
+    .map((order) => String(order._id || ""))
+    .filter(Boolean);
   const allSelected =
     canManageOrders &&
     orderIds.length > 0 &&
@@ -151,13 +178,38 @@ export default function WarehousePage() {
       setDeleteProgress(null);
       setHasMore(false);
       try {
-        const data = await fetchWarehouseTabPage(user.id, 1, tabIndex, tag);
-        setOrders(data.orders);
-        setCounts(data.counts ?? null);
-        setTab(tabIndex);
-        setAppliedQuery(tag);
-        setPage(1);
-        setHasMore(data.fetchedCount >= data.pageSize);
+        if (tabIndex === 0) {
+          const [today, overdue] = await Promise.all([
+            fetchWarehouseTabPage(user.id, 1, 0, tag),
+            fetchWarehouseTabPage(user.id, 1, 3, tag),
+          ]);
+          const todayMore = today.fetchedCount >= today.pageSize;
+          const overdueMore = overdue.fetchedCount >= overdue.pageSize;
+          setTodayOrders(today.orders);
+          setOverdueOrders(overdue.orders);
+          setOrders(mergeWarehouseOrders(today.orders, overdue.orders));
+          setCounts(today.counts ?? null);
+          setTab(0);
+          setAppliedQuery(tag);
+          setPage(1);
+          setOverduePage(1);
+          setTodayHasMore(todayMore);
+          setOverdueHasMore(overdueMore);
+          setHasMore(todayMore || overdueMore);
+        } else {
+          const data = await fetchWarehouseTabPage(user.id, 1, tabIndex, tag);
+          setTodayOrders([]);
+          setOverdueOrders([]);
+          setOrders(data.orders);
+          setCounts(data.counts ?? null);
+          setTab(tabIndex);
+          setAppliedQuery(tag);
+          setPage(1);
+          setOverduePage(1);
+          setTodayHasMore(false);
+          setOverdueHasMore(false);
+          setHasMore(data.fetchedCount >= data.pageSize);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load warehouse orders");
       } finally {
@@ -177,26 +229,59 @@ export default function WarehousePage() {
     }
     setLoadingMore(true);
     try {
-      const nextPage = page + 1;
-      const data = await fetchWarehouseTabPage(
-        user.id,
-        nextPage,
-        tab,
-        appliedQuery,
-      );
-      setOrders((prev) => {
-        const seen = new Set(prev.map((order) => String(order._id || "")));
-        const merged = [...prev];
-        for (const order of data.orders) {
-          const id = String(order._id || "");
-          if (!id || seen.has(id)) continue;
-          seen.add(id);
-          merged.push(order);
-        }
-        return merged;
-      });
-      setPage(nextPage);
-      setHasMore(data.fetchedCount >= data.pageSize);
+      if (tab === 0) {
+        const nextTodayPage = todayHasMore ? page + 1 : page;
+        const nextOverduePage = overdueHasMore ? overduePage + 1 : overduePage;
+        const [today, overdue] = await Promise.all([
+          todayHasMore
+            ? fetchWarehouseTabPage(user.id, nextTodayPage, 0, appliedQuery)
+            : Promise.resolve(null),
+          overdueHasMore
+            ? fetchWarehouseTabPage(user.id, nextOverduePage, 3, appliedQuery)
+            : Promise.resolve(null),
+        ]);
+        const nextToday = today
+          ? appendOrders(todayOrders, today.orders)
+          : todayOrders;
+        const nextOverdue = overdue
+          ? appendOrders(overdueOrders, overdue.orders)
+          : overdueOrders;
+        const todayMore = today
+          ? today.fetchedCount >= today.pageSize
+          : todayHasMore;
+        const overdueMore = overdue
+          ? overdue.fetchedCount >= overdue.pageSize
+          : overdueHasMore;
+        setTodayOrders(nextToday);
+        setOverdueOrders(nextOverdue);
+        setOrders(mergeWarehouseOrders(nextToday, nextOverdue));
+        setPage(nextTodayPage);
+        setOverduePage(nextOverduePage);
+        setTodayHasMore(todayMore);
+        setOverdueHasMore(overdueMore);
+        setHasMore(todayMore || overdueMore);
+      } else {
+        const nextPage = page + 1;
+        const data = await fetchWarehouseTabPage(
+          user.id,
+          nextPage,
+          tab,
+          appliedQuery,
+        );
+        setOrders((prev) => {
+          const seen = new Set(prev.map((order) => String(order._id || "")));
+          const merged = [...prev];
+          for (const order of data.orders) {
+            const id = String(order._id || "");
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            merged.push(order);
+          }
+          return merged;
+        });
+        setPage(nextPage);
+        setHasMore(data.fetchedCount >= data.pageSize);
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to load more orders", "error");
     } finally {
@@ -210,15 +295,28 @@ export default function WarehousePage() {
     }
     setLoadingAll(true);
     try {
-      const data = await getAllWarehouseOrders(
-        user.id,
-        tab,
-        appliedQuery,
-        tab === 2 ? 6 : 80,
-      );
-      setOrders(data.orders);
-      if (data.counts) setCounts(data.counts);
-      setHasMore(false);
+      if (tab === 0) {
+        const [today, overdue] = await Promise.all([
+          getAllWarehouseOrders(user.id, 0, appliedQuery, 80),
+          getAllWarehouseOrders(user.id, 3, appliedQuery, 20),
+        ]);
+        setTodayOrders(today.orders);
+        setOverdueOrders(overdue.orders);
+        setOrders(mergeWarehouseOrders(today.orders, overdue.orders));
+        setTodayHasMore(false);
+        setOverdueHasMore(false);
+        setHasMore(false);
+      } else {
+        const data = await getAllWarehouseOrders(
+          user.id,
+          tab,
+          appliedQuery,
+          tab === 2 ? 6 : 80,
+        );
+        setOrders(data.orders);
+        if (data.counts) setCounts(data.counts);
+        setHasMore(false);
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to load all orders", "error");
     } finally {
@@ -408,13 +506,13 @@ export default function WarehousePage() {
             message={error}
             onRetry={() => void load(tab, appliedQuery)}
           />
-        ) : orders.length === 0 ? (
+        ) : displayOrders.length === 0 ? (
           <EmptyState title="No warehouse orders" />
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-slate-600">
-                Showing {orders.length} order{orders.length === 1 ? "" : "s"}
+                Showing {displayOrders.length} order{displayOrders.length === 1 ? "" : "s"}
                 {canManageOrders && selected.size > 0
                   ? ` · ${selected.size} selected`
                   : ""}
@@ -423,7 +521,7 @@ export default function WarehousePage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <SecondaryButton
                     type="button"
-                    disabled={orders.length === 0 || deleting}
+                    disabled={displayOrders.length === 0 || deleting}
                     onClick={toggleSelectAll}
                   >
                     {allSelected ? "Deselect all" : "Select all"}
@@ -446,7 +544,7 @@ export default function WarehousePage() {
                 </div>
               ) : null}
             </div>
-            {orders.map((order, index) => {
+            {displayOrders.map((order, index) => {
               const status = checkStatus(order);
               const title = storeTitle(order) || "Store";
               const marks = storeMarks(order);
