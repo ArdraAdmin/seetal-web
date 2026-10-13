@@ -24,6 +24,7 @@ export default function SalesLayout({
   const router = useRouter();
   const pathname = usePathname();
   const isCompanyPage = pathname === "/sales/company";
+  const needsCompany = pathname.startsWith("/sales/stores");
   const [companyReady, setCompanyReady] = useState(false);
   const [hasCompany, setHasCompany] = useState(false);
 
@@ -67,12 +68,13 @@ export default function SalesLayout({
 
   useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !companyReady) return;
-    if (!hasCompany && !isCompanyPage) {
-      router.replace("/sales/company");
+    if (!hasCompany && needsCompany) {
+      const next = `${pathname}${window.location.search}`;
+      router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
     }
-  }, [loading, user, companyReady, hasCompany, isCompanyPage, router]);
+  }, [loading, user, companyReady, hasCompany, needsCompany, pathname, router]);
 
-  if (loading || !user || user.role !== "Sales" || !companyReady) {
+  if (loading || !user || user.role !== "Sales") {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
         <LoadingState label="Checking session…" />
@@ -80,7 +82,7 @@ export default function SalesLayout({
     );
   }
 
-  if (!hasCompany && !isCompanyPage) {
+  if (needsCompany && (!companyReady || !hasCompany)) {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
         <LoadingState label="Opening company selection…" />

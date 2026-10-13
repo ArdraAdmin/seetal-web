@@ -332,7 +332,7 @@ function StoreSection({
             return (
               <Link
                 key={store._id}
-                href={storeProductsHref(store)}
+                href={`/sales/company?next=${encodeURIComponent(storeProductsHref(store))}`}
                 className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 hover:bg-[#f7f5f0]"
               >
                 <div className="min-w-0">

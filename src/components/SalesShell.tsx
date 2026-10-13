@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
-  ArrowLeftRight,
   CalendarDays,
   ClipboardList,
   Clock,
@@ -20,9 +19,7 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
-import { dropSalesCatalogCache } from "@/lib/sales-company";
 import {
-  clearSelectedSalesCompany,
   loadSelectedSalesCompany,
   onSelectedSalesCompanyChange,
   selectedCompanyDisplayName,
@@ -45,7 +42,6 @@ const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
 export function SalesShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
@@ -63,13 +59,6 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
     refresh();
     return onSelectedSalesCompanyChange(refresh);
   }, []);
-
-  function switchCompany() {
-    clearSelectedSalesCompany();
-    dropSalesCatalogCache();
-    setMobileOpen(false);
-    router.replace("/sales/company");
-  }
 
   useEffect(() => {
     if (!collapseReady) return;
@@ -150,24 +139,6 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
                 </li>
               );
             })}
-            <li>
-              <button
-                type="button"
-                title="Switch company"
-                onClick={switchCompany}
-                className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition hover:bg-white/50 ${
-                  collapsed ? "lg:justify-center lg:px-2" : ""
-                }`}
-              >
-                <ArrowLeftRight
-                  className="h-4 w-4 shrink-0 text-black"
-                  strokeWidth={1.75}
-                />
-                <span className={collapsed ? "lg:hidden" : undefined}>
-                  Switch company
-                </span>
-              </button>
-            </li>
           </ul>
         </nav>
         <div

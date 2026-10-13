@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Building2, Landmark } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useAuth } from "@/components/AuthProvider";
 import { selectSalesCompany } from "@/lib/api";
-import {
-  hasSelectedSalesCompany,
-  type SalesCompanyKey,
-} from "@/lib/sales-selected-company";
+import { type SalesCompanyKey } from "@/lib/sales-selected-company";
 
-export default function SalesCompanySelectionPage() {
+function inventoryDestination(raw: string | null) {
+  if (!raw || !raw.startsWith("/sales/stores/") || raw.startsWith("//") || raw.includes("://")) {
+    return "/sales";
+  }
+  return raw;
+}
+
+function SalesCompanySelectionPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loadingKey, setLoadingKey] = useState<SalesCompanyKey | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!loadingKey && hasSelectedSalesCompany()) {
-      router.replace("/sales");
-    }
-  }, [loadingKey, router]);
 
   async function onSelect(key: SalesCompanyKey, label: string) {
     if (!user?.id || loadingKey) return;
@@ -29,7 +28,7 @@ export default function SalesCompanySelectionPage() {
     setError(null);
     try {
       await selectSalesCompany(user.id, key);
-      router.replace("/sales");
+      router.replace(inventoryDestination(searchParams.get("next")));
     } catch (e) {
       setError(
         e instanceof Error
@@ -115,5 +114,13 @@ function CompanyCard({
         <ArrowRight className="h-4 w-4" strokeWidth={1.75} />
       </span>
     </button>
+  );
+}
+
+export default function SalesCompanySelectionRoute() {
+  return (
+    <Suspense fallback={null}>
+      <SalesCompanySelectionPage />
+    </Suspense>
   );
 }
