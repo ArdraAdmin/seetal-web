@@ -18,6 +18,7 @@ import type {
   AuthUser,
   SalesCartLine,
 } from "./types";
+import { isObjectId } from "./approval";
 import { asProductList, asStoreList, cartTotals, cartUnitPriceEdited, lineAggregate } from "./sales";
 import { companyIds, salesField } from "./profiles";
 import {
@@ -29,6 +30,7 @@ import {
   catalogForAccess,
   loadAllowedProductIds,
   loadCachedCatalog,
+  loadDownloadedStores,
   saveSalesCompanyAccess,
   saveAllowedProductIds,
   resolveCatalogAccess,
@@ -2075,12 +2077,105 @@ export async function getSalesPendingOrders(userId: string) {
   return Array.isArray(data) ? (data as ApprovalOrder[]) : [];
 }
 
+function namedStore(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text || text === "null" || isObjectId(text)) return "";
+  return text;
+}
+
+function orderNeedsStoreName(order: ApprovalOrder) {
+  if (namedStore(order.storeName)) return false;
+  if (order.store && typeof order.store === "object") {
+    if (namedStore(order.store.storeName) || namedStore(order.store.name)) return false;
+  }
+  if (namedStore(order.store)) return false;
+  const id =
+    typeof order.store === "string"
+      ? order.store.trim()
+      : String(order.store?._id || "").trim();
+  return isObjectId(id);
+}
+
+function rememberStoreName(
+  map: Map<string, string>,
+  store: { _id?: string; storeName?: string; name?: string },
+) {
+  const id = String(store._id || "").trim();
+  const name = namedStore(store.storeName) || namedStore(store.name);
+  if (!id || !name) return;
+  map.set(id, name);
+  map.set(id.toLowerCase(), name);
+}
+
+function storesInPayload(data: unknown): StoreProfile[] {
+  const direct = asStoreList(data);
+  if (direct.length > 0) return direct;
+  if (!data || typeof data !== "object") return [];
+  const o = data as Record<string, unknown>;
+  const lists = [o.myStoreArr, o.myStores, o.otherStore, o.otherStores, o.stores, o.data];
+  return lists.flatMap((list) => asStoreList(list));
+}
+
+async function storeNamesById(userId: string, needed: Set<string>) {
+  const map = new Map<string, string>();
+  const found = () =>
+    [...needed].every((id) => map.has(id) || map.has(id.toLowerCase()));
+  for (const store of loadDownloadedStores()) rememberStoreName(map, store);
+  if (found()) return map;
+  try {
+    for (const store of storesInPayload(await request<unknown>("/sales/store"))) {
+      rememberStoreName(map, store);
+    }
+  } catch {
+    /* paging below still fills gaps */
+  }
+  if (found()) return map;
+  try {
+    for (let page = 1; page <= 40; page++) {
+      const batch = await getSalesStorePage(userId, page);
+      if (page === 1) {
+        for (const store of batch.myStores) rememberStoreName(map, store);
+      }
+      for (const store of batch.otherStores) rememberStoreName(map, store);
+      if (found() || batch.otherStores.length < SALES_STORE_API_PAGE_SIZE) break;
+    }
+  } catch {
+    return map;
+  }
+  return map;
+}
+
+async function withStoreNames(orders: ApprovalOrder[], userId: string) {
+  const needed = new Set<string>();
+  for (const order of orders) {
+    if (!orderNeedsStoreName(order)) continue;
+    const id =
+      typeof order.store === "string"
+        ? order.store.trim()
+        : String(order.store?._id || "").trim();
+    if (id) needed.add(id);
+  }
+  if (needed.size === 0) return orders;
+  const names = await storeNamesById(userId, needed);
+  return orders.map((order) => {
+    if (!orderNeedsStoreName(order)) return order;
+    const id =
+      typeof order.store === "string"
+        ? order.store.trim()
+        : String(order.store?._id || "").trim();
+    const name = names.get(id) || names.get(id.toLowerCase());
+    if (!name) return order;
+    return { ...order, storeName: name };
+  });
+}
+
 export async function getSalesConfirmedOrders(userId: string) {
   const data = await request<unknown>("/sales/report/order", {
     method: "POST",
     body: JSON.stringify({ userId }),
   });
-  return Array.isArray(data) ? (data as ApprovalOrder[]) : [];
+  const orders = Array.isArray(data) ? (data as ApprovalOrder[]) : [];
+  return withStoreNames(orders, userId);
 }
 
 export async function getSalesOrder(salesId: string, orderId: string) {

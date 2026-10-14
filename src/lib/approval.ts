@@ -23,13 +23,30 @@ export function canPlaceApprovedOrder(order: ApprovalOrder) {
   );
 }
 
+const OBJECT_ID = /^[a-f\d]{24}$/i;
+
+export function isObjectId(value: string) {
+  return OBJECT_ID.test(value.trim());
+}
+
+function readableStoreName(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text || text === "null" || isObjectId(text)) return "";
+  return text;
+}
+
 export function approvalStoreName(order: ApprovalOrder) {
-  if (typeof order.store === "string" && order.store.trim() && order.store !== "null") {
-    return order.store;
-  }
+  const stored = readableStoreName(order.storeName);
+  if (stored) return stored;
   if (order.store && typeof order.store === "object") {
-    const name = order.store.storeName || order.store.name;
+    const name =
+      readableStoreName(order.store.storeName) || readableStoreName(order.store.name);
     if (name) return name;
+  }
+  const raw = readableStoreName(order.store);
+  if (raw) return raw;
+  if (typeof order.store === "string" && order.store.trim() && order.store !== "null") {
+    return order.store.trim();
   }
   return order.isTempStore ? "Temporary store" : "Store";
 }

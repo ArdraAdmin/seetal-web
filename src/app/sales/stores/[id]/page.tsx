@@ -23,6 +23,7 @@ import {
   cartLineFromProduct,
   loadCart,
   onCartChange,
+  removeCartLine,
   upsertCartLine,
 } from "@/lib/sales-cart";
 import {
@@ -44,7 +45,10 @@ import {
   RecordPager,
   SecondaryButton,
 } from "@/components/ui";
-import { ensureLocationEnabled } from "@/lib/sales-location";
+import {
+  ensureLocationForOrders,
+  locationOrderBlockMessage,
+} from "@/lib/sales-location";
 
 function categoriesFromCatalog(): CategoryGroup[] {
   const products = catalogForAccess(loadSalesCompanyAccess()) || [];
@@ -96,12 +100,9 @@ export default function SalesStoreProductsPage() {
   const tempStore = searchParams.get("temp") === "1";
 
   async function openCart() {
-    const ok = await ensureLocationEnabled();
+    const ok = await ensureLocationForOrders();
     if (!ok) {
-      toast(
-        "Turn on location on your device to open the cart and place orders.",
-        "info",
-      );
+      toast(await locationOrderBlockMessage(), "info");
       return;
     }
     const href = `/sales/stores/${storeId}/cart?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
@@ -357,6 +358,9 @@ export default function SalesStoreProductsPage() {
                 onAdded={() =>
                   toast(`${product.itemName || "Product"} added to cart`, "success")
                 }
+                onRemoved={() =>
+                  toast(`${product.itemName || "Product"} removed from cart`, "success")
+                }
                 onError={(message) => toast(message, "error")}
               />
             ))}
@@ -386,11 +390,13 @@ function ProductCard({
   product,
   storeId,
   onAdded,
+  onRemoved,
   onError,
 }: {
   product: Product;
   storeId: string;
   onAdded: () => void;
+  onRemoved: () => void;
   onError: (message: string) => void;
 }) {
   const unit = productUnit(product);
@@ -426,14 +432,26 @@ function ProductCard({
     return onCartChange(storeId, syncFromCart);
   }, [product._id, storeId]);
 
+  function remove() {
+    if (!product._id) return;
+    removeCartLine(storeId, product._id);
+    setQuantity(0);
+    setAdded(false);
+    onRemoved();
+  }
+
   function add() {
+    if (qty <= 0) {
+      if (added) {
+        remove();
+        return;
+      }
+      onError("Enter a quantity first");
+      return;
+    }
     const line = cartLineFromProduct(product, qty, unitReq);
     if (!line) {
       onError("This product is missing a category and cannot be ordered");
-      return;
-    }
-    if (qty <= 0) {
-      onError("Enter a quantity first");
       return;
     }
     upsertCartLine(storeId, line);
@@ -500,13 +518,22 @@ function ProductCard({
         </div>
       </div>
       {added ? (
-        <button
-          type="button"
-          className="mt-3 min-h-10 w-full rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-          onClick={add}
-        >
-          Added
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            className="min-h-10 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+            onClick={remove}
+          >
+            Remove
+          </button>
+          <button
+            type="button"
+            className="min-h-10 flex-1 rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            onClick={add}
+          >
+            Added
+          </button>
+        </div>
       ) : (
         <PrimaryButton type="button" className="mt-3 w-full" onClick={add}>
           Add to cart

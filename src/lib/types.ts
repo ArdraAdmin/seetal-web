@@ -332,6 +332,7 @@ export interface ApprovalOrder {
   createdAt?: string;
   updatedAt?: string;
   sales?: string | { _id?: string; name?: string; email?: string };
+  storeName?: string;
   store?:
     | string
     | {

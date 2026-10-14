@@ -21,7 +21,10 @@ import type { SalesCartLine } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { EmptyState, PrimaryButton, TextField } from "@/components/ui";
-import { ensureLocationEnabled } from "@/lib/sales-location";
+import {
+  ensureLocationForOrders,
+  locationOrderBlockMessage,
+} from "@/lib/sales-location";
 
 export default function SalesCartPage() {
   const params = useParams<{ id: string }>();
@@ -45,13 +48,10 @@ export default function SalesCartPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const ok = await ensureLocationEnabled();
+      const ok = await ensureLocationForOrders();
       if (cancelled) return;
       if (!ok) {
-        toast(
-          "Turn on location on your device to place orders.",
-          "info",
-        );
+        toast(await locationOrderBlockMessage(), "info");
         router.replace(
           `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`,
         );
@@ -93,9 +93,9 @@ export default function SalesCartPage() {
 
   async function onPlace() {
     if (!user?.id) return;
-    const ok = await ensureLocationEnabled();
+    const ok = await ensureLocationForOrders();
     if (!ok) {
-      toast("Turn on location on your device to place orders.", "info");
+      toast(await locationOrderBlockMessage(), "info");
       return;
     }
     if (lines.length === 0) {
@@ -243,10 +243,11 @@ export default function SalesCartPage() {
                     <button
                       type="button"
                       onClick={() => removeLine(line.productId)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50"
+                      className="inline-flex h-9 items-center gap-1 rounded-full px-2 text-sm font-medium text-red-600 hover:bg-red-50"
                       aria-label={`Remove ${line.itemName}`}
                     >
                       <Trash2 className="h-4 w-4" strokeWidth={2} />
+                      Remove
                     </button>
                   </div>
                 </article>

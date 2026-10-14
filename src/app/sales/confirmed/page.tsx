@@ -32,9 +32,6 @@ function invoiceOf(order: ApprovalOrder) {
 }
 
 function storeOf(order: ApprovalOrder) {
-  if (typeof order.store === "string" && order.store.trim() && order.store !== "null") {
-    return order.store;
-  }
   return approvalStoreName(order);
 }
 

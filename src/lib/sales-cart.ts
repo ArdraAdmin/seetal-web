@@ -74,6 +74,12 @@ export function upsertCartLine(storeId: string, line: SalesCartLine) {
   return lines;
 }
 
+export function removeCartLine(storeId: string, productId: string) {
+  const lines = loadCart(storeId).filter((item) => item.productId !== productId);
+  saveCart(storeId, lines);
+  return lines;
+}
+
 export function cartLineFromProduct(
   product: Product,
   quantity: number,
