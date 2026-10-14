@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import {
   deleteWarehouseOrders,
+  downloadWarehouseActionSheet,
+  fetchLoadedWarehouseOrders,
   fetchWarehouseTabPage,
   getAllWarehouseOrders,
   sendWarehouseActionSheet,
@@ -17,7 +19,6 @@ import { isAdmin } from "@/lib/auth";
 import type { PendingOrder, WarehouseCounts } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { LoadListWizard } from "@/components/LoadListWizard";
 import {
   Card,
   EmptyState,
@@ -31,6 +32,8 @@ import {
 import {
   assigneeLabel,
   invoiceLabel,
+  sortPendingWarehouseOrders,
+  warehouseOpenStep,
   storeDescription,
   storeMarks,
   storeTitle,
@@ -43,7 +46,7 @@ const TABS: { id: WarehouseTabIndex; label: string }[] = [
   { id: 0, label: "Pending" },
   { id: 1, label: "Upcoming" },
   { id: 2, label: "Delivered" },
-  { id: 4, label: "Load list" },
+  { id: 4, label: "Loaded" },
 ];
 
 function mergeWarehouseOrders(
@@ -72,12 +75,12 @@ const ACTION_BUTTONS: {
 }[] = [
   {
     tag: "customs",
-    label: "Customs",
+    label: "Custom List",
     className: "bg-[#f59e0b] hover:bg-[#d97706]",
   },
   {
     tag: "daily",
-    label: "Daily List",
+    label: "Zero List",
     className: "bg-[#2563eb] hover:bg-[#1d4ed8]",
   },
   {
@@ -129,6 +132,7 @@ export default function WarehousePage() {
   const [sendingAction, setSendingAction] = useState<WarehouseActionTag | null>(
     null,
   );
+  const [actionMenu, setActionMenu] = useState<WarehouseActionTag | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [deleteProgress, setDeleteProgress] =
@@ -146,7 +150,9 @@ export default function WarehousePage() {
 
   const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
   const displayOrders =
-    tab === 0 ? mergeWarehouseOrders(todayOrders, overdueOrders) : orders;
+    tab === 0
+      ? sortPendingWarehouseOrders(mergeWarehouseOrders(todayOrders, overdueOrders))
+      : orders;
   const orderIds = displayOrders
     .map((order) => String(order._id || ""))
     .filter(Boolean);
@@ -159,16 +165,47 @@ export default function WarehousePage() {
     async (tabIndex: WarehouseTabIndex, tag = "") => {
       if (!user?.id) return;
       if (tabIndex === 4) {
-        setTab(4);
+        setLoading(true);
         setError(null);
-        setLoading(false);
-        setOrders([]);
-        setCounts(null);
         setSelected(new Set());
         setConfirmDeleteOpen(false);
         setDeleteProgress(null);
-        setPage(1);
-        setHasMore(false);
+        try {
+          const loaded = await fetchLoadedWarehouseOrders();
+          const needle = tag.trim().toLowerCase();
+          const filtered = needle
+            ? loaded.filter((order) => {
+                const store =
+                  order.store && typeof order.store === "object"
+                    ? order.store
+                    : undefined;
+                const haystack = [
+                  store?.storeName,
+                  store?.name,
+                  store?.marks,
+                  store?.alias,
+                  order.tempOrderInvoiceNo,
+                  order.invoiceNumber,
+                ]
+                  .map((part) => String(part || "").toLowerCase())
+                  .join(" ");
+                return haystack.includes(needle);
+              })
+            : loaded;
+          setOrders(filtered);
+          setTodayOrders([]);
+          setOverdueOrders([]);
+          setCounts(null);
+          setTab(4);
+          setAppliedQuery(tag);
+          setPage(1);
+          setHasMore(false);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Failed to load loaded orders");
+          setTab(4);
+        } finally {
+          setLoading(false);
+        }
         return;
       }
       setLoading(true);
@@ -221,6 +258,7 @@ export default function WarehousePage() {
 
   useEffect(() => {
     void load(0);
+    void fetchLoadedWarehouseOrders().catch(() => undefined);
   }, [load]);
 
   async function loadMore() {
@@ -384,12 +422,27 @@ export default function WarehousePage() {
 
   async function sendAction(tag: WarehouseActionTag) {
     if (!user?.id || sendingAction) return;
+    setActionMenu(null);
     setSendingAction(tag);
     try {
       await sendWarehouseActionSheet(tag, user.id);
       toast("Email sent", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to send email", "error");
+    } finally {
+      setSendingAction(null);
+    }
+  }
+
+  async function downloadAction(tag: WarehouseActionTag) {
+    if (sendingAction) return;
+    setActionMenu(null);
+    setSendingAction(tag);
+    try {
+      await downloadWarehouseActionSheet(tag);
+      toast("Download started", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to download list", "error");
     } finally {
       setSendingAction(null);
     }
@@ -428,8 +481,7 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {tab !== 4 ? (
-        <Card className="mb-5">
+      <Card className="mb-5">
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-0 w-full flex-1 sm:min-w-[220px]">
               <TextField
@@ -461,45 +513,64 @@ export default function WarehousePage() {
             ) : null}
           </div>
         </Card>
-      ) : null}
 
-      {tab === 4 ? <LoadListWizard /> : null}
-
-      {tab !== 4 && tab === 0 && counts ? (
+      {tab === 0 && counts ? (
         <Card className="mb-5">
           <p className="text-center text-base font-semibold text-black">
             Total cartons: {counts.totalPkgCount}
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-3 gap-3">
             <SummaryStat label="Pending" value={counts.pendingCheckCount} />
             <SummaryStat label="First check" value={counts.firstCheckCount} />
             <SummaryStat label="Double check" value={counts.doubleCheckCount} />
-            <SummaryStat label="Load check" value={counts.loadCheckCount} />
           </div>
         </Card>
       ) : null}
 
-      {tab === 0 ? (
-        <div className="mb-5 flex flex-wrap gap-3">
-          {ACTION_BUTTONS.map((action) => {
+      <div className="mb-5 flex flex-wrap gap-3">
+        {ACTION_BUTTONS.filter((action) => action.tag !== "daily" || tab === 4).map(
+          (action) => {
             const busy = sendingAction === action.tag;
+            const open = actionMenu === action.tag;
             return (
-              <button
-                key={action.tag}
-                type="button"
-                disabled={sendingAction !== null}
-                onClick={() => void sendAction(action.tag)}
-                className={`inline-flex min-h-11 min-w-[8.5rem] flex-1 items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-70 sm:flex-none ${action.className}`}
-              >
-                {busy ? "Sending…" : action.label}
-              </button>
+              <div key={action.tag} className="relative min-w-[8.5rem] flex-1 sm:flex-none">
+                <button
+                  type="button"
+                  disabled={sendingAction !== null}
+                  onClick={() =>
+                    setActionMenu((current) =>
+                      current === action.tag ? null : action.tag,
+                    )
+                  }
+                  className={`inline-flex min-h-11 w-full items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-70 ${action.className}`}
+                >
+                  {busy ? "Working…" : action.label}
+                </button>
+                {open ? (
+                  <div className="absolute left-0 z-20 mt-2 w-48 overflow-hidden rounded-xl border border-line bg-white shadow-lg">
+                    <button
+                      type="button"
+                      className="block w-full px-4 py-2.5 text-left text-sm font-medium text-ink hover:bg-[#f7f5f0]"
+                      onClick={() => void sendAction(action.tag)}
+                    >
+                      Send on Email
+                    </button>
+                    <button
+                      type="button"
+                      className="block w-full border-t border-line px-4 py-2.5 text-left text-sm font-medium text-ink hover:bg-[#f7f5f0]"
+                      onClick={() => void downloadAction(action.tag)}
+                    >
+                      Download Offline
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             );
-          })}
-        </div>
-      ) : null}
+          },
+        )}
+      </div>
 
-      {tab !== 4 ? (
-        loading ? (
+      {loading ? (
           <LoadingState label="Loading warehouse orders…" />
         ) : error ? (
           <ErrorState
@@ -552,7 +623,9 @@ export default function WarehousePage() {
               const invoice = invoiceLabel(order);
               const pkg = order.totalPkg;
               const href =
-                tab === 2 ? null : `${base}/${order._id}?step=1`;
+                tab === 2
+                  ? null
+                  : `${base}/${order._id}?step=${warehouseOpenStep(order)}`;
               const rowKey = order._id || `order-${index}`;
               const orderId = String(order._id || "");
               const checked = Boolean(orderId) && selected.has(orderId);
@@ -652,8 +725,7 @@ export default function WarehousePage() {
               </div>
             ) : null}
           </div>
-        )
-      ) : null}
+        )}
 
       {confirmDeleteOpen ? (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center">

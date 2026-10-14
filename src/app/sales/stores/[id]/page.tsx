@@ -7,6 +7,7 @@ import { Search, ShoppingCart } from "lucide-react";
 import {
   createSalesProductCache,
   getCategories,
+  getProduct,
   loadSalesInventoryUiPage,
   localSalesInventoryPage,
   SALES_INVENTORY_PAGE_SIZE,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/sales-cart";
 import {
   productCartonStock,
+  productCategoryId,
   productRatio,
   productUnit,
   productUnitPrice,
@@ -404,6 +406,7 @@ function ProductCard({
   const [qtyInput, setQtyInput] = useState("0");
   const [unitReq, setUnitReq] = useState(unit);
   const [added, setAdded] = useState(false);
+  const [adding, setAdding] = useState(false);
   const price = productUnitPrice(product);
   const ratio = productRatio(product);
   const cartons = productCartonStock(product);
@@ -440,7 +443,8 @@ function ProductCard({
     onRemoved();
   }
 
-  function add() {
+  async function add() {
+    if (adding) return;
     if (qty <= 0) {
       if (added) {
         remove();
@@ -449,14 +453,27 @@ function ProductCard({
       onError("Enter a quantity first");
       return;
     }
-    const line = cartLineFromProduct(product, qty, unitReq);
-    if (!line) {
-      onError("This product is missing a category and cannot be ordered");
-      return;
+    setAdding(true);
+    try {
+      let source = product;
+      let lineUnit = unitReq;
+      if (!productCategoryId(product)) {
+        source = await getProduct(product._id);
+        if (unitReq === unit) lineUnit = productUnit(source);
+      }
+      const line = cartLineFromProduct(source, qty, lineUnit);
+      if (!line) {
+        onError("This product is missing a category and cannot be ordered");
+        return;
+      }
+      upsertCartLine(storeId, line);
+      setAdded(true);
+      onAdded();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not add this product");
+    } finally {
+      setAdding(false);
     }
-    upsertCartLine(storeId, line);
-    setAdded(true);
-    onAdded();
   }
 
   return (
@@ -529,14 +546,20 @@ function ProductCard({
           <button
             type="button"
             className="min-h-10 flex-1 rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-            onClick={add}
+            onClick={() => void add()}
+            disabled={adding}
           >
             Added
           </button>
         </div>
       ) : (
-        <PrimaryButton type="button" className="mt-3 w-full" onClick={add}>
-          Add to cart
+        <PrimaryButton
+          type="button"
+          className="mt-3 w-full"
+          disabled={adding}
+          onClick={() => void add()}
+        >
+          {adding ? "Adding…" : "Add to cart"}
         </PrimaryButton>
       )}
     </article>

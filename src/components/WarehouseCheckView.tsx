@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, RefreshCw, Search } from "lucide-react";
 import {
   checkAllWarehouseLines,
   confirmWarehouseCheck,
   generateWarehouseInvoice,
+  stampWarehouseLoadCheck,
   downloadSalesStores,
   getWarehouseCheckOrder,
   markWarehouseLineMissing,
@@ -16,7 +17,12 @@ import {
   updateWarehouseDeliveryDate,
   updateWarehouseOrderStore,
 } from "@/lib/api";
-import type { StoreProfile, WarehouseCheckLine, WarehouseCheckOrder } from "@/lib/types";
+import type {
+  StoreProfile,
+  WarehouseCheckLine,
+  WarehouseCheckOrder,
+  WarehouseCheckStep,
+} from "@/lib/types";
 import { storeDisplayName, uniqueStores } from "@/lib/stores";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
@@ -29,10 +35,12 @@ import {
   formatOrderDate,
   invoiceLabel,
   lineIsChecked,
+  lineReadyToConfirm,
   orderDateInputValue,
   parseCheckStep,
   storeId,
   storeMarks,
+  sortZeroQuantityFirst,
   storeTitle,
   warehouseBasePath,
   warehouseLineName,
@@ -41,6 +49,17 @@ import {
   warehouseLineRef,
   warehouseLineUnit,
 } from "@/lib/warehouse";
+
+function linesForOpenStep(
+  order: WarehouseCheckOrder,
+  step: WarehouseCheckStep,
+  clearChecks: boolean,
+) {
+  const lines = Array.isArray(order.productDetails) ? order.productDetails : [];
+  if (!clearChecks || (step !== 1 && step !== 2)) return lines;
+  const flag = step === 1 ? "firstCheck" : "doubleCheck";
+  return lines.map((line) => ({ ...line, [flag]: false }));
+}
 
 export function WarehouseCheckView() {
   const params = useParams<{ id: string }>();
@@ -68,20 +87,39 @@ export function WarehouseCheckView() {
   const [storeOptions, setStoreOptions] = useState<StoreProfile[]>([]);
   const [storesLoading, setStoresLoading] = useState(false);
   const [savingStoreId, setSavingStoreId] = useState<string | null>(null);
+  const editedStep = useRef("");
+  const loadGen = useRef(0);
 
   const load = useCallback(async () => {
     if (!user?.id || !params.id) return;
+    const gen = ++loadGen.current;
+    const stepKey = `${params.id}:${step}`;
     setLoading(true);
     setError(null);
     try {
       const data = await getWarehouseCheckOrder(params.id, user.id, step);
+      if (gen !== loadGen.current) return;
+      const confirmed = step === 2 ? Boolean(data.doubleCheck) : step !== 1;
+      const clearStoredChecks =
+        (step === 1 || step === 2) &&
+        !confirmed &&
+        editedStep.current !== stepKey;
+      if (clearStoredChecks) {
+        try {
+          await checkAllWarehouseLines(data._id, user.id, step, false);
+        } catch {
+          // Still show the boxes unchecked if the reset cannot be saved.
+        }
+        if (gen !== loadGen.current || editedStep.current === stepKey) return;
+      }
       setOrder(data);
-      setLines(Array.isArray(data.productDetails) ? data.productDetails : []);
+      setLines(linesForOpenStep(data, step, clearStoredChecks));
       setDeliveryDate(orderDateInputValue(data.date));
     } catch (e) {
+      if (gen !== loadGen.current) return;
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }, [params.id, user?.id, step]);
 
@@ -99,8 +137,9 @@ export function WarehouseCheckView() {
     const list = lines.filter((line) =>
       step === 3 ? Number(line.quantityAv) !== 0 : true,
     );
-    if (!q) return list;
-    return list.filter((line) => {
+    const ordered = step === 1 || step === 2 ? sortZeroQuantityFirst(list) : list;
+    if (!q) return ordered;
+    return ordered.filter((line) => {
       const name = warehouseLineName(line).toLowerCase();
       const ref = warehouseLineRef(line).toLowerCase();
       return name.includes(q) || ref.includes(q);
@@ -120,8 +159,13 @@ export function WarehouseCheckView() {
     setOrder((prev) => (prev ? { ...prev, [flag]: true } : prev));
   }
 
+  function markStepEdited() {
+    if (params.id) editedStep.current = `${params.id}:${step}`;
+  }
+
   async function onSave() {
     if (!user?.id || !order) return;
+    markStepEdited();
     setSaving(true);
     try {
       await saveWarehouseCheck(order._id, user.id, lines);
@@ -136,9 +180,17 @@ export function WarehouseCheckView() {
 
   async function onConfirm() {
     if (!user?.id || !order) return;
+    markStepEdited();
     setConfirming(true);
     try {
       await confirmWarehouseCheck(step, order._id, user.id, lines);
+      if (step === 3) {
+        try {
+          await stampWarehouseLoadCheck(order._id);
+        } catch {
+          // The order stays load-checked even if the timestamp cannot be stored.
+        }
+      }
       markStepComplete();
       toast(`${CHECK_LABELS[step]} has been confirmed`, "success");
       await load();
@@ -243,6 +295,7 @@ export function WarehouseCheckView() {
     if (!user?.id || !order) return;
     const productId = warehouseLineProductId(line);
     if (!productId) return;
+    markStepEdited();
     setBusyId(productId);
     try {
       await toggleWarehouseLineCheck(step, order._id, user.id, productId, next);
@@ -255,7 +308,7 @@ export function WarehouseCheckView() {
     }
   }
 
-  function onZero(line: WarehouseCheckLine) {
+  async function onZero(line: WarehouseCheckLine) {
     const productId = warehouseLineProductId(line);
     if (!productId) return;
     updateLine(productId, { quantityAv: 0 });
@@ -279,6 +332,7 @@ export function WarehouseCheckView() {
 
   async function onCheckAll() {
     if (!user?.id || !order) return;
+    markStepEdited();
     setSaving(true);
     try {
       await checkAllWarehouseLines(order._id, user.id, step, true);
@@ -305,6 +359,10 @@ export function WarehouseCheckView() {
   }
 
   const nextLabel = step === 1 ? "Double Check" : "Loading Check";
+  const backHref =
+    step > 1 && params.id ? `${base}/${params.id}?step=${step - 1}` : base;
+  const canConfirm =
+    step === 3 || lines.every((line) => lineReadyToConfirm(line, step));
   const stockInfo = (line: WarehouseCheckLine) => {
     if (typeof line.product !== "object" || !line.product?.stockCheck) return "";
     const cartons = line.product.inQty?.amountInCartons;
@@ -317,7 +375,7 @@ export function WarehouseCheckView() {
     <div className="flex min-h-[calc(100dvh-6rem)] flex-col">
       <header className="sticky top-0 z-20 flex items-center gap-2 rounded-2xl bg-brand px-3 py-3 text-black">
         <Link
-          href={base}
+          href={backHref}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-black/10"
           aria-label="Back"
         >
@@ -578,7 +636,7 @@ export function WarehouseCheckView() {
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => onZero(line)}
+                              onClick={() => void onZero(line)}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100"
                               aria-label="Clear quantity"
                             >
@@ -624,7 +682,7 @@ export function WarehouseCheckView() {
               <div className="flex gap-2">
                 <PrimaryButton
                   type="button"
-                  disabled={confirming || loading}
+                  disabled={confirming || loading || !canConfirm}
                   onClick={() => void onConfirm()}
                   className="w-full rounded-xl py-3 text-base font-semibold"
                 >

@@ -17,6 +17,17 @@ export function parseCheckStep(value: string | null): WarehouseCheckStep {
   return 1;
 }
 
+/** Open the check that matches the order status shown on the list. */
+export function warehouseOpenStep(order: {
+  firstCheck?: boolean;
+  doubleCheck?: boolean;
+  loadCheck?: boolean;
+}): WarehouseCheckStep {
+  if (order.loadCheck) return 3;
+  if (order.doubleCheck) return 2;
+  return 1;
+}
+
 export function warehouseBasePath(pathname: string) {
   return pathname.startsWith("/admin") ? "/admin/warehouse" : "/warehouse";
 }
@@ -71,6 +82,70 @@ export function lineIsChecked(line: WarehouseCheckLine, step: WarehouseCheckStep
   if (step === 2) return Boolean(line.doubleCheck);
   if (step === 3) return Boolean(line.loadCheck);
   return Boolean(line.firstCheck);
+}
+
+/** Zero-quantity lines on double check count as checked. Other lines need the checkbox. */
+export function lineReadyToConfirm(line: WarehouseCheckLine, step: WarehouseCheckStep) {
+  if (step === 2 && Number(line.quantityAv) === 0) return true;
+  return lineIsChecked(line, step);
+}
+
+export function sortZeroQuantityFirst(lines: WarehouseCheckLine[]) {
+  return [...lines].sort((a, b) => {
+    const aZero = Number(a.quantityAv) === 0 ? 0 : 1;
+    const bZero = Number(b.quantityAv) === 0 ? 0 : 1;
+    return aZero - bZero;
+  });
+}
+
+export function pendingCheckRank(order: {
+  doubleCheck?: boolean;
+  firstCheck?: boolean;
+  loadCheck?: boolean;
+}) {
+  if (order.loadCheck) return 3;
+  if (order.doubleCheck) return 2;
+  if (order.firstCheck) return 1;
+  return 0;
+}
+
+/** Pending page order: pending, then first check, then double check. */
+export function sortPendingWarehouseOrders<T extends { loadCheck?: boolean; doubleCheck?: boolean; firstCheck?: boolean }>(
+  orders: T[],
+) {
+  return orders
+    .filter((order) => !order.loadCheck)
+    .sort((a, b) => pendingCheckRank(a) - pendingCheckRank(b));
+}
+
+const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+/** Start of the current Dubai calendar day. */
+export function dubaiDayStart(now = Date.now()) {
+  const dubaiNow = new Date(now + DUBAI_OFFSET_MS);
+  return new Date(
+    Date.UTC(
+      dubaiNow.getUTCFullYear(),
+      dubaiNow.getUTCMonth(),
+      dubaiNow.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ) - DUBAI_OFFSET_MS,
+  );
+}
+
+/** Warehouse "today" is the coming Dubai calendar day. */
+export function warehouseWorkDayRange(now = Date.now()) {
+  const dubaiNow = new Date(now + DUBAI_OFFSET_MS);
+  const y = dubaiNow.getUTCFullYear();
+  const m = dubaiNow.getUTCMonth();
+  const d = dubaiNow.getUTCDate() + 1;
+  return {
+    start: new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - DUBAI_OFFSET_MS),
+    end: new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - DUBAI_OFFSET_MS),
+  };
 }
 
 export function invoiceLabel(order: PendingOrder | WarehouseCheckOrder) {

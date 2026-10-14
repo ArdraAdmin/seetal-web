@@ -347,7 +347,11 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
   }
 
   const country = text(input.country);
-  if (!current.isTemp && !country) throw new Error("Enter a country");
+  const city = text(input.city);
+  const addressLine1 = text(input.addressLine1);
+  if (!addressLine1) throw new Error("Enter an address");
+  if (!country) throw new Error("Select a country");
+  if (!city) throw new Error("Select a city");
   const uid = text(input.uid);
   if (!current.isTemp && !uid) throw new Error("Enter a store code");
   if (uid) {
@@ -385,10 +389,10 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
     storeName,
     marks,
     alias: text(input.alias),
-    addressLine1: text(input.addressLine1),
+    addressLine1,
     addressLine2: text(input.addressLine2),
     addressLine3: text(input.addressLine3),
-    city: text(input.city),
+    city,
     country,
     contactNumber: text(input.contactNumber),
   };
@@ -661,6 +665,11 @@ export async function proxyUpdateStoreRecord(
   let city = text(input.city);
   let country = text(input.country);
   let trnNo = text(input.trnNo);
+  if (!text(input.addressLine1)) {
+    return new Response("Enter an address", { status: 400 });
+  }
+  if (!city) return new Response("Select a city", { status: 400 });
+  if (!country) return new Response("Select a country", { status: 400 });
 
   if (!isTemp) {
     const listed = await remoteJson("/sales/store", req, { method: "GET" });
@@ -683,8 +692,6 @@ export async function proxyUpdateStoreRecord(
       }
     }
     if (!uid) return new Response("Enter a store code", { status: 400 });
-    if (!city) return new Response("Enter a city", { status: 400 });
-    if (!country) return new Response("Enter a country", { status: 400 });
     if (!trnNo) return new Response("Enter a TRN", { status: 400 });
     if (!salesPerson) {
       return new Response("Choose a sales person", { status: 400 });

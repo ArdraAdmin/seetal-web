@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { City, Country } from "country-state-city";
 import {
   createAdminStore,
   deleteAdminStore,
@@ -108,6 +109,88 @@ function copyCount(store: StoreProfile) {
   return Number.isFinite(count) && count > 1 ? count : 1;
 }
 
+function CountryCityFields({
+  form,
+  setField,
+}: {
+  form: StoreForm;
+  setField: (key: keyof StoreForm, value: string) => void;
+}) {
+  const [cityFilter, setCityFilter] = useState("");
+  const countries = useMemo(() => Country.getAllCountries(), []);
+  const selected = countries.find(
+    (country) => country.name.toLowerCase() === form.country.trim().toLowerCase(),
+  );
+  const cityNames = useMemo(() => {
+    if (!selected) return [];
+    const names = (City.getCitiesOfCountry(selected.isoCode) || []).map(
+      (city) => city.name,
+    );
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [selected]);
+  const needle = cityFilter.trim().toLowerCase();
+  const visibleCities = (
+    needle
+      ? cityNames.filter((name) => name.toLowerCase().includes(needle))
+      : cityNames
+  ).slice(0, 300);
+  const countryOptions =
+    form.country && !selected
+      ? [form.country, ...countries.map((country) => country.name)]
+      : countries.map((country) => country.name);
+  const cityOptions =
+    form.city && !visibleCities.includes(form.city)
+      ? [form.city, ...visibleCities]
+      : visibleCities;
+
+  return (
+    <>
+      <label className="block space-y-1.5">
+        <FieldLabel label="Country" required />
+        <select
+          required
+          value={form.country}
+          onChange={(e) => {
+            setField("country", e.target.value);
+            setField("city", "");
+            setCityFilter("");
+          }}
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        >
+          <option value="">Select a country</option>
+          {countryOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1.5">
+        <FieldLabel label="City" required />
+        <input
+          value={cityFilter}
+          onChange={(e) => setCityFilter(e.target.value)}
+          placeholder="Filter cities"
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        />
+        <select
+          required
+          value={form.city}
+          onChange={(e) => setField("city", e.target.value)}
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        >
+          <option value="">Select a city</option>
+          {cityOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}
+
 function StoreFields({
   form,
   setField,
@@ -152,7 +235,7 @@ function StoreFields({
       />
       <TextField
         label="Address line 1"
-        optional
+        required
         value={form.addressLine1}
         onChange={(e) => setField("addressLine1", e.target.value)}
       />
@@ -168,20 +251,7 @@ function StoreFields({
         value={form.addressLine3}
         onChange={(e) => setField("addressLine3", e.target.value)}
       />
-      <TextField
-        label="City"
-        required={requireApiCore}
-        optional={!requireApiCore}
-        value={form.city}
-        onChange={(e) => setField("city", e.target.value)}
-      />
-      <TextField
-        label="Country"
-        required={requireIdentity}
-        optional={!requireIdentity}
-        value={form.country}
-        onChange={(e) => setField("country", e.target.value)}
-      />
+      <CountryCityFields form={form} setField={setField} />
       <TextField
         label="Store code"
         required={requireIdentity}
@@ -335,12 +405,16 @@ export default function StoresPage() {
       toast("Enter a store code", "info");
       return;
     }
-    if (!addForm.city.trim()) {
-      toast("Enter a city", "info");
+    if (!addForm.addressLine1.trim()) {
+      toast("Enter an address", "info");
       return;
     }
     if (!addForm.country.trim()) {
-      toast("Enter a country", "info");
+      toast("Select a country", "info");
+      return;
+    }
+    if (!addForm.city.trim()) {
+      toast("Select a city", "info");
       return;
     }
     if (!addForm.trnNo.trim()) {
@@ -578,8 +652,16 @@ function StoreCard({
       toast("Enter a store name", "info");
       return;
     }
-    if (!isTemp && !form.country.trim()) {
-      toast("Enter a country", "info");
+    if (!form.addressLine1.trim()) {
+      toast("Enter an address", "info");
+      return;
+    }
+    if (!form.country.trim()) {
+      toast("Select a country", "info");
+      return;
+    }
+    if (!form.city.trim()) {
+      toast("Select a city", "info");
       return;
     }
     if (!isTemp && !form.uid.trim()) {

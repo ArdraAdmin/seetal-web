@@ -37,6 +37,7 @@ import {
   dropSalesCatalogCache,
   type SalesCompanyAccess,
 } from "./sales-company";
+import { sortPendingWarehouseOrders, warehouseWorkDayRange } from "./warehouse";
 import {
   accessFromSelectedCompany,
   loadSelectedSalesCompany,
@@ -690,6 +691,23 @@ function asExistingInventoryItems(data: unknown): ExistingInventoryItem[] {
   return items;
 }
 
+async function lookupInventoryByItemRefs(itemRefs: string[]) {
+  const unique = [
+    ...new Set(itemRefs.map(normalizeItemRef).filter(Boolean)),
+  ];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += 100) chunks.push(unique.slice(i, i + 100));
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      request<unknown>("/admin/product/checkByItemRefs", {
+        method: "POST",
+        body: JSON.stringify({ itemRefs: chunk }),
+      }),
+    ),
+  );
+  return pages.flatMap((data) => asExistingInventoryItems(data));
+}
+
 export async function checkProductsByItemRefs(itemRefs: string[]) {
   const unique = [
     ...new Set(itemRefs.map(normalizeItemRef).filter(Boolean)),
@@ -821,18 +839,6 @@ function asWarehouseCounts(data: unknown): WarehouseCounts | undefined {
   };
 }
 
-function warehouseWorkDayRange() {
-  // Today tab = the coming Dubai calendar day, not the current date.
-  const offsetMs = 4 * 60 * 60 * 1000;
-  const dubaiNow = new Date(Date.now() + offsetMs);
-  const y = dubaiNow.getUTCFullYear();
-  const m = dubaiNow.getUTCMonth();
-  const d = dubaiNow.getUTCDate() + 1;
-  return {
-    start: new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - offsetMs),
-    end: new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - offsetMs),
-  };
-}
 
 function isOverdueIncomplete(order: PendingOrder) {
   if (order.loadCheck) return false;
@@ -939,6 +945,7 @@ export async function fetchWarehouseTabPage(
         ? visibleWarehouseOrders(raw, tabIndex)
         : raw;
   if (tabIndex === 1) orders = [...orders].sort(byDeliveryDateAsc);
+  if (tabIndex === 0) orders = sortPendingWarehouseOrders(orders);
 
   return {
     orders,
@@ -1048,8 +1055,9 @@ export async function getAllWarehouseOrders(
 
   if (tabIndex === 0 || tabIndex === 1) {
     const pending = await collectPendingWarehouseOrders(userId, tag);
-    const orders = visibleWarehouseOrders(pending, tabIndex);
+    let orders = visibleWarehouseOrders(pending, tabIndex);
     if (tabIndex === 1) orders.sort(byDeliveryDateAsc);
+    if (tabIndex === 0) orders = sortPendingWarehouseOrders(orders);
     return {
       orders,
       counts: tabIndex === 0 ? countsFromOrders(orders) : undefined,
@@ -1234,6 +1242,56 @@ export const sendWarehouseActionSheet = (
     `/mock/warehouse/action/${encodeURIComponent(tag)}?userId=${encodeURIComponent(userId)}`,
     { method: "GET", cache: "no-store" },
   );
+
+const LIST_FILE_NAMES: Record<WarehouseActionTag, string> = {
+  customs: "Custom List.xlsx",
+  daily: "Zero List.xlsx",
+  loading: "Loading List.xlsx",
+};
+
+export async function downloadWarehouseActionSheet(tag: WarehouseActionTag) {
+  const headers = new Headers();
+  const user = getStoredAuth();
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
+  headers.set("Content-Type", "application/json");
+  const res = await fetch("/api/warehouse/lists", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ tag }),
+  });
+  if (!res.ok) {
+    const body = await parseBody(res);
+    throw new ApiError(
+      errorMessage(body, `Request failed (${res.status})`),
+      res.status,
+    );
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = LIST_FILE_NAMES[tag];
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function fetchLoadedWarehouseOrders() {
+  const data = await siteRequest<{ orders?: PendingOrder[] }>(
+    "/api/warehouse/loaded",
+  );
+  return Array.isArray(data.orders) ? data.orders : [];
+}
+
+export const stampWarehouseLoadCheck = (orderId: string) =>
+  siteRequest<{ ok: boolean }>("/api/warehouse/load-checked", {
+    method: "POST",
+    body: JSON.stringify({ orderId }),
+  });
 
 export const createLoadList = (body: {
   userId: string;
@@ -1709,15 +1767,71 @@ function warmSalesInventoryIndex() {
   }
 }
 
-async function rememberAllowedProductIds(access: SalesCompanyAccess) {
-  if (access.companyIds.length === 0) return;
-  if (loadAllowedProductIds(access)?.size) return;
-  const allowedIds: string[] = [];
+/** STL's full catalog is large enough that store paging already returns it first. */
+const ASSIGNED_COMPANY_CATALOG_MAX = 2500;
+
+/**
+ * `/sales/product` times out, and `/sales/products` is STL-first, so a smaller
+ * company such as SHMP never appears on the first page. Build that catalog
+ * from the company assignment list instead.
+ */
+async function catalogFromAssignedCompanies(
+  access: SalesCompanyAccess,
+): Promise<Product[]> {
+  const products: Product[] = [];
   for (const companyId of access.companyIds) {
-    const companyProducts = await getAllCompanyProducts(companyId).catch(() => []);
-    for (const product of companyProducts) allowedIds.push(product._id);
+    const head = await getCompanyProducts(companyId, 1, 500);
+    const total = head.total || head.products.length;
+    if (total === 0 || total > ASSIGNED_COMPANY_CATALOG_MAX) continue;
+    const rows = head.hasMore
+      ? await getAllCompanyProducts(companyId)
+      : head.products;
+    for (const row of rows) {
+      products.push({
+        _id: row._id,
+        itemRef: row.itemRef,
+        itemName: row.itemName,
+        company: row.company || companyId,
+      });
+    }
   }
-  if (allowedIds.length > 0) saveAllowedProductIds(access, allowedIds);
+  if (products.length === 0) return [];
+  const details = await lookupInventoryByItemRefs(
+    products.map((product) => product.itemRef || ""),
+  );
+  const byRef = new Map(
+    details.map((item) => [normalizeItemRef(item.itemRef), item]),
+  );
+  return products.map((product) => {
+    const detail = byRef.get(normalizeItemRef(product.itemRef || ""));
+    if (!detail) return product;
+    return {
+      ...product,
+      itemName: product.itemName || detail.itemName,
+      ratio: detail.ratio,
+      sellingPrice: detail.sellingPrice,
+      inQty: {
+        amountInCartons: detail.amountInCartons,
+        amountInUnits: detail.amountInUnits,
+      },
+    };
+  });
+}
+
+async function publishSalesCatalog(
+  access: SalesCompanyAccess,
+  products: Product[],
+) {
+  const allowed = filterAllowedProducts(products, access);
+  if (allowed.length > 0) {
+    saveAllowedProductIds(
+      access,
+      allowed.map((product) => product._id),
+    );
+    replaceCachedCatalog(access, allowed);
+  } else saveSalesCompanyAccess(access);
+  warmSalesInventoryIndex();
+  return catalogForAccess(access) || allowed;
 }
 
 function downloadSalesCatalogForAccess(userId: string, access: SalesCompanyAccess) {
@@ -1725,23 +1839,27 @@ function downloadSalesCatalogForAccess(userId: string, access: SalesCompanyAcces
   if (salesCatalogDownload?.key === key) return salesCatalogDownload.promise;
   const promise = (async () => {
     try {
-      const products = filterAllowedProducts(
-        await downloadSalesCatalog(userId),
-        access,
+      const assigned = await catalogFromAssignedCompanies(access).catch(
+        () => [] as Product[],
       );
-      if (products.length > 0) replaceCachedCatalog(access, products);
-      else saveSalesCompanyAccess(access);
-      warmSalesInventoryIndex();
-      void rememberAllowedProductIds(access);
-      return {
+      if (assigned.length > 0) {
+        const products = await publishSalesCatalog(access, assigned);
+        return { access, products };
+      }
+      const products = await publishSalesCatalog(
         access,
-        products: catalogForAccess(access) || products,
-      };
+        await downloadSalesCatalog(userId),
+      );
+      return { access, products };
     } catch {
       const leftover = filterAllowedProducts(
         loadCachedCatalog()?.products || [],
         access,
       );
+      if (leftover.length > 0) {
+        const products = await publishSalesCatalog(access, leftover);
+        return { access, products };
+      }
       saveSalesCompanyAccess(access);
       return { access, products: leftover };
     }
@@ -1817,7 +1935,7 @@ function withCompanyBody(body: Record<string, unknown>) {
   return { ...body, ...companyQueryPayload(access) };
 }
 
-export async function getStoreProducts(
+async function rawStoreProducts(
   storeId: string,
   userId: string,
   page = 1,
@@ -1834,10 +1952,21 @@ export async function getStoreProducts(
       }),
     ),
   });
-  return allowedSalesProducts(asProductList(data));
+  return asProductList(data);
 }
 
-export async function searchStoreProducts(
+export async function getStoreProducts(
+  storeId: string,
+  userId: string,
+  page = 1,
+  tempStore = false,
+) {
+  return allowedSalesProducts(
+    await rawStoreProducts(storeId, userId, page, tempStore),
+  );
+}
+
+async function rawSearchStoreProducts(
   storeId: string,
   tag: string,
   page = 1,
@@ -1855,10 +1984,21 @@ export async function searchStoreProducts(
       }),
     ),
   });
-  return allowedSalesProducts(asProductList(data));
+  return asProductList(data);
 }
 
-export async function filterStoreProducts(
+export async function searchStoreProducts(
+  storeId: string,
+  tag: string,
+  page = 1,
+  tempStore = false,
+) {
+  return allowedSalesProducts(
+    await rawSearchStoreProducts(storeId, tag, page, tempStore),
+  );
+}
+
+async function rawFilterStoreProducts(
   storeId: string,
   page = 1,
   tempStore = false,
@@ -1878,7 +2018,19 @@ export async function filterStoreProducts(
       }),
     ),
   });
-  return allowedSalesProducts(asProductList(data));
+  return asProductList(data);
+}
+
+export async function filterStoreProducts(
+  storeId: string,
+  page = 1,
+  tempStore = false,
+  cat: string,
+  subCat = "",
+) {
+  return allowedSalesProducts(
+    await rawFilterStoreProducts(storeId, page, tempStore, cat, subCat),
+  );
 }
 
 export const SALES_INVENTORY_PAGE_SIZE = 30;
@@ -1888,6 +2040,22 @@ export type SalesProductCache = Map<string, Map<number, Product[]>>;
 
 export function createSalesProductCache(): SalesProductCache {
   return new Map();
+}
+
+const rawPageSizes = new WeakMap<SalesProductCache, Map<string, Map<number, number>>>();
+
+function pageSizeBucket(cache: SalesProductCache, key: string) {
+  let sizes = rawPageSizes.get(cache);
+  if (!sizes) {
+    sizes = new Map();
+    rawPageSizes.set(cache, sizes);
+  }
+  let pages = sizes.get(key);
+  if (!pages) {
+    pages = new Map();
+    sizes.set(key, pages);
+  }
+  return pages;
 }
 
 function productCacheKey(
@@ -1918,8 +2086,9 @@ async function inventoryApiPage(
   }
   const cached = pages.get(apiPage);
   if (cached) return cached;
+  const sizes = pageSizeBucket(cache, key);
   try {
-    let list: Product[];
+    let raw: Product[];
     if (tag && (cat || subCat)) {
       const data = await request<unknown>("/sales/searchFilter", {
         method: "POST",
@@ -1935,19 +2104,28 @@ async function inventoryApiPage(
           }),
         ),
       });
-      list = allowedSalesProducts(asProductList(data));
+      raw = asProductList(data);
     } else if (tag) {
-      list = await searchStoreProducts(storeId, tag, apiPage, tempStore);
+      raw = await rawSearchStoreProducts(storeId, tag, apiPage, tempStore);
     } else if (cat || subCat) {
-      list = await filterStoreProducts(storeId, apiPage, tempStore, cat, subCat);
+      raw = await rawFilterStoreProducts(
+        storeId,
+        apiPage,
+        tempStore,
+        cat,
+        subCat,
+      );
     } else {
-      list = await getStoreProducts(storeId, userId, apiPage, tempStore);
+      raw = await rawStoreProducts(storeId, userId, apiPage, tempStore);
     }
+    const list = allowedSalesProducts(raw);
     pages.set(apiPage, list);
+    sizes.set(apiPage, raw.length);
     return list;
   } catch {
     const empty: Product[] = [];
     pages.set(apiPage, empty);
+    sizes.set(apiPage, 0);
     return empty;
   }
 }
@@ -2004,6 +2182,27 @@ function salesCatalogRows(catalog: Product[]) {
   return indexedSalesRows;
 }
 
+function catalogSupportsCategoryFilter(catalog: Product[]) {
+  return catalog.some((product) => {
+    const category = product.category;
+    if (category && typeof category === "object") {
+      const named = category as {
+        masterCategoryName?: string;
+        masterCategory?: string;
+        subCategory?: string;
+        masterCategoryId?: string;
+      };
+      return Boolean(
+        named.masterCategoryName ||
+          named.masterCategory ||
+          named.subCategory ||
+          named.masterCategoryId,
+      );
+    }
+    return Boolean(product.masterCategoryName || product.masterCategoryId);
+  });
+}
+
 function sliceSalesInventoryPage(list: Product[], uiPage: number) {
   const start = Math.max(0, uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
   return {
@@ -2020,6 +2219,7 @@ export function localSalesInventoryPage(
 ) {
   const catalog = catalogForAccess(loadSalesCompanyAccess());
   if (!catalog || catalog.length === 0) return null;
+  if ((cat || subCat) && !catalogSupportsCategoryFilter(catalog)) return null;
   const needle = tag.trim().toLowerCase();
   if (!needle && !cat && !subCat) return sliceSalesInventoryPage(catalog, uiPage);
   const matched: Product[] = [];
@@ -2059,7 +2259,11 @@ export async function loadSalesInventoryUiPage(
       subCat,
     );
     collected.push(...list);
-    if (list.length < SALES_INVENTORY_API_PAGE_SIZE) break;
+    const rawLength =
+      pageSizeBucket(cache, productCacheKey(storeId, tag, tempStore, cat, subCat)).get(
+        apiPage,
+      ) ?? list.length;
+    if (rawLength < SALES_INVENTORY_API_PAGE_SIZE) break;
     if (collected.length > needed) break;
   }
   const start = (uiPage - 1) * SALES_INVENTORY_PAGE_SIZE;
