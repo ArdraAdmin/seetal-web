@@ -171,7 +171,7 @@ export default function WarehousePage() {
         setConfirmDeleteOpen(false);
         setDeleteProgress(null);
         try {
-          const loaded = await fetchLoadedWarehouseOrders();
+          const loaded = await fetchLoadedWarehouseOrders(user.id);
           const needle = tag.trim().toLowerCase();
           const filtered = needle
             ? loaded.filter((order) => {
@@ -258,8 +258,10 @@ export default function WarehousePage() {
 
   useEffect(() => {
     void load(0);
-    void fetchLoadedWarehouseOrders().catch(() => undefined);
-  }, [load]);
+    if (user?.id) {
+      void fetchLoadedWarehouseOrders(user.id).catch(() => undefined);
+    }
+  }, [load, user?.id]);
 
   async function loadMore() {
     if (!user?.id || tab === 4 || loading || loadingMore || loadingAll || !hasMore) {

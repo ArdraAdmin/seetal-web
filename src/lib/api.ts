@@ -1280,18 +1280,12 @@ export async function downloadWarehouseActionSheet(tag: WarehouseActionTag) {
   URL.revokeObjectURL(url);
 }
 
-export async function fetchLoadedWarehouseOrders() {
-  const data = await siteRequest<{ orders?: PendingOrder[] }>(
-    "/api/warehouse/loaded",
+export async function fetchLoadedWarehouseOrders(userId: string) {
+  const data = await request<unknown>(
+    `/warehouse/order/loaded?userId=${encodeURIComponent(userId)}`,
   );
-  return Array.isArray(data.orders) ? data.orders : [];
+  return asWarehouseOrders(data).filter((order) => !order.isDraft && order.loadCheck);
 }
-
-export const stampWarehouseLoadCheck = (orderId: string) =>
-  siteRequest<{ ok: boolean }>("/api/warehouse/load-checked", {
-    method: "POST",
-    body: JSON.stringify({ orderId }),
-  });
 
 export const createLoadList = (body: {
   userId: string;

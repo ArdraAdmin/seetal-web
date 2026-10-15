@@ -8,7 +8,6 @@ import {
   checkAllWarehouseLines,
   confirmWarehouseCheck,
   generateWarehouseInvoice,
-  stampWarehouseLoadCheck,
   downloadSalesStores,
   getWarehouseCheckOrder,
   markWarehouseLineMissing,
@@ -184,13 +183,6 @@ export function WarehouseCheckView() {
     setConfirming(true);
     try {
       await confirmWarehouseCheck(step, order._id, user.id, lines);
-      if (step === 3) {
-        try {
-          await stampWarehouseLoadCheck(order._id);
-        } catch {
-          // The order stays load-checked even if the timestamp cannot be stored.
-        }
-      }
       markStepComplete();
       toast(`${CHECK_LABELS[step]} has been confirmed`, "success");
       await load();
