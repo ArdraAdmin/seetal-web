@@ -39,6 +39,7 @@ import {
   storeTitle,
   warehouseBasePath,
 } from "@/lib/warehouse";
+import { downloadLoadingListOffline } from "@/lib/warehouse-list-download";
 
 const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([0, 1, 2]);
 
@@ -437,11 +438,15 @@ export default function WarehousePage() {
   }
 
   async function downloadAction(tag: WarehouseActionTag) {
-    if (sendingAction) return;
+    if (!user?.id || sendingAction) return;
     setActionMenu(null);
     setSendingAction(tag);
     try {
-      await downloadWarehouseActionSheet(tag);
+      if (tag === "loading") {
+        await downloadLoadingListOffline(user.id);
+      } else {
+        await downloadWarehouseActionSheet(tag);
+      }
       toast("Download started", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to download list", "error");
