@@ -56,7 +56,7 @@ const METRICS: Metric[] = [
   {
     key: "expiredTradeLicenses",
     label: "Expired trade licenses",
-    href: "/admin/stores",
+    href: "/admin/stores?license=expired",
     icon: AlertTriangle,
     alert: true,
   },

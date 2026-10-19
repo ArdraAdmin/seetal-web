@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { City, Country } from "country-state-city";
 import {
   createAdminStore,
   deleteAdminStore,
   editAdminStore,
   getAdminStores,
+  getExpiredTradeLicenses,
   getSalesProfiles,
-  removeDuplicateStores,
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
 import { useToast } from "@/components/Toast";
@@ -107,6 +108,17 @@ function formFrom(store: StoreProfile): StoreForm {
 function copyCount(store: StoreProfile) {
   const count = Number(store.copyCount);
   return Number.isFinite(count) && count > 1 ? count : 1;
+}
+
+function isExpiredTradeLicense(value: unknown) {
+  if (!value) return false;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return false;
+  const expiry = new Date(date);
+  expiry.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return expiry.getTime() < today.getTime();
 }
 
 function CountryCityFields({
@@ -298,15 +310,16 @@ function StoreFields({
 
 export default function StoresPage() {
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const expiredOnly = searchParams.get("license") === "expired";
   const [stores, setStores] = useState<StoreProfile[]>([]);
+  const [expiredStores, setExpiredStores] = useState<StoreProfile[] | null>(null);
   const [salesPeople, setSalesPeople] = useState<ProfileUser[]>([]);
-  const [duplicateCount, setDuplicateCount] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [removing, setRemoving] = useState(false);
-  const [showDuplicates, setShowDuplicates] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addForm, setAddForm] = useState<StoreForm>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
@@ -315,34 +328,41 @@ export default function StoresPage() {
     setLoading(true);
     setError(null);
     try {
-      const [data, people] = await Promise.all([
+      const [data, people, expired] = await Promise.all([
         getAdminStores(),
         getSalesProfiles().catch(() => [] as ProfileUser[]),
+        expiredOnly
+          ? getExpiredTradeLicenses().catch(() => null)
+          : Promise.resolve(null),
       ]);
       setStores(Array.isArray(data.stores) ? data.stores : []);
-      setDuplicateCount(Number(data.duplicateCount) || 0);
+      setExpiredStores(Array.isArray(expired) ? expired : null);
       setSalesPeople(people);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load stores");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [expiredOnly]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (duplicateCount === 0 && showDuplicates) {
-      setShowDuplicates(false);
+  const listed = useMemo(() => {
+    if (!expiredOnly) return stores;
+    if (expiredStores) {
+      const byId = new Map(stores.map((store) => [String(store._id), store]));
+      return expiredStores.map((store) => byId.get(String(store._id)) ?? store);
     }
-  }, [duplicateCount, showDuplicates]);
+    return stores.filter((store) =>
+      isExpiredTradeLicense(store.tradeLicenseExpiry),
+    );
+  }, [stores, expiredStores, expiredOnly]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return stores.filter((store) => {
-      if (showDuplicates && copyCount(store) <= 1) return false;
+    return listed.filter((store) => {
       if (!q) return true;
       const blob = [
         store.storeName,
@@ -357,7 +377,7 @@ export default function StoresPage() {
         .join(" ");
       return blob.includes(q);
     });
-  }, [stores, query, showDuplicates]);
+  }, [listed, query]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
@@ -368,32 +388,6 @@ export default function StoresPage() {
 
   function setAddField(key: keyof StoreForm, value: string) {
     setAddForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function onRemoveDuplicates() {
-    if (
-      !confirm(
-        `Delete ${duplicateCount} duplicate store record${duplicateCount === 1 ? "" : "s"}? Orders stay on the remaining store for each name and marks group.`,
-      )
-    ) {
-      return;
-    }
-    setRemoving(true);
-    try {
-      const result = await removeDuplicateStores();
-      toast(
-        result.removed
-          ? `Removed ${result.removed} duplicate store${result.removed === 1 ? "" : "s"}`
-          : "No duplicate stores",
-        "success",
-      );
-      setShowDuplicates(false);
-      await load();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not remove duplicates", "error");
-    } finally {
-      setRemoving(false);
-    }
   }
 
   async function onCreateStore() {
@@ -459,49 +453,23 @@ export default function StoresPage() {
       <PageHeader
         title="Stores"
         subtitle={
-          showDuplicates
-            ? "Stores below share the same name and marks. Delete duplicates to keep one record per group."
-            : "Edit store details, delete a store, or remove duplicate records."
+          expiredOnly
+            ? "Stores whose trade license expiry date is before today."
+            : "Edit store details or delete a store."
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            {duplicateCount > 0 ? (
-              showDuplicates ? (
-                <>
-                  <PrimaryButton
-                    type="button"
-                    disabled={removing || loading}
-                    onClick={() => void onRemoveDuplicates()}
-                  >
-                    {removing
-                      ? "Deleting…"
-                      : `Delete ${duplicateCount} duplicate${duplicateCount === 1 ? "" : "s"}`}
-                  </PrimaryButton>
-                  <SecondaryButton
-                    type="button"
-                    disabled={removing || loading}
-                    onClick={() => {
-                      setShowDuplicates(false);
-                      setPage(1);
-                    }}
-                  >
-                    Show all stores
-                  </SecondaryButton>
-                </>
-              ) : (
-                <PrimaryButton
-                  type="button"
-                  disabled={loading}
-                  onClick={() => {
-                    setShowDuplicates(true);
-                    setAdding(false);
-                    setQuery("");
-                    setPage(1);
-                  }}
-                >
-                  View {duplicateCount} duplicate{duplicateCount === 1 ? "" : "s"}
-                </PrimaryButton>
-              )
+            {expiredOnly ? (
+              <SecondaryButton
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  setPage(1);
+                  router.push("/admin/stores");
+                }}
+              >
+                Show all stores
+              </SecondaryButton>
             ) : null}
             <SecondaryButton
               type="button"
@@ -520,16 +488,11 @@ export default function StoresPage() {
         }
       />
 
-      {showDuplicates ? (
-        <Card className="mb-5 border-amber-200 bg-amber-50">
-          <p className="text-sm font-medium text-amber-950">
-            Showing {filtered.length} store group
-            {filtered.length === 1 ? "" : "s"} with duplicates
-          </p>
-          <p className="mt-1 text-sm text-amber-900/80">
-            Each card is the store that will be kept. Extra copies with the same
-            name and marks will be deleted, and related orders stay linked to the
-            kept store.
+      {expiredOnly && !loading ? (
+        <Card className="mb-5 border-brand/30 bg-[#f7f5f0]">
+          <p className="text-sm font-medium text-ink">
+            Showing {filtered.length} store
+            {filtered.length === 1 ? "" : "s"} with an expired trade license
           </p>
         </Card>
       ) : null}
@@ -585,7 +548,11 @@ export default function StoresPage() {
         <ErrorState message={error} onRetry={() => void load()} />
       ) : filtered.length === 0 ? (
         <EmptyState
-          title={showDuplicates ? "No duplicate stores" : "No stores found"}
+          title={
+            expiredOnly
+              ? "No stores with an expired trade license"
+              : "No stores found"
+          }
         />
       ) : (
         <div className="space-y-3">
@@ -594,7 +561,6 @@ export default function StoresPage() {
               key={store._id}
               store={store}
               salesPeople={salesPeople}
-              highlightDuplicate={showDuplicates}
               onChanged={() => void load()}
             />
           ))}
@@ -616,12 +582,10 @@ export default function StoresPage() {
 function StoreCard({
   store,
   salesPeople,
-  highlightDuplicate,
   onChanged,
 }: {
   store: StoreProfile;
   salesPeople: ProfileUser[];
-  highlightDuplicate?: boolean;
   onChanged: () => void;
 }) {
   const { toast } = useToast();
@@ -728,11 +692,7 @@ function StoreCard({
       : salesPeople;
 
   return (
-    <Card
-      className={`flex flex-col gap-3 ${
-        highlightDuplicate ? "border-amber-200 bg-amber-50/40" : ""
-      }`}
-    >
+    <Card className="flex flex-col gap-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="font-semibold text-slate-900">{title}</p>
@@ -750,12 +710,6 @@ function StoreCard({
               ? ` · License expires ${new Date(licenseExpiry).toLocaleString()}`
               : ""}
           </p>
-          {highlightDuplicate && copies > 1 ? (
-            <p className="mt-2 text-xs font-medium text-amber-900">
-              Will keep this store and remove {copies - 1} duplicate
-              {copies - 1 === 1 ? "" : "s"}
-            </p>
-          ) : null}
         </div>
         <div className="flex gap-2">
           <SecondaryButton

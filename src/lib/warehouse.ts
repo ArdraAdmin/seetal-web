@@ -24,7 +24,8 @@ export function warehouseOpenStep(order: {
   loadCheck?: boolean;
 }): WarehouseCheckStep {
   if (order.loadCheck) return 3;
-  if (order.doubleCheck) return 2;
+  // First check is finished, so the order is in double check until it is loaded.
+  if (order.doubleCheck || order.firstCheck) return 2;
   return 1;
 }
 
@@ -98,27 +99,65 @@ export function sortZeroQuantityFirst(lines: WarehouseCheckLine[]) {
   });
 }
 
+export type WarehouseListStatus = "pending" | "first" | "double" | "unloaded";
+
+/** Pending-list bucket. Loaded orders (load check, not marked unloaded) are omitted. */
+export function warehouseListStatus(order: {
+  unloaded?: boolean;
+  loadCheck?: boolean;
+  doubleCheck?: boolean;
+  firstCheck?: boolean;
+}): WarehouseListStatus | "loaded" {
+  if (order.unloaded) return "unloaded";
+  if (order.loadCheck) return "loaded";
+  if (order.doubleCheck) return "double";
+  if (order.firstCheck) return "first";
+  return "pending";
+}
+
 export function pendingCheckRank(order: {
+  unloaded?: boolean;
   doubleCheck?: boolean;
   firstCheck?: boolean;
   loadCheck?: boolean;
 }) {
-  if (order.loadCheck) return 3;
+  if (order.unloaded) return 3;
+  if (order.loadCheck) return 4;
   if (order.doubleCheck) return 2;
   if (order.firstCheck) return 1;
   return 0;
 }
 
-/** Pending page order: pending, then first check, then double check. */
-export function sortPendingWarehouseOrders<T extends { loadCheck?: boolean; doubleCheck?: boolean; firstCheck?: boolean }>(
-  orders: T[],
-) {
+/** Pending page order: pending, then first check, then double check, then unloaded. */
+export function sortPendingWarehouseOrders<
+  T extends {
+    unloaded?: boolean;
+    loadCheck?: boolean;
+    doubleCheck?: boolean;
+    firstCheck?: boolean;
+  },
+>(orders: T[]) {
   return orders
-    .filter((order) => !order.loadCheck)
+    .filter((order) => warehouseListStatus(order) !== "loaded")
     .sort((a, b) => pendingCheckRank(a) - pendingCheckRank(b));
 }
 
 const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+let sundayDeliveryEnabled = false;
+
+/** Remember the Super Admin Sunday delivery setting for warehouse date windows. */
+export function setSundayDeliveryEnabled(enabled: boolean) {
+  sundayDeliveryEnabled = enabled;
+}
+
+export function isSundayDeliveryEnabled() {
+  return sundayDeliveryEnabled;
+}
+
+function dubaiWeekday(instant: Date) {
+  return new Date(instant.getTime() + DUBAI_OFFSET_MS).getUTCDay();
+}
 
 /** Start of the current Dubai calendar day. */
 export function dubaiDayStart(now = Date.now()) {
@@ -136,16 +175,46 @@ export function dubaiDayStart(now = Date.now()) {
   );
 }
 
-/** Warehouse "today" is the coming Dubai calendar day. */
-export function warehouseWorkDayRange(now = Date.now()) {
+/**
+ * Warehouse "today" is the coming Dubai calendar day.
+ * With Sunday delivery off, a Sunday is skipped and Monday is the pending day.
+ */
+export function warehouseWorkDayRange(
+  now = Date.now(),
+  sundayDelivery = sundayDeliveryEnabled,
+) {
   const dubaiNow = new Date(now + DUBAI_OFFSET_MS);
   const y = dubaiNow.getUTCFullYear();
   const m = dubaiNow.getUTCMonth();
-  const d = dubaiNow.getUTCDate() + 1;
+  let d = dubaiNow.getUTCDate() + 1;
+  if (!sundayDelivery) {
+    const next = new Date(Date.UTC(y, m, d));
+    if (next.getUTCDay() === 0) d += 1;
+  }
   return {
     start: new Date(Date.UTC(y, m, d, 0, 0, 0, 0) - DUBAI_OFFSET_MS),
     end: new Date(Date.UTC(y, m, d, 23, 59, 59, 999) - DUBAI_OFFSET_MS),
   };
+}
+
+/** Saturday pending moves to Monday while Sunday delivery is off. */
+export function pendingSkipsSunday(
+  now = Date.now(),
+  sundayDelivery = sundayDeliveryEnabled,
+) {
+  if (sundayDelivery) return false;
+  const nextCalendarDay = warehouseWorkDayRange(now, true);
+  return dubaiWeekday(nextCalendarDay.start) === 0;
+}
+
+/** A YYYY-MM-DD value that falls on Sunday. */
+export function isSundayDateInput(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
 }
 
 export function invoiceLabel(order: PendingOrder | WarehouseCheckOrder) {

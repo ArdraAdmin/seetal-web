@@ -1,11 +1,11 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Building2, Landmark } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useAuth } from "@/components/AuthProvider";
-import { selectSalesCompany } from "@/lib/api";
+import { selectSalesCompany, warmCompanyDirectory } from "@/lib/api";
 import { type SalesCompanyKey } from "@/lib/sales-selected-company";
 
 function inventoryDestination(raw: string | null) {
@@ -21,6 +21,10 @@ function SalesCompanySelectionPage() {
   const searchParams = useSearchParams();
   const [loadingKey, setLoadingKey] = useState<SalesCompanyKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void warmCompanyDirectory().catch(() => {});
+  }, []);
 
   async function onSelect(key: SalesCompanyKey, label: string) {
     if (!user?.id || loadingKey) return;

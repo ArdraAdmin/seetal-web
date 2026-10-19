@@ -125,6 +125,7 @@ export interface PendingOrder {
   firstCheck?: boolean;
   doubleCheck?: boolean;
   loadCheck?: boolean;
+  unloaded?: boolean;
   totalPkg?: number;
   isGRV?: boolean;
   isDraft?: boolean;
@@ -140,6 +141,7 @@ export interface WarehouseCounts {
   firstCheckCount: number;
   doubleCheckCount: number;
   loadCheckCount: number;
+  unloadedCount: number;
   totalPkgCount: number;
 }
 

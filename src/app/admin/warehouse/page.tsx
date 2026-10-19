@@ -8,14 +8,17 @@ import {
   deleteWarehouseOrders,
   downloadWarehouseActionSheet,
   fetchLoadedWarehouseOrders,
+  canEditSundayDelivery,
   fetchWarehouseTabPage,
   getAllWarehouseOrders,
+  loadSundayDeliverySetting,
   sendWarehouseActionSheet,
+  updateSundayDeliverySetting,
   type DeleteWarehouseOrdersProgress,
   type WarehouseActionTag,
   type WarehouseTabIndex,
 } from "@/lib/api";
-import { isAdmin } from "@/lib/auth";
+import { isAdmin, isSuperAdmin } from "@/lib/auth";
 import type { PendingOrder, WarehouseCounts } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
@@ -33,6 +36,7 @@ import {
   assigneeLabel,
   invoiceLabel,
   sortPendingWarehouseOrders,
+  warehouseListStatus,
   warehouseOpenStep,
   storeDescription,
   storeMarks,
@@ -91,9 +95,21 @@ const ACTION_BUTTONS: {
   },
 ];
 
+type CheckFilter = "pending" | "first" | "double" | "unloaded";
+
+const CHECK_FILTERS: { id: CheckFilter; label: string }[] = [
+  { id: "pending", label: "Pending" },
+  { id: "first", label: "First check" },
+  { id: "double", label: "Double check" },
+  { id: "unloaded", label: "Unloaded" },
+];
+
 function checkStatus(order: PendingOrder) {
   if (order.status === "Order Removed") {
     return { label: "Order removed", className: "bg-brand/15 text-ink" };
+  }
+  if (order.unloaded) {
+    return { label: "Unloaded", className: "bg-violet-100 text-violet-800" };
   }
   if (order.loadCheck) {
     return { label: "Load check", className: "bg-emerald-100 text-emerald-800" };
@@ -148,13 +164,30 @@ export default function WarehousePage() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
+  const [sundayDelivery, setSundayDelivery] = useState(false);
+  const [canToggleSunday, setCanToggleSunday] = useState(
+    () => isSuperAdmin(user),
+  );
+  const [savingSunday, setSavingSunday] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<CheckFilter | null>(null);
 
   const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
   const displayOrders =
     tab === 0
       ? sortPendingWarehouseOrders(mergeWarehouseOrders(todayOrders, overdueOrders))
       : orders;
-  const orderIds = displayOrders
+  const visibleOrders =
+    tab === 0 && statusFilter
+      ? displayOrders.filter((order) => warehouseListStatus(order) === statusFilter)
+      : displayOrders;
+  const statusCounts = { pending: 0, first: 0, double: 0, unloaded: 0 };
+  if (tab === 0) {
+    for (const order of displayOrders) {
+      const status = warehouseListStatus(order);
+      if (status !== "loaded") statusCounts[status] += 1;
+    }
+  }
+  const orderIds = visibleOrders
     .map((order) => String(order._id || ""))
     .filter(Boolean);
   const allSelected =
@@ -258,11 +291,34 @@ export default function WarehousePage() {
   );
 
   useEffect(() => {
+    void loadSundayDeliverySetting().then((enabled) => {
+      setSundayDelivery(enabled);
+      setCanToggleSunday(canEditSundayDelivery() || isSuperAdmin(user));
+    });
     void load(0);
     if (user?.id) {
       void fetchLoadedWarehouseOrders(user.id).catch(() => undefined);
     }
   }, [load, user?.id]);
+
+  async function onSundayDelivery(next: boolean) {
+    setSavingSunday(true);
+    try {
+      const saved = await updateSundayDeliverySetting(next);
+      setSundayDelivery(saved);
+      toast(
+        saved
+          ? "Sunday delivery is on"
+          : "Sunday delivery is off. Pending shows Monday.",
+        "success",
+      );
+      await load(tab, appliedQuery);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not update Sunday delivery", "error");
+    } finally {
+      setSavingSunday(false);
+    }
+  }
 
   async function loadMore() {
     if (!user?.id || tab === 4 || loading || loadingMore || loadingAll || !hasMore) {
@@ -471,12 +527,45 @@ export default function WarehousePage() {
         }
       />
 
+      {canToggleSunday || isSuperAdmin(user) ? (
+        <Card className="mb-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-ink">Sunday Delivery</p>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Off: Saturday pending shows Monday. On: Sunday dates are allowed.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sundayDelivery}
+              aria-label="Sunday Delivery"
+              disabled={savingSunday}
+              onClick={() => void onSundayDelivery(!sundayDelivery)}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                sundayDelivery ? "bg-brand" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                  sundayDelivery ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </Card>
+      ) : null}
+
       <div className="mb-5 flex flex-wrap gap-2">
         {TABS.map((item) => (
           <button
             key={item.id}
             type="button"
-            onClick={() => void load(item.id, appliedQuery)}
+            onClick={() => {
+              setStatusFilter(null);
+              void load(item.id, appliedQuery);
+            }}
             className={`rounded-xl px-4 py-2 text-sm font-medium ${
               tab === item.id
                 ? "bg-brand text-black"
@@ -526,10 +615,20 @@ export default function WarehousePage() {
           <p className="text-center text-base font-semibold text-black">
             Total cartons: {counts.totalPkgCount}
           </p>
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            <SummaryStat label="Pending" value={counts.pendingCheckCount} />
-            <SummaryStat label="First check" value={counts.firstCheckCount} />
-            <SummaryStat label="Double check" value={counts.doubleCheckCount} />
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {CHECK_FILTERS.map((item) => (
+              <SummaryStat
+                key={item.id}
+                label={item.label}
+                value={statusCounts[item.id]}
+                active={statusFilter === item.id}
+                onClick={() =>
+                  setStatusFilter((current) =>
+                    current === item.id ? null : item.id,
+                  )
+                }
+              />
+            ))}
           </div>
         </Card>
       ) : null}
@@ -584,13 +683,19 @@ export default function WarehousePage() {
             message={error}
             onRetry={() => void load(tab, appliedQuery)}
           />
-        ) : displayOrders.length === 0 ? (
-          <EmptyState title="No warehouse orders" />
+        ) : visibleOrders.length === 0 ? (
+          <EmptyState
+            title={
+              statusFilter
+                ? `No ${CHECK_FILTERS.find((item) => item.id === statusFilter)?.label.toLowerCase()} orders`
+                : "No warehouse orders"
+            }
+          />
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-slate-600">
-                Showing {displayOrders.length} order{displayOrders.length === 1 ? "" : "s"}
+                Showing {visibleOrders.length} order{visibleOrders.length === 1 ? "" : "s"}
                 {canManageOrders && selected.size > 0
                   ? ` · ${selected.size} selected`
                   : ""}
@@ -599,7 +704,7 @@ export default function WarehousePage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <SecondaryButton
                     type="button"
-                    disabled={displayOrders.length === 0 || deleting}
+                    disabled={visibleOrders.length === 0 || deleting}
                     onClick={toggleSelectAll}
                   >
                     {allSelected ? "Deselect all" : "Select all"}
@@ -622,7 +727,7 @@ export default function WarehousePage() {
                 </div>
               ) : null}
             </div>
-            {displayOrders.map((order, index) => {
+            {visibleOrders.map((order, index) => {
               const status = checkStatus(order);
               const title = storeTitle(order) || "Store";
               const marks = storeMarks(order);
@@ -818,11 +923,30 @@ export default function WarehousePage() {
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: number }) {
+function SummaryStat({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="rounded-xl border border-line bg-[#f7f5f0] px-3 py-3 text-center">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-xl border px-3 py-3 text-center ${
+        active
+          ? "border-brand bg-brand/20"
+          : "border-line bg-[#f7f5f0] hover:bg-[#efeadd]"
+      }`}
+    >
       <p className="text-xs font-medium text-slate-600">{label}</p>
       <p className="mt-1 text-xl font-semibold text-black">{value}</p>
-    </div>
+    </button>
   );
 }

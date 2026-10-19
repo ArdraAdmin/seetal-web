@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
-import { syncSalesInventory } from "@/lib/api";
+import { syncSalesInventory, warmCompanyDirectory } from "@/lib/api";
 import {
   promptEnableLocationOnce,
   resumeTrackingIfCheckedIn,
@@ -36,6 +36,11 @@ export default function SalesLayout({
     refresh();
     return onSelectedSalesCompanyChange(refresh);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!user?.id || user.role !== "Sales") return;
+    void warmCompanyDirectory().catch(() => {});
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     if (!user?.id || user.role !== "Sales" || !hasCompany) return;

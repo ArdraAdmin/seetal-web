@@ -1,6 +1,7 @@
 import { ObjectId, type Document } from "mongodb";
 import * as XLSX from "xlsx";
 import { warehouseWorkDayRange } from "@/lib/warehouse";
+import { readSundayDelivery } from "@/lib/server/sunday-delivery";
 import { getMongoClient } from "./mongo";
 import { userIdFromAuthHeader } from "./password";
 
@@ -110,7 +111,10 @@ async function loadTodayOrders(
   database: Awaited<ReturnType<typeof assertWarehouseUser>>["database"],
   extra: Document,
 ) {
-  const { start, end } = warehouseWorkDayRange();
+  const { start, end } = warehouseWorkDayRange(
+    Date.now(),
+    await readSundayDelivery(database),
+  );
   const orders = await database
     .collection("temporders")
     .find({

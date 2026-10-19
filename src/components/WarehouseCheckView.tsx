@@ -10,6 +10,7 @@ import {
   generateWarehouseInvoice,
   downloadSalesStores,
   getWarehouseCheckOrder,
+  loadSundayDeliverySetting,
   markWarehouseLineMissing,
   saveWarehouseCheck,
   toggleWarehouseLineCheck,
@@ -20,7 +21,6 @@ import type {
   StoreProfile,
   WarehouseCheckLine,
   WarehouseCheckOrder,
-  WarehouseCheckStep,
 } from "@/lib/types";
 import { storeDisplayName, uniqueStores } from "@/lib/stores";
 import { useAuth } from "@/components/AuthProvider";
@@ -33,6 +33,8 @@ import {
   checkFlagForStep,
   formatOrderDate,
   invoiceLabel,
+  isSundayDateInput,
+  isSundayDeliveryEnabled,
   lineIsChecked,
   lineReadyToConfirm,
   orderDateInputValue,
@@ -48,17 +50,6 @@ import {
   warehouseLineRef,
   warehouseLineUnit,
 } from "@/lib/warehouse";
-
-function linesForOpenStep(
-  order: WarehouseCheckOrder,
-  step: WarehouseCheckStep,
-  clearChecks: boolean,
-) {
-  const lines = Array.isArray(order.productDetails) ? order.productDetails : [];
-  if (!clearChecks || (step !== 1 && step !== 2)) return lines;
-  const flag = step === 1 ? "firstCheck" : "doubleCheck";
-  return lines.map((line) => ({ ...line, [flag]: false }));
-}
 
 export function WarehouseCheckView() {
   const params = useParams<{ id: string }>();
@@ -86,33 +77,19 @@ export function WarehouseCheckView() {
   const [storeOptions, setStoreOptions] = useState<StoreProfile[]>([]);
   const [storesLoading, setStoresLoading] = useState(false);
   const [savingStoreId, setSavingStoreId] = useState<string | null>(null);
-  const editedStep = useRef("");
+  const [sundayDelivery, setSundayDelivery] = useState(false);
   const loadGen = useRef(0);
 
   const load = useCallback(async () => {
     if (!user?.id || !params.id) return;
     const gen = ++loadGen.current;
-    const stepKey = `${params.id}:${step}`;
     setLoading(true);
     setError(null);
     try {
       const data = await getWarehouseCheckOrder(params.id, user.id, step);
       if (gen !== loadGen.current) return;
-      const confirmed = step === 2 ? Boolean(data.doubleCheck) : step !== 1;
-      const clearStoredChecks =
-        (step === 1 || step === 2) &&
-        !confirmed &&
-        editedStep.current !== stepKey;
-      if (clearStoredChecks) {
-        try {
-          await checkAllWarehouseLines(data._id, user.id, step, false);
-        } catch {
-          // Still show the boxes unchecked if the reset cannot be saved.
-        }
-        if (gen !== loadGen.current || editedStep.current === stepKey) return;
-      }
       setOrder(data);
-      setLines(linesForOpenStep(data, step, clearStoredChecks));
+      setLines(Array.isArray(data.productDetails) ? data.productDetails : []);
       setDeliveryDate(orderDateInputValue(data.date));
     } catch (e) {
       if (gen !== loadGen.current) return;
@@ -121,6 +98,16 @@ export function WarehouseCheckView() {
       if (gen === loadGen.current) setLoading(false);
     }
   }, [params.id, user?.id, step]);
+
+  useEffect(() => {
+    let active = true;
+    void loadSundayDeliverySetting().then((enabled) => {
+      if (active) setSundayDelivery(enabled || isSundayDeliveryEnabled());
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     void load();
@@ -158,13 +145,8 @@ export function WarehouseCheckView() {
     setOrder((prev) => (prev ? { ...prev, [flag]: true } : prev));
   }
 
-  function markStepEdited() {
-    if (params.id) editedStep.current = `${params.id}:${step}`;
-  }
-
   async function onSave() {
     if (!user?.id || !order) return;
-    markStepEdited();
     setSaving(true);
     try {
       await saveWarehouseCheck(order._id, user.id, lines);
@@ -179,7 +161,6 @@ export function WarehouseCheckView() {
 
   async function onConfirm() {
     if (!user?.id || !order) return;
-    markStepEdited();
     setConfirming(true);
     try {
       await confirmWarehouseCheck(step, order._id, user.id, lines);
@@ -247,6 +228,10 @@ export function WarehouseCheckView() {
       toast("Choose a delivery date", "info");
       return;
     }
+    if (!sundayDelivery && isSundayDateInput(next)) {
+      toast("Sunday delivery is off. Choose Monday or another day.", "info");
+      return;
+    }
     if (next === orderDateInputValue(order.date)) {
       toast("Delivery date is unchanged", "info");
       return;
@@ -287,7 +272,6 @@ export function WarehouseCheckView() {
     if (!user?.id || !order) return;
     const productId = warehouseLineProductId(line);
     if (!productId) return;
-    markStepEdited();
     setBusyId(productId);
     try {
       await toggleWarehouseLineCheck(step, order._id, user.id, productId, next);
@@ -324,7 +308,6 @@ export function WarehouseCheckView() {
 
   async function onCheckAll() {
     if (!user?.id || !order) return;
-    markStepEdited();
     setSaving(true);
     try {
       await checkAllWarehouseLines(order._id, user.id, step, true);
@@ -369,7 +352,7 @@ export function WarehouseCheckView() {
         <Link
           href={backHref}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-black/10"
-          aria-label="Back"
+          aria-label={step === 2 ? "Back to first check" : "Back"}
         >
           <ArrowLeft className="h-5 w-5" strokeWidth={2} />
         </Link>
@@ -407,6 +390,16 @@ export function WarehouseCheckView() {
       </header>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pt-4">
+        {step === 2 && !loading && order ? (
+          <div className="mb-3 flex justify-start">
+            <Link
+              href={`${base}/${order._id}?step=1`}
+              className="text-sm font-semibold text-ink underline decoration-brand underline-offset-2"
+            >
+              Back to first check
+            </Link>
+          </div>
+        ) : null}
         {loading ? (
           <LoadingState label="Loading order…" />
         ) : error || !order ? (

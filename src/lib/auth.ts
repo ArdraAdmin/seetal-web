@@ -47,8 +47,9 @@ export function isAdmin(user: AuthUser | null): boolean {
 const TRACKING_ADMIN_EMAIL = "lav@shrseetal.com";
 
 export function isSuperAdmin(user: AuthUser | null): boolean {
+  if (user?.role !== "Admin") return false;
+  if (user.isSuperAdmin === true) return true;
   return (
-    user?.role === "Admin" &&
     String(user.email || "")
       .trim()
       .toLowerCase() === TRACKING_ADMIN_EMAIL
