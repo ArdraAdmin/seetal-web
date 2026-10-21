@@ -965,8 +965,17 @@ function asWarehouseCounts(data: unknown): WarehouseCounts | undefined {
 }
 
 
+function isUnloadedOrder(order: { unloaded?: unknown }) {
+  return (
+    order.unloaded === true ||
+    order.unloaded === 1 ||
+    order.unloaded === "true"
+  );
+}
+
 function isOverdueIncomplete(order: PendingOrder) {
-  if (order.loadCheck) return false;
+  // Load-checked orders stay off the Pending list until unloaded.
+  if (order.loadCheck && !isUnloadedOrder(order)) return false;
   if (order.needsApproval === true) return false;
   const status = String(order.status || "").toLowerCase();
   if (status === "confirmed" || status === "order removed") return false;
@@ -997,9 +1006,18 @@ function visibleWarehouseOrders(
   orders: PendingOrder[],
   tabIndex: WarehouseTabIndex,
 ) {
-  return orders.filter(
-    (order) => !order.isDraft && matchesWarehouseTab(order, tabIndex),
-  );
+  return orders.filter((order) => {
+    if (order.isDraft) return false;
+    // Unloaded orders always belong on Pending, even when their delivery
+    // date still sits in Upcoming/overdue buckets.
+    if (isUnloadedOrder(order)) return true;
+    return matchesWarehouseTab(order, tabIndex);
+  });
+}
+
+/** Pending day (YYYY-MM-DD) so unloaded orders reappear on the Pending tab. */
+function warehousePendingDateInput() {
+  return warehouseWorkDayRange().start.toISOString().slice(0, 10);
 }
 
 function countsFromOrders(orders: PendingOrder[]): WarehouseCounts {
@@ -1371,6 +1389,7 @@ export const confirmWarehouseCheck = (
   orderId: string,
   userId: string,
   lines: WarehouseCheckLine[],
+  vehicleNumber?: string,
 ) =>
   request<unknown>(`/mock/warehouse/confirm/${checkNo}`, {
     method: "PUT",
@@ -1378,8 +1397,27 @@ export const confirmWarehouseCheck = (
       orderId,
       userId,
       productDetails: checkLinePayload(lines),
+      ...(vehicleNumber ? { vehicleNumber } : {}),
     }),
   });
+
+export async function unloadWarehouseOrder(orderId: string, userId: string) {
+  await request<unknown>("/mock/warehouse/unload", {
+    method: "PATCH",
+    body: JSON.stringify({ orderId, userId }),
+  });
+  // Pending only loads today + overdue. Move the order into the warehouse
+  // "today" window so it shows at the bottom of Pending after unload.
+  try {
+    await updateWarehouseDeliveryDate(
+      orderId,
+      userId,
+      warehousePendingDateInput(),
+    );
+  } catch {
+    // Unload already succeeded; list merge still keeps unloaded orders.
+  }
+}
 
 export const toggleWarehouseLineCheck = (
   checkNo: WarehouseCheckStep,
@@ -1502,7 +1540,9 @@ export async function fetchLoadedWarehouseOrders(userId: string) {
   const data = await request<unknown>(
     `/warehouse/order/loaded?userId=${encodeURIComponent(userId)}`,
   );
-  return asWarehouseOrders(data).filter((order) => !order.isDraft && order.loadCheck);
+  return asWarehouseOrders(data).filter(
+    (order) => !order.isDraft && order.loadCheck && !order.unloaded,
+  );
 }
 
 export const createLoadList = (body: {

@@ -9,23 +9,31 @@ import {
   confirmWarehouseCheck,
   generateWarehouseInvoice,
   downloadSalesStores,
+  getVehicles,
   getWarehouseCheckOrder,
   loadSundayDeliverySetting,
   markWarehouseLineMissing,
   saveWarehouseCheck,
   toggleWarehouseLineCheck,
+  unloadWarehouseOrder,
   updateWarehouseDeliveryDate,
   updateWarehouseOrderStore,
 } from "@/lib/api";
 import type {
   StoreProfile,
+  Vehicle,
   WarehouseCheckLine,
   WarehouseCheckOrder,
 } from "@/lib/types";
 import { storeDisplayName, uniqueStores } from "@/lib/stores";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { ErrorState, LoadingState, PrimaryButton } from "@/components/ui";
+import {
+  ErrorState,
+  LoadingState,
+  PrimaryButton,
+  SecondaryButton,
+} from "@/components/ui";
 import {
   CHECK_LABELS,
   assigneeLabel,
@@ -69,6 +77,7 @@ export function WarehouseCheckView() {
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
+  const [unloading, setUnloading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState("");
   const [savingDate, setSavingDate] = useState(false);
@@ -78,6 +87,10 @@ export function WarehouseCheckView() {
   const [storesLoading, setStoresLoading] = useState(false);
   const [savingStoreId, setSavingStoreId] = useState<string | null>(null);
   const [sundayDelivery, setSundayDelivery] = useState(false);
+  const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [vehicleNumber, setVehicleNumber] = useState("");
   const loadGen = useRef(0);
 
   const load = useCallback(async () => {
@@ -159,18 +172,63 @@ export function WarehouseCheckView() {
     }
   }
 
-  async function onConfirm() {
+  async function openVehicleModal() {
+    setVehicleNumber("");
+    setVehicleModalOpen(true);
+    if (vehicles.length || vehiclesLoading) return;
+    setVehiclesLoading(true);
+    try {
+      const list = await getVehicles();
+      setVehicles(Array.isArray(list) ? list : []);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not load vehicles", "error");
+    } finally {
+      setVehiclesLoading(false);
+    }
+  }
+
+  function requestConfirm() {
+    if (step === 3) {
+      void openVehicleModal();
+      return;
+    }
+    void onConfirm();
+  }
+
+  async function onConfirm(selectedVehicle?: string) {
     if (!user?.id || !order) return;
+    const vehicle =
+      step === 3 ? String(selectedVehicle ?? vehicleNumber).trim() : undefined;
+    if (step === 3 && !vehicle) {
+      toast("Select a vehicle", "error");
+      return;
+    }
     setConfirming(true);
     try {
-      await confirmWarehouseCheck(step, order._id, user.id, lines);
+      await confirmWarehouseCheck(step, order._id, user.id, lines, vehicle);
       markStepComplete();
+      setVehicleModalOpen(false);
       toast(`${CHECK_LABELS[step]} has been confirmed`, "success");
       await load();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Confirm failed", "error");
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function onUnload() {
+    if (!user?.id || !order) return;
+    setUnloading(true);
+    try {
+      await unloadWarehouseOrder(order._id, user.id);
+      setOrder((prev) => (prev ? { ...prev, unloaded: true } : prev));
+      toast("Order marked as unloaded", "success");
+      router.push(base);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Unload failed", "error");
+    } finally {
+      setUnloading(false);
     }
   }
 
@@ -336,8 +394,12 @@ export function WarehouseCheckView() {
   const nextLabel = step === 1 ? "Double Check" : "Loading Check";
   const backHref =
     step > 1 && params.id ? `${base}/${params.id}?step=${step - 1}` : base;
+  const loadCheckDone = Boolean(order?.loadCheck);
+  const canUnload = step === 3 && loadCheckDone && !order?.unloaded;
   const canConfirm =
-    step === 3 || lines.every((line) => lineReadyToConfirm(line, step));
+    step === 3
+      ? !loadCheckDone
+      : lines.every((line) => lineReadyToConfirm(line, step));
   const stockInfo = (line: WarehouseCheckLine) => {
     if (typeof line.product !== "object" || !line.product?.stockCheck) return "";
     const cartons = line.product.inQty?.amountInCartons;
@@ -665,14 +727,29 @@ export function WarehouseCheckView() {
 
             <div className="sticky bottom-0 mt-auto bg-background pt-3 pb-1">
               <div className="flex gap-2">
-                <PrimaryButton
-                  type="button"
-                  disabled={confirming || loading || !canConfirm}
-                  onClick={() => void onConfirm()}
-                  className="w-full rounded-xl py-3 text-base font-semibold"
-                >
-                  {confirming ? "Confirming…" : "Confirm"}
-                </PrimaryButton>
+                {canUnload ? (
+                  <PrimaryButton
+                    type="button"
+                    disabled={unloading || loading}
+                    onClick={() => void onUnload()}
+                    className="w-full rounded-xl py-3 text-base font-semibold"
+                  >
+                    {unloading ? "Unloading…" : "Unload"}
+                  </PrimaryButton>
+                ) : (
+                  <PrimaryButton
+                    type="button"
+                    disabled={confirming || loading || !canConfirm}
+                    onClick={requestConfirm}
+                    className="w-full rounded-xl py-3 text-base font-semibold"
+                  >
+                    {confirming
+                      ? "Confirming…"
+                      : loadCheckDone
+                        ? "Confirmed"
+                        : "Confirm"}
+                  </PrimaryButton>
+                )}
                 {step !== 1 ? (
                   <button
                     type="button"
@@ -703,6 +780,75 @@ export function WarehouseCheckView() {
           </>
         )}
       </div>
+
+      {vehicleModalOpen ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vehicle-confirm-title"
+            className="w-full max-w-md rounded-2xl border border-line bg-white p-5 shadow-sm"
+          >
+            <h2
+              id="vehicle-confirm-title"
+              className="text-base font-semibold text-ink"
+            >
+              Select vehicle
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Choose a vehicle to complete Loading Check.
+            </p>
+            <label className="mt-4 block space-y-1.5">
+              <span className="text-[13px] font-medium text-slate-700">
+                Vehicle
+              </span>
+              {vehiclesLoading ? (
+                <p className="text-sm text-slate-500">Loading vehicles…</p>
+              ) : (
+                <select
+                  value={vehicleNumber}
+                  onChange={(e) => setVehicleNumber(e.target.value)}
+                  className="w-full rounded-lg border border-line bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                >
+                  {vehicles.length === 0 ? (
+                    <option value="">No vehicles available</option>
+                  ) : (
+                    <>
+                      <option value="">Select a vehicle</option>
+                      {vehicles.map((vehicle) => (
+                        <option key={vehicle._id} value={String(vehicle.value)}>
+                          {String(vehicle.value)}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              )}
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <SecondaryButton
+                type="button"
+                disabled={confirming}
+                onClick={() => setVehicleModalOpen(false)}
+              >
+                Cancel
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                disabled={
+                  confirming ||
+                  vehiclesLoading ||
+                  !vehicleNumber.trim() ||
+                  vehicles.length === 0
+                }
+                onClick={() => void onConfirm(vehicleNumber)}
+              >
+                {confirming ? "Confirming…" : "Confirm"}
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

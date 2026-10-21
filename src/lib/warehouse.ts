@@ -101,14 +101,18 @@ export function sortZeroQuantityFirst(lines: WarehouseCheckLine[]) {
 
 export type WarehouseListStatus = "pending" | "first" | "double" | "unloaded";
 
+function isUnloadedFlag(unloaded: unknown) {
+  return unloaded === true || unloaded === 1 || unloaded === "true";
+}
+
 /** Pending-list bucket. Loaded orders (load check, not marked unloaded) are omitted. */
 export function warehouseListStatus(order: {
-  unloaded?: boolean;
+  unloaded?: unknown;
   loadCheck?: boolean;
   doubleCheck?: boolean;
   firstCheck?: boolean;
 }): WarehouseListStatus | "loaded" {
-  if (order.unloaded) return "unloaded";
+  if (isUnloadedFlag(order.unloaded)) return "unloaded";
   if (order.loadCheck) return "loaded";
   if (order.doubleCheck) return "double";
   if (order.firstCheck) return "first";
@@ -116,12 +120,12 @@ export function warehouseListStatus(order: {
 }
 
 export function pendingCheckRank(order: {
-  unloaded?: boolean;
+  unloaded?: unknown;
   doubleCheck?: boolean;
   firstCheck?: boolean;
   loadCheck?: boolean;
 }) {
-  if (order.unloaded) return 3;
+  if (isUnloadedFlag(order.unloaded)) return 3;
   if (order.loadCheck) return 4;
   if (order.doubleCheck) return 2;
   if (order.firstCheck) return 1;

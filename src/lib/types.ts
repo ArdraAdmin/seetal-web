@@ -178,9 +178,11 @@ export interface WarehouseCheckOrder {
   createdAt?: string;
   assignee?: string;
   driver?: string;
+  vehicle?: string | number;
   firstCheck?: boolean;
   doubleCheck?: boolean;
   loadCheck?: boolean;
+  unloaded?: boolean;
   invoiceGenerated?: boolean;
   status?: string;
   isTempStore?: boolean;

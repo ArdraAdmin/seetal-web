@@ -13,6 +13,7 @@ import {
   getAllWarehouseOrders,
   loadSundayDeliverySetting,
   sendWarehouseActionSheet,
+  unloadWarehouseOrder,
   updateSundayDeliverySetting,
   type DeleteWarehouseOrdersProgress,
   type WarehouseActionTag,
@@ -170,6 +171,7 @@ export default function WarehousePage() {
   );
   const [savingSunday, setSavingSunday] = useState(false);
   const [statusFilter, setStatusFilter] = useState<CheckFilter | null>(null);
+  const [unloadingId, setUnloadingId] = useState<string | null>(null);
 
   const canManageOrders = adminUser && ADMIN_DELETE_TABS.has(tab);
   const displayOrders =
@@ -250,15 +252,26 @@ export default function WarehousePage() {
       setHasMore(false);
       try {
         if (tabIndex === 0) {
-          const [today, overdue] = await Promise.all([
+          // Upcoming is included only to pull unloaded orders back onto Pending.
+          const [today, overdue, upcoming] = await Promise.all([
             fetchWarehouseTabPage(user.id, 1, 0, tag),
             fetchWarehouseTabPage(user.id, 1, 3, tag),
+            fetchWarehouseTabPage(user.id, 1, 1, tag),
           ]);
+          const unloadedUpcoming = upcoming.orders.filter(
+            (order) => warehouseListStatus(order) === "unloaded",
+          );
+          const overdueWithUnloaded = mergeWarehouseOrders(
+            overdue.orders,
+            unloadedUpcoming,
+          );
           const todayMore = today.fetchedCount >= today.pageSize;
           const overdueMore = overdue.fetchedCount >= overdue.pageSize;
           setTodayOrders(today.orders);
-          setOverdueOrders(overdue.orders);
-          setOrders(mergeWarehouseOrders(today.orders, overdue.orders));
+          setOverdueOrders(overdueWithUnloaded);
+          setOrders(
+            mergeWarehouseOrders(today.orders, overdueWithUnloaded),
+          );
           setCounts(today.counts ?? null);
           setTab(0);
           setAppliedQuery(tag);
@@ -476,6 +489,21 @@ export default function WarehousePage() {
       toast(e instanceof Error ? e.message : "Failed to delete orders", "error");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function onUnload(orderId: string) {
+    if (!user?.id || !orderId || unloadingId) return;
+    setUnloadingId(orderId);
+    try {
+      await unloadWarehouseOrder(orderId, user.id);
+      toast("Order marked as unloaded", "success");
+      // Unloaded orders return to the Pending list (bottom / Unloaded filter).
+      await load(0, appliedQuery);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Unload failed", "error");
+    } finally {
+      setUnloadingId(null);
     }
   }
 
@@ -741,58 +769,78 @@ export default function WarehousePage() {
               const rowKey = order._id || `order-${index}`;
               const orderId = String(order._id || "");
               const checked = Boolean(orderId) && selected.has(orderId);
-              const body = (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-slate-500">
-                      {formatDate(order.date)}
+              const showUnload =
+                tab === 4 &&
+                Boolean(orderId) &&
+                Boolean(order.loadCheck) &&
+                !order.unloaded;
+              const unloadBusy = unloadingId === orderId;
+              const details = (
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-500">
+                    {formatDate(order.date)}
+                  </p>
+                  <p className="mt-1 font-semibold text-black">{title}</p>
+                  {marks ? (
+                    <p className="mt-0.5 text-sm font-medium text-slate-700">
+                      {marks}
                     </p>
-                    <p className="mt-1 font-semibold text-black">{title}</p>
-                    {marks ? (
-                      <p className="mt-0.5 text-sm font-medium text-slate-700">
-                        {marks}
-                      </p>
-                    ) : null}
-                    <p className="mt-1 text-sm text-slate-600">
-                      {[description, invoice].filter(Boolean).join(" · ") || "—"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Created {formatDate(order.createdAt)} · Assignee{" "}
-                      {assigneeLabel(order)}
-                      {pkg != null
-                        ? ` · ${order.firstCheck ? "" : "Approx: "}${pkg} PKGS`
-                        : ""}
-                      {order.isGRV ? " · GRV" : ""}
-                    </p>
-                  </div>
+                  ) : null}
+                  <p className="mt-1 text-sm text-slate-600">
+                    {[description, invoice].filter(Boolean).join(" · ") || "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Created {formatDate(order.createdAt)} · Assignee{" "}
+                    {assigneeLabel(order)}
+                    {pkg != null
+                      ? ` · ${order.firstCheck ? "" : "Approx: "}${pkg} PKGS`
+                      : ""}
+                    {order.isGRV ? " · GRV" : ""}
+                  </p>
+                </div>
+              );
+              const actions = (
+                <div className="flex shrink-0 flex-col items-end gap-2">
                   <span
-                    className={`inline-flex h-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
+                    className={`inline-flex h-fit rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
                   >
                     {status.label}
                   </span>
+                  {showUnload ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(unloadingId)}
+                      onClick={() => void onUnload(orderId)}
+                      className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {unloadBusy ? "Unloading…" : "Unload"}
+                    </button>
+                  ) : null}
                 </div>
               );
-              const content = href ? (
-                <Link
-                  href={href}
-                  className="min-w-0 flex-1 rounded-lg hover:bg-[#f7f5f0]"
-                >
-                  {body}
-                </Link>
-              ) : (
-                <div className="min-w-0 flex-1">{body}</div>
+              const body = (
+                <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  {href ? (
+                    <Link
+                      href={href}
+                      className="min-w-0 flex-1 rounded-lg hover:bg-[#f7f5f0]"
+                    >
+                      {details}
+                    </Link>
+                  ) : (
+                    details
+                  )}
+                  {actions}
+                </div>
               );
               if (!canManageOrders) {
-                return href ? (
-                  <Link
+                return (
+                  <div
                     key={rowKey}
-                    href={href}
-                    className="block rounded-xl border border-line bg-white p-4 hover:bg-[#f7f5f0]"
+                    className="rounded-xl border border-line bg-white p-4"
                   >
                     {body}
-                  </Link>
-                ) : (
-                  <Card key={rowKey}>{body}</Card>
+                  </div>
                 );
               }
               return (
@@ -812,7 +860,7 @@ export default function WarehousePage() {
                       if (orderId) toggleOrder(orderId);
                     }}
                   />
-                  {content}
+                  {body}
                 </div>
               );
             })}
