@@ -262,6 +262,12 @@ export async function login(
       ? (field.admin as Record<string, unknown>)
       : null;
 
+  const environments = Array.isArray(data.environments)
+    ? (data.environments as unknown[])
+        .map((e) => String(e).toLowerCase())
+        .filter((e): e is "stl" | "shmp" => e === "stl" || e === "shmp")
+    : undefined;
+
   return {
     id: String(data._id ?? ""),
     name: String(data.name ?? ""),
@@ -272,6 +278,17 @@ export async function login(
       ? String(data.mobileNumber)
       : undefined,
     isSuperAdmin: adminField?.isSuperAdmin === true,
+    environments:
+      environments && environments.length
+        ? environments
+        : String(data.role) === "Supervisor"
+          ? (["shmp"] as ("stl" | "shmp")[])
+          : adminField?.isSuperAdmin === true
+            ? (["stl", "shmp"] as ("stl" | "shmp")[])
+            : (["stl"] as ("stl" | "shmp")[]),
+    hrCompanyAccess: Array.isArray(data.hrCompanyAccess)
+      ? (data.hrCompanyAccess as AuthUser["hrCompanyAccess"])
+      : undefined,
   };
 }
 

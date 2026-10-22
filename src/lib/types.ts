@@ -1,4 +1,13 @@
-export type UserRole = "Admin" | "Sales" | "Warehouse" | string;
+export type UserRole = "Admin" | "Sales" | "Warehouse" | "Supervisor" | string;
+
+export type AppEnvironment = "stl" | "shmp";
+
+export interface HrCompanyAccess {
+  companyId: string;
+  canViewSalary?: boolean;
+  canEditAttendance?: boolean;
+  canViewVisa?: boolean;
+}
 
 export interface AuthUser {
   id: string;
@@ -8,6 +17,8 @@ export interface AuthUser {
   token: string;
   mobileNumber?: string;
   isSuperAdmin?: boolean;
+  environments?: AppEnvironment[];
+  hrCompanyAccess?: HrCompanyAccess[];
 }
 
 export interface Driver {

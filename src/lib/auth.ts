@@ -1,6 +1,11 @@
 import type { AuthUser } from "./types";
 import { AUTH_COOKIE } from "./session";
 import { clearSelectedSalesCompany } from "./sales-selected-company";
+import {
+  clearEnvironment,
+  loadEnvironment,
+  type AppEnvironment,
+} from "./environment";
 
 export { AUTH_COOKIE, parseAuthCookie } from "./session";
 export { homePathForRole } from "./roles";
@@ -18,9 +23,10 @@ export function getStoredAuth(): AuthUser | null {
   }
 }
 
-export function saveAuth(user: AuthUser): void {
+export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
   const maxAge = 60 * 60 * 24 * 7;
+  const env = environment ?? loadEnvironment();
   const payload = encodeURIComponent(
     JSON.stringify({
       token: user.token,
@@ -28,6 +34,8 @@ export function saveAuth(user: AuthUser): void {
       id: user.id,
       name: user.name,
       email: user.email,
+      environment: env || undefined,
+      environments: user.environments || [],
     }),
   );
   document.cookie = `${AUTH_COOKIE}=${payload}; path=/; max-age=${maxAge}; SameSite=Lax`;
@@ -36,6 +44,7 @@ export function saveAuth(user: AuthUser): void {
 export function clearAuth(): void {
   localStorage.removeItem(STORAGE_KEY);
   clearSelectedSalesCompany();
+  clearEnvironment();
   document.cookie = `${AUTH_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
 }
 
@@ -62,4 +71,23 @@ export function isSales(user: AuthUser | null): boolean {
 
 export function isWarehouse(user: AuthUser | null): boolean {
   return user?.role === "Warehouse";
+}
+
+export function isSupervisor(user: AuthUser | null): boolean {
+  return user?.role === "Supervisor";
+}
+
+export function canAccessEnvironment(
+  user: AuthUser | null,
+  env: "stl" | "shmp",
+): boolean {
+  if (!user) return false;
+  const envs: Array<"stl" | "shmp"> = user.environments?.length
+    ? user.environments
+    : user.role === "Supervisor"
+      ? ["shmp"]
+      : user.isSuperAdmin
+        ? ["stl", "shmp"]
+        : ["stl"];
+  return envs.includes(env);
 }
