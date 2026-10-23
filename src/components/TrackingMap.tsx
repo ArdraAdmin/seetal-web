@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TrackingLocation } from "@/lib/api";
 
 type MapsApi = {
@@ -70,6 +70,7 @@ export function TrackingMap({ locations, apiKey }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<InstanceType<MapsApi["maps"]["Map"]> | null>(null);
   const markersRef = useRef<InstanceType<MapsApi["maps"]["Marker"]>[]>([]);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +87,7 @@ export function TrackingMap({ locations, apiKey }: Props) {
             streetViewControl: false,
           });
         }
+        if (!cancelled) setMapReady(true);
       } catch {
         // Map unavailable without key / network
       }
@@ -99,7 +101,7 @@ export function TrackingMap({ locations, apiKey }: Props) {
   useEffect(() => {
     const map = mapInstance.current;
     const g = window.google;
-    if (!map || !g?.maps) return;
+    if (!mapReady || !map || !g?.maps) return;
 
     for (const marker of markersRef.current) {
       marker.setMap(null);
@@ -128,7 +130,7 @@ export function TrackingMap({ locations, apiKey }: Props) {
     } else if (locations.length > 1) {
       map.fitBounds(bounds, 48);
     }
-  }, [locations]);
+  }, [locations, mapReady]);
 
   if (!apiKey) {
     return (
