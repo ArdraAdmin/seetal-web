@@ -39,13 +39,24 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
 
 const COLLAPSE_KEY = "stl_sales_sidebar_collapsed";
 
-export function SalesShell({ children }: { children: React.ReactNode }) {
+export function SalesShell({
+  children,
+  attendanceLocked = false,
+}: {
+  children: React.ReactNode;
+  /** When true, only Attendance is available until the salesman checks in. */
+  attendanceLocked?: boolean;
+}) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
   const [companyLabel, setCompanyLabel] = useState("");
+
+  const navItems = attendanceLocked
+    ? NAV.filter((item) => item.href === "/sales/attendance")
+    : NAV;
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
@@ -115,7 +126,7 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active =
                 item.href === "/sales"
                   ? pathname === "/sales" || pathname.startsWith("/sales/stores")
@@ -146,28 +157,46 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
             collapsed ? "px-2 py-3" : "px-3 py-4"
           }`}
         >
-          <Link
-            href="/sales/settings"
-            title="Settings"
-            onClick={() => setMobileOpen(false)}
-            className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
-              collapsed ? "lg:justify-center" : ""
-            } ${
-              pathname.startsWith("/sales/settings")
-                ? "bg-white/70"
-                : "hover:bg-white/40"
-            }`}
-          >
-            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
-              {initials || "S"}
-            </span>
-            <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
-              <p className="truncate text-sm font-semibold text-black">
-                {user?.name || "Sales"}
-              </p>
-              <p className="truncate text-xs text-black/80">{user?.email}</p>
+          {attendanceLocked ? (
+            <div
+              className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
+                collapsed ? "lg:justify-center" : ""
+              }`}
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
+                {initials || "S"}
+              </span>
+              <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
+                <p className="truncate text-sm font-semibold text-black">
+                  {user?.name || "Sales"}
+                </p>
+                <p className="truncate text-xs text-black/80">{user?.email}</p>
+              </div>
             </div>
-          </Link>
+          ) : (
+            <Link
+              href="/sales/settings"
+              title="Settings"
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
+                collapsed ? "lg:justify-center" : ""
+              } ${
+                pathname.startsWith("/sales/settings")
+                  ? "bg-white/70"
+                  : "hover:bg-white/40"
+              }`}
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
+                {initials || "S"}
+              </span>
+              <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
+                <p className="truncate text-sm font-semibold text-black">
+                  {user?.name || "Sales"}
+                </p>
+                <p className="truncate text-xs text-black/80">{user?.email}</p>
+              </div>
+            </Link>
+          )}
           <button
             type="button"
             onClick={logout}

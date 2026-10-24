@@ -29,7 +29,12 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
-import { isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
+import {
+  isTrackingUnlocked,
+  onTrackingUnlockChange,
+  registerTrackingSettingsClick,
+} from "@/lib/tracking-unlock";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
@@ -37,7 +42,10 @@ type NavItem = {
   href: string;
   label: string;
   icon: NavIcon;
+  /** Attendance / other super-admin tools (email or API flag). */
   superAdminOnly?: boolean;
+  /** Tracking — lav@shrseetal.com only, after 5 Settings clicks. */
+  trackingOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -59,7 +67,7 @@ const NAV: NavItem[] = [
     href: "/admin/tracking",
     label: "Tracking",
     icon: MapPinned,
-    superAdminOnly: true,
+    trackingOnly: true,
   },
   {
     href: "/admin/attendance",
@@ -83,10 +91,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
+  const [trackingUnlocked, setTrackingUnlocked] = useState(false);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
     setCollapseReady(true);
+  }, []);
+
+  useEffect(() => {
+    setTrackingUnlocked(isTrackingUnlocked());
+    return onTrackingUnlockChange(() => {
+      setTrackingUnlocked(isTrackingUnlocked());
+    });
   }, []);
 
   useEffect(() => {
@@ -110,9 +126,21 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-  const navItems = NAV.filter(
-    (item) => !item.superAdminOnly || isSuperAdmin(user),
-  );
+  const canSeeTracking =
+    isTrackingAdmin(user) && trackingUnlocked;
+
+  const navItems = NAV.filter((item) => {
+    if (item.trackingOnly) return canSeeTracking;
+    if (item.superAdminOnly) return isSuperAdmin(user);
+    return true;
+  });
+
+  function onSettingsNavClick() {
+    if (isTrackingAdmin(user)) {
+      registerTrackingSettingsClick();
+    }
+    setMobileOpen(false);
+  }
 
   return (
     <div className="min-h-dvh bg-background">
@@ -154,12 +182,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   ? pathname === "/admin"
                   : pathname.startsWith(item.href);
               const Icon = item.icon;
+              const isSettings = item.href === "/admin/settings";
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
                     title={item.label}
-                    onClick={() => setMobileOpen(false)}
+                    onClick={
+                      isSettings
+                        ? onSettingsNavClick
+                        : () => setMobileOpen(false)
+                    }
                     className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
                       collapsed ? "lg:justify-center lg:px-2" : ""
                     } ${

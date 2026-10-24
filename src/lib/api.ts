@@ -3472,6 +3472,8 @@ export type AttendanceRecord = {
   checkOutAt?: string;
   checkInLocation?: { lat?: number; lng?: number };
   checkOutLocation?: { lat?: number; lng?: number };
+  /** End-of-day activity report submitted at check-out. */
+  report?: string;
 };
 
 export type TrackingLocation = {
@@ -3511,6 +3513,8 @@ export async function salesCheckOut(payload: {
   lat?: number;
   lng?: number;
   accuracy?: number;
+  /** Required daily activity report before check-out. */
+  report: string;
 }) {
   return request<AttendanceRecord>(`/sales/attendance/checkout`, {
     method: "POST",

@@ -74,11 +74,11 @@ function SalesCompanySelectionPage() {
           onClick={() => void onSelect("stl", "STL")}
         />
         <CompanyCard
-          title="SHMP"
+          title="Sarvah"
           icon={Landmark}
           loading={loadingKey === "shmp"}
           disabled={loadingKey !== null}
-          onClick={() => void onSelect("shmp", "SHMP")}
+          onClick={() => void onSelect("shmp", "Sarvah")}
         />
       </div>
     </div>

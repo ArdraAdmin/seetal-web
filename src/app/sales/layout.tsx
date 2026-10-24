@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
-import { syncSalesInventory, warmCompanyDirectory } from "@/lib/api";
+import {
+  getSalesAttendanceToday,
+  syncSalesInventory,
+  warmCompanyDirectory,
+} from "@/lib/api";
 import {
   promptEnableLocationOnce,
   resumeTrackingIfCheckedIn,
@@ -24,9 +28,24 @@ export default function SalesLayout({
   const router = useRouter();
   const pathname = usePathname();
   const isCompanyPage = pathname === "/sales/company";
+  const isAttendancePage = pathname === "/sales/attendance";
   const needsCompany = pathname.startsWith("/sales/stores");
   const [companyReady, setCompanyReady] = useState(false);
   const [hasCompany, setHasCompany] = useState(false);
+  const [attendanceReady, setAttendanceReady] = useState(false);
+  const [checkedIn, setCheckedIn] = useState(false);
+
+  const refreshAttendance = useCallback(async () => {
+    if (!user?.id || user.role !== "Sales") return;
+    try {
+      const data = await getSalesAttendanceToday(user.id);
+      setCheckedIn(!!data.checkedIn);
+    } catch {
+      setCheckedIn(false);
+    } finally {
+      setAttendanceReady(true);
+    }
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     function refresh() {
@@ -43,7 +62,22 @@ export default function SalesLayout({
   }, [user?.id, user?.role]);
 
   useEffect(() => {
-    if (!user?.id || user.role !== "Sales" || !hasCompany) return;
+    if (!user?.id || user.role !== "Sales") return;
+    setAttendanceReady(false);
+    void refreshAttendance();
+    const onChanged = () => {
+      void refreshAttendance();
+    };
+    window.addEventListener("stl-sales-attendance-changed", onChanged);
+    window.addEventListener("focus", onChanged);
+    return () => {
+      window.removeEventListener("stl-sales-attendance-changed", onChanged);
+      window.removeEventListener("focus", onChanged);
+    };
+  }, [user?.id, user?.role, refreshAttendance]);
+
+  useEffect(() => {
+    if (!user?.id || user.role !== "Sales" || !hasCompany || !checkedIn) return;
     const userId = user.id;
     function sync() {
       if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -63,7 +97,7 @@ export default function SalesLayout({
       window.removeEventListener("online", sync);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user?.id, user?.role, hasCompany]);
+  }, [user?.id, user?.role, hasCompany, checkedIn]);
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "Sales")) {
@@ -72,12 +106,36 @@ export default function SalesLayout({
   }, [user, loading, router]);
 
   useEffect(() => {
+    if (loading || !user || user.role !== "Sales" || !attendanceReady) return;
+    if (!checkedIn && !isAttendancePage) {
+      router.replace("/sales/attendance");
+    }
+  }, [
+    loading,
+    user,
+    attendanceReady,
+    checkedIn,
+    isAttendancePage,
+    router,
+  ]);
+
+  useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !companyReady) return;
+    if (!checkedIn) return;
     if (!hasCompany && needsCompany) {
       const next = `${pathname}${window.location.search}`;
       router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
     }
-  }, [loading, user, companyReady, hasCompany, needsCompany, pathname, router]);
+  }, [
+    loading,
+    user,
+    companyReady,
+    hasCompany,
+    needsCompany,
+    pathname,
+    router,
+    checkedIn,
+  ]);
 
   if (loading || !user || user.role !== "Sales") {
     return (
@@ -85,6 +143,26 @@ export default function SalesLayout({
         <LoadingState label="Checking session…" />
       </div>
     );
+  }
+
+  if (!attendanceReady) {
+    return (
+      <div className="min-h-dvh bg-background p-4 sm:p-6">
+        <LoadingState label="Checking attendance…" />
+      </div>
+    );
+  }
+
+  if (!checkedIn && !isAttendancePage) {
+    return (
+      <div className="min-h-dvh bg-background p-4 sm:p-6">
+        <LoadingState label="Opening check-in…" />
+      </div>
+    );
+  }
+
+  if (!checkedIn && isAttendancePage) {
+    return <SalesShell attendanceLocked>{children}</SalesShell>;
   }
 
   if (needsCompany && (!companyReady || !hasCompany)) {

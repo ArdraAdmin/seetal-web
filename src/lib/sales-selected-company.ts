@@ -60,7 +60,7 @@ export function selectedCompanyDisplayName(
   selected: SelectedSalesCompany | null | undefined,
 ) {
   if (!selected) return "";
-  return selected.name === "shmp" ? "SHMP" : "STL";
+  return selected.name === "shmp" ? "Sarvah" : "STL";
 }
 
 /** Resolve STL / SHMP to a company id from `/admin/company`. */
@@ -89,7 +89,7 @@ export function accessFromSelectedCompany(
   const isStl = selected.name === "stl";
   return {
     companyIds: selected.id ? [selected.id] : [],
-    companyNames: isStl ? ["STL"] : ["SHMP"],
+    companyNames: isStl ? ["STL"] : ["Sarvah", "SHMP"],
     includeUnassigned: isStl,
   };
 }

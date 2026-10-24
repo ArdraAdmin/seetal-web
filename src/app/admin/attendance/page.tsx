@@ -121,6 +121,11 @@ export default function AdminAttendancePage() {
               <p className="mt-1 text-sm text-slate-700">
                 Check out: {fmtDateTime(row.checkOutAt)}
               </p>
+              {row.report ? (
+                <p className="mt-2 text-sm text-slate-700">
+                  Report: {row.report}
+                </p>
+              ) : null}
             </Card>
           ))}
         </div>

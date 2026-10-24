@@ -6,7 +6,11 @@ import {
   getAdminTrackingLocations,
   type TrackingLocation,
 } from "@/lib/api";
-import { isSuperAdmin } from "@/lib/auth";
+import { isTrackingAdmin } from "@/lib/auth";
+import {
+  isTrackingUnlocked,
+  onTrackingUnlockChange,
+} from "@/lib/tracking-unlock";
 import { useAuth } from "@/components/AuthProvider";
 import { TrackingMap } from "@/components/TrackingMap";
 import {
@@ -33,17 +37,26 @@ export default function AdminTrackingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locations, setLocations] = useState<TrackingLocation[]>([]);
+  // Read unlock synchronously — starting at false caused an immediate redirect to /admin.
+  const [unlocked, setUnlocked] = useState(() => isTrackingUnlocked());
+
+  useEffect(() => {
+    setUnlocked(isTrackingUnlocked());
+    return onTrackingUnlockChange(() => setUnlocked(isTrackingUnlocked()));
+  }, []);
+
+  const canAccess = isTrackingAdmin(user) && unlocked;
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isSuperAdmin(user)) {
+    if (!isTrackingAdmin(user) || !isTrackingUnlocked()) {
       router.replace("/admin");
     }
-  }, [authLoading, user, router]);
+  }, [authLoading, user, unlocked, router]);
 
   const load = useCallback(
     async (silent = false) => {
-      if (!user?.id || !isSuperAdmin(user)) return;
+      if (!user?.id || !isTrackingAdmin(user) || !isTrackingUnlocked()) return;
       if (!silent) {
         setLoading(true);
         setError(null);
@@ -63,12 +76,13 @@ export default function AdminTrackingPage() {
   );
 
   useEffect(() => {
+    if (!canAccess) return;
     void load();
     const id = setInterval(() => void load(true), 20000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, canAccess]);
 
-  if (authLoading || !isSuperAdmin(user)) {
+  if (authLoading || !canAccess) {
     return <LoadingState label="Checking access…" />;
   }
 
