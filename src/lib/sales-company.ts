@@ -126,6 +126,20 @@ export function isProductAllowed(product: Product, access: SalesCompanyAccess) {
   }
   if (id && access.companyIds.includes(id)) return true;
   if (name && allowedNames.includes(name)) return true;
+  if (name) {
+    const token = name.replace(/[^A-Z0-9]/g, "");
+    if (
+      allowedNames.some((allowed) => {
+        const allowedToken = allowed.replace(/[^A-Z0-9]/g, "");
+        return (
+          Boolean(allowedToken) &&
+          (token === allowedToken || token.includes(allowedToken))
+        );
+      })
+    ) {
+      return true;
+    }
+  }
   if (
     access.includeUnassigned &&
     name &&
@@ -367,15 +381,23 @@ export type DownloadedStore = {
   city?: string;
   country?: string;
   salesPerson?: unknown;
+  salesPersons?: unknown;
   isTemp?: boolean;
   isTempStore?: boolean;
   [key: string]: unknown;
 };
 
-export function loadDownloadedStores(): DownloadedStore[] {
+const STORE_COMPANY_BUCKETS = ["stl", "sarvah", "shmp", "shlaxmi"] as const;
+
+function storesBucketKey(companyKey?: string) {
+  const key = String(companyKey || "").trim().toLowerCase();
+  return key ? `${STORES_KEY}_${key}` : STORES_KEY;
+}
+
+function readStoreBucket(storageKey: string): DownloadedStore[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(STORES_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as DownloadedStore[];
     return Array.isArray(parsed) ? parsed : [];
@@ -384,9 +406,27 @@ export function loadDownloadedStores(): DownloadedStore[] {
   }
 }
 
-export function saveDownloadedStores(stores: DownloadedStore[]) {
+export function loadDownloadedStores(companyKey?: string): DownloadedStore[] {
+  if (typeof window === "undefined") return [];
+  if (companyKey) return readStoreBucket(storesBucketKey(companyKey));
+  const merged = new Map<string, DownloadedStore>();
+  for (const store of readStoreBucket(STORES_KEY)) {
+    if (store?._id) merged.set(String(store._id), store);
+  }
+  for (const key of STORE_COMPANY_BUCKETS) {
+    for (const store of readStoreBucket(storesBucketKey(key))) {
+      if (store?._id) merged.set(String(store._id), store);
+    }
+  }
+  return [...merged.values()];
+}
+
+export function saveDownloadedStores(
+  stores: DownloadedStore[],
+  companyKey?: string,
+) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORES_KEY, JSON.stringify(stores));
+  localStorage.setItem(storesBucketKey(companyKey), JSON.stringify(stores));
 }
 
 export { companyIds, stlCompanyId };

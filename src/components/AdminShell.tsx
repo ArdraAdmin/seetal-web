@@ -6,9 +6,15 @@ import { useEffect, useState, type ComponentType } from "react";
 import {
   ArrowLeftRight,
   Banknote,
+  CalendarClock,
   CalendarDays,
+  CalendarX,
+  Car,
   ClipboardList,
+  FileBarChart,
   Folders,
+  KeyRound,
+  PackageX,
   LayoutDashboard,
   LogOut,
   MapPinned,
@@ -22,6 +28,7 @@ import {
   Store,
   Target,
   Truck,
+  UserSquare,
   Users,
   UserCog,
   Warehouse,
@@ -42,15 +49,22 @@ type NavItem = {
   href: string;
   label: string;
   icon: NavIcon;
-  /** Attendance / other super-admin tools (email or API flag). */
+  match?: string[];
   superAdminOnly?: boolean;
   /** Tracking — lav@shrseetal.com only, after 5 Settings clicks. */
   trackingOnly?: boolean;
+  /** Only lav@shrseetal.com (module permissions owner). */
+  lavOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/drivers-vehicles", label: "Drivers & vehicles", icon: Truck },
+  { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard },
+  {
+    href: "/admin/drivers-vehicles",
+    label: "Drivers & vehicles",
+    icon: Truck,
+    match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
+  },
   { href: "/admin/stores", label: "Stores", icon: Store },
   { href: "/admin/profiles/sales", label: "Sales profiles", icon: Users },
   {
@@ -74,6 +88,32 @@ const NAV: NavItem[] = [
     label: "Attendance",
     icon: CalendarDays,
     superAdminOnly: true,
+  },
+  {
+    href: "/admin/attendance-reports",
+    label: "Attendance reports",
+    icon: FileBarChart,
+  },
+  {
+    href: "/admin/attendance-override",
+    label: "Attendance override",
+    icon: CalendarX,
+    superAdminOnly: true,
+  },
+  { href: "/admin/leave-settings", label: "Leave settings", icon: CalendarClock },
+  { href: "/admin/hr", label: "HR", icon: UserSquare },
+  { href: "/admin/fleet", label: "Fleet", icon: Car },
+  {
+    href: "/admin/driver-deliveries",
+    label: "Driver deliveries",
+    icon: Truck,
+  },
+  { href: "/admin/sales-lost", label: "Sales lost", icon: PackageX },
+  {
+    href: "/admin/permissions",
+    label: "Permissions",
+    icon: KeyRound,
+    lavOnly: true,
   },
   { href: "/admin/targets", label: "Sales targets", icon: Target },
   { href: "/admin/grv", label: "GRV management", icon: RotateCcw },
@@ -126,12 +166,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-  const canSeeTracking =
-    isTrackingAdmin(user) && trackingUnlocked;
-
+  const isLav =
+    String(user?.email || "").trim().toLowerCase() === "lav@shrseetal.com";
+  const canSeeTracking = isTrackingAdmin(user) && trackingUnlocked;
   const navItems = NAV.filter((item) => {
     if (item.trackingOnly) return canSeeTracking;
     if (item.superAdminOnly) return isSuperAdmin(user);
+    if (item.lavOnly) return isLav;
     return true;
   });
 
@@ -177,22 +218,22 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
             {navItems.map((item) => {
+              const prefixes = item.match ?? [item.href];
               const active =
                 item.href === "/admin"
                   ? pathname === "/admin"
-                  : pathname.startsWith(item.href);
+                  : prefixes.some(
+                      (prefix) =>
+                        pathname === prefix ||
+                        pathname.startsWith(`${prefix}/`),
+                    );
               const Icon = item.icon;
-              const isSettings = item.href === "/admin/settings";
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
                     title={item.label}
-                    onClick={
-                      isSettings
-                        ? onSettingsNavClick
-                        : () => setMobileOpen(false)
-                    }
+                    onClick={() => setMobileOpen(false)}
                     className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
                       collapsed ? "lg:justify-center lg:px-2" : ""
                     } ${
@@ -220,7 +261,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <Link
             href="/admin/settings"
             title="Settings"
-            onClick={() => setMobileOpen(false)}
+            onClick={onSettingsNavClick}
             className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
               collapsed ? "lg:justify-center" : ""
             } ${

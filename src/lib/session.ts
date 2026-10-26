@@ -6,6 +6,7 @@ export function parseAuthCookie(value: string | undefined): {
   id?: string;
   name?: string;
   email?: string;
+  isSuperAdmin?: boolean;
   environment?: string;
   environments?: string[];
 } | null {

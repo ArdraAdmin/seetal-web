@@ -26,11 +26,42 @@ function toGeoPosition(pos: GeolocationPosition): GeoPosition {
   };
 }
 
+function geoCode(err: unknown): number {
+  return err && typeof err === "object" && "code" in err
+    ? Number((err as GeolocationPositionError).code)
+    : 0;
+}
+
+function timeoutError(): GeolocationPositionError {
+  const err = new Error("Geolocation timed out");
+  return Object.assign(err, {
+    code: 3,
+    PERMISSION_DENIED: 1,
+    POSITION_UNAVAILABLE: 2,
+    TIMEOUT: 3,
+  }) as GeolocationPositionError;
+}
+
+/**
+ * Browsers often ignore PositionOptions.timeout when macOS Location Services
+ * never answers. A local timer is what actually unblocks check-in.
+ */
 function readPosition(options: PositionOptions): Promise<GeoPosition> {
+  const timeoutMs = (options.timeout ?? 10_000) + 400;
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      fn();
+    };
+    const timer = window.setTimeout(() => {
+      finish(() => reject(timeoutError()));
+    }, timeoutMs);
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve(toGeoPosition(pos)),
-      (err) => reject(err),
+      (pos) => finish(() => resolve(toGeoPosition(pos))),
+      (err) => finish(() => reject(err)),
       options,
     );
   });
@@ -60,8 +91,13 @@ function watchOnce(timeoutMs: number): Promise<GeoPosition | null> {
 async function queryGeoPermission(): Promise<PermissionState | "unknown"> {
   try {
     if (!navigator.permissions?.query) return "unknown";
-    const status = await navigator.permissions.query({ name: "geolocation" });
-    return status.state;
+    const status = await Promise.race([
+      navigator.permissions.query({ name: "geolocation" }),
+      new Promise<null>((resolve) => {
+        window.setTimeout(() => resolve(null), 1_500);
+      }),
+    ]);
+    return status?.state ?? "unknown";
   } catch {
     return "unknown";
   }
@@ -82,30 +118,32 @@ function markOrderAccessReady() {
 }
 
 async function acquirePosition(timeoutMs: number): Promise<GeoPosition | null> {
+  const deadline = Date.now() + timeoutMs;
   const attempts: PositionOptions[] = [
     {
       enableHighAccuracy: false,
-      timeout: Math.min(8_000, timeoutMs),
       maximumAge: 5 * 60_000,
     },
     {
       enableHighAccuracy: true,
-      timeout: timeoutMs,
       maximumAge: 60_000,
     },
   ];
   for (const options of attempts) {
+    const remaining = deadline - Date.now();
+    if (remaining < 500) break;
+    const budget = options.enableHighAccuracy
+      ? remaining
+      : Math.min(4_000, remaining);
     try {
-      return await readPosition(options);
+      return await readPosition({ ...options, timeout: budget });
     } catch (err) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? Number((err as GeolocationPositionError).code)
-          : 0;
-      if (code === 1) return null;
+      if (geoCode(err) === 1) return null;
     }
   }
-  return watchOnce(Math.min(8_000, timeoutMs));
+  const remaining = deadline - Date.now();
+  if (remaining < 500) return null;
+  return watchOnce(remaining);
 }
 
 export function getCurrentPosition(
@@ -149,11 +187,7 @@ export async function ensureLocationForOrders(): Promise<boolean> {
       });
       markPositionReady();
     } catch (err) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? Number((err as GeolocationPositionError).code)
-          : 0;
-      if (code === 1) return false;
+      if (geoCode(err) === 1) return false;
       markOrderAccessReady();
     }
     return true;
@@ -198,6 +232,32 @@ export async function promptEnableLocationOnce(
   }
 }
 
+const LOCATION_BLOCKED =
+  "Location is blocked for this site. Allow it in the address bar, then check in again.";
+
+/** Location is attempted, but a missing GPS fix must not trap the check-in button. */
+export async function captureCheckInLocation(timeoutMs = 8_000): Promise<{
+  position: GeoPosition | null;
+  blocked: boolean;
+  message?: string;
+}> {
+  if (!isGeolocationSupported()) {
+    return { position: null, blocked: false };
+  }
+  if ((await queryGeoPermission()) === "denied") {
+    return { position: null, blocked: true, message: LOCATION_BLOCKED };
+  }
+  const position = await getCurrentPosition(timeoutMs);
+  if (position) {
+    markPositionReady();
+    return { position, blocked: false };
+  }
+  if ((await queryGeoPermission()) === "denied") {
+    return { position: null, blocked: true, message: LOCATION_BLOCKED };
+  }
+  return { position: null, blocked: false };
+}
+
 export async function startLocationHeartbeat(userId: string): Promise<void> {
   trackingUserId = userId;
   stopLocationHeartbeat();
@@ -216,7 +276,7 @@ export async function startLocationHeartbeat(userId: string): Promise<void> {
       // Not checked in / network — ignore
     }
   };
-  await push();
+  void push();
   heartbeatTimer = setInterval(() => {
     void push();
   }, HEARTBEAT_MS);

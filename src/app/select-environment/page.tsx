@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Building2, Factory } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useAuth } from "@/components/AuthProvider";
-import {
-  canAccessEnvironment,
-} from "@/lib/auth";
+import { canAccessEnvironment, isSuperAdmin } from "@/lib/auth";
+import { normalizeEnvironments } from "@/lib/environment";
 import type { AppEnvironment } from "@/lib/types";
 
 export default function SelectEnvironmentPage() {
@@ -22,11 +21,11 @@ export default function SelectEnvironmentPage() {
       router.replace("/login");
       return;
     }
-    const envs = user.environments?.length
-      ? user.environments
-      : user.role === "Supervisor"
-        ? (["shmp"] as AppEnvironment[])
-        : (["stl"] as AppEnvironment[]);
+    const envs = normalizeEnvironments(
+      user.environments,
+      user.role,
+      isSuperAdmin(user),
+    );
     if (envs.length === 1) {
       try {
         selectEnvironment(envs[0]);

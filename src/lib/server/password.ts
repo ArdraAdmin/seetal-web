@@ -74,7 +74,11 @@ export async function changeOwnPassword(input: {
   const users = client.db().collection<UserDoc>("users");
   const user = await users.findOne({ _id: new ObjectId(userId) });
   if (!user) throw new Error("No User found");
-  if (user.role !== "Admin" && user.role !== "Sales") {
+  if (
+    user.role !== "Admin" &&
+    user.role !== "Sales" &&
+    user.role !== "Supervisor"
+  ) {
     throw new Error("Not allowed to change Password");
   }
   if (!user.password) throw new Error("Current password is incorrect");

@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ShmpShell } from "@/components/ShmpShell";
-import { canAccessEnvironment } from "@/lib/auth";
+import { StaffCheckInGate } from "@/components/StaffCheckInGate";
+import { canAccessEnvironment, isSupervisor } from "@/lib/auth";
+import {
+  canSupervisorAccessShmpPath,
+  supervisorShmpHome,
+} from "@/lib/roles";
 
 export default function ShmpLayout({
   children,
@@ -13,6 +18,8 @@ export default function ShmpLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const supervisor = isSupervisor(user);
 
   useEffect(() => {
     if (loading) return;
@@ -26,14 +33,34 @@ export default function ShmpLayout({
     }
     if (user.role !== "Admin" && user.role !== "Supervisor") {
       router.replace("/login");
+      return;
     }
-  }, [user, loading, router]);
+    if (
+      isSupervisor(user) &&
+      pathname &&
+      !canSupervisorAccessShmpPath(pathname)
+    ) {
+      router.replace(supervisorShmpHome());
+    }
+  }, [user, loading, router, pathname]);
 
   if (loading || !user) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <span className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
       </div>
+    );
+  }
+
+  // Supervisors must check in at the start of the day; admins are not tracked.
+  if (supervisor) {
+    return (
+      <StaffCheckInGate
+        title="Check in to open SHMP"
+        subtitle="Record your attendance for today, then continue to the portal."
+      >
+        <ShmpShell>{children}</ShmpShell>
+      </StaffCheckInGate>
     );
   }
 

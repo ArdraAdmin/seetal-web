@@ -27,9 +27,27 @@ export interface Driver {
   phoneNo: string;
 }
 
-export interface Vehicle {
+export interface VehicleExtras {
+  purchaseYear?: number | null;
+  price?: number | null;
+  purchaseFrom?: string | null;
+  mulkyaExpiry?: string | null;
+  insurancePremium?: number | null;
+}
+
+export interface Vehicle extends VehicleExtras {
   _id: string;
   value: number | string;
+}
+
+export interface VehicleMaintenance {
+  _id: string;
+  vehicleId: string;
+  title: string;
+  amount: number;
+  description: string;
+  date: string;
+  createdAt?: string;
 }
 
 export interface StoreProfile {
@@ -44,6 +62,7 @@ export interface StoreProfile {
   email?: string;
   salesman?: string | { name?: string; _id?: string };
   salesPerson?: string | { name?: string; _id?: string };
+  salesPersons?: Array<string | { name?: string; _id?: string }>;
   isTemp?: boolean;
   isTempStore?: boolean;
   marks?: string;

@@ -159,13 +159,24 @@ export function productMatchesQuery(product: Product, query: string) {
   return haystack.includes(tag);
 }
 
-export function storeSalesmanId(store: StoreProfile) {
-  const salesman = store.salesPerson ?? store.salesman;
-  if (typeof salesman === "string") return salesman;
-  if (salesman && typeof salesman === "object") {
-    return String((salesman as { _id?: string })._id || "");
+function personId(value: unknown) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    return String((value as { _id?: string })._id || "");
   }
   return "";
+}
+
+export function storeSalesmanId(store: StoreProfile) {
+  return personId(store.salesPerson ?? store.salesman);
+}
+
+export function storeAssignedToSalesman(store: StoreProfile, userId: string) {
+  if (!userId) return false;
+  if (storeSalesmanId(store) === userId) return true;
+  const persons = store.salesPersons;
+  if (!Array.isArray(persons)) return false;
+  return persons.some((person) => personId(person) === userId);
 }
 
 export function isTempStoreRecord(store: StoreProfile) {

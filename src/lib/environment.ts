@@ -56,8 +56,10 @@ export function normalizeEnvironments(
 }
 
 export function homePathForEnvironment(env: AppEnvironment, role?: string) {
-  if (env === "shmp") return "/shmp";
   if (role === "Sales") return "/sales";
+  if (env === "shmp") {
+    return role === "Supervisor" ? "/shmp/hr" : "/shmp";
+  }
   if (role === "Warehouse") return "/warehouse";
   return "/admin";
 }

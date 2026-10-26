@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  ArrowLeftRight,
   CalendarDays,
   ClipboardList,
   Clock,
@@ -15,14 +16,14 @@ import {
   Settings,
   Store,
   TrendingUp,
+  UserCircle,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import {
-  loadSelectedSalesCompany,
   onSelectedSalesCompanyChange,
-  selectedCompanyDisplayName,
+  salesWorkspaceDisplayName,
 } from "@/lib/sales-selected-company";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -32,6 +33,7 @@ const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
   { href: "/sales/performance", label: "Performance", icon: TrendingUp },
+  { href: "/sales/account", label: "My account", icon: UserCircle },
   { href: "/sales/attendance", label: "Attendance", icon: Clock },
   { href: "/sales/leave", label: "Leave", icon: CalendarDays },
   { href: "/sales/settings", label: "Settings", icon: Settings },
@@ -65,7 +67,7 @@ export function SalesShell({
 
   useEffect(() => {
     function refresh() {
-      setCompanyLabel(selectedCompanyDisplayName(loadSelectedSalesCompany()));
+      setCompanyLabel(salesWorkspaceDisplayName());
     }
     refresh();
     return onSelectedSalesCompanyChange(refresh);
@@ -157,6 +159,21 @@ export function SalesShell({
             collapsed ? "px-2 py-3" : "px-3 py-4"
           }`}
         >
+          {attendanceLocked ? null : (
+            <Link
+              href="/sales/company"
+              title="Switch company"
+              onClick={() => setMobileOpen(false)}
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-black hover:bg-white/50 ${
+                collapsed ? "lg:justify-center lg:px-2" : ""
+              } ${pathname === "/sales/company" ? "bg-white/70" : ""}`}
+            >
+              <ArrowLeftRight className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span className={collapsed ? "lg:hidden" : undefined}>
+                Switch company
+              </span>
+            </Link>
+          )}
           {attendanceLocked ? (
             <div
               className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${

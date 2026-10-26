@@ -4,6 +4,7 @@ import { clearSelectedSalesCompany } from "./sales-selected-company";
 import {
   clearEnvironment,
   loadEnvironment,
+  normalizeEnvironments,
   type AppEnvironment,
 } from "./environment";
 
@@ -12,30 +13,41 @@ export { homePathForRole } from "./roles";
 
 const STORAGE_KEY = "stl_auth";
 
+function withNormalizedEnvironments(user: AuthUser): AuthUser {
+  const environments = normalizeEnvironments(
+    user.environments,
+    user.role,
+    isSuperAdmin(user),
+  );
+  return { ...user, environments };
+}
+
 export function getStoredAuth(): AuthUser | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as AuthUser;
+    return withNormalizedEnvironments(JSON.parse(raw) as AuthUser);
   } catch {
     return null;
   }
 }
 
 export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+  const normalized = withNormalizedEnvironments(user);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   const maxAge = 60 * 60 * 24 * 7;
   const env = environment ?? loadEnvironment();
   const payload = encodeURIComponent(
     JSON.stringify({
-      token: user.token,
-      role: user.role,
-      id: user.id,
-      name: user.name,
-      email: user.email,
+      token: normalized.token,
+      role: normalized.role,
+      id: normalized.id,
+      name: normalized.name,
+      email: normalized.email,
+      isSuperAdmin: isSuperAdmin(normalized),
       environment: env || undefined,
-      environments: user.environments || [],
+      environments: normalized.environments,
     }),
   );
   document.cookie = `${AUTH_COOKIE}=${payload}; path=/; max-age=${maxAge}; SameSite=Lax`;
@@ -88,12 +100,9 @@ export function canAccessEnvironment(
   env: "stl" | "shmp",
 ): boolean {
   if (!user) return false;
-  const envs: Array<"stl" | "shmp"> = user.environments?.length
-    ? user.environments
-    : user.role === "Supervisor"
-      ? ["shmp"]
-      : user.isSuperAdmin
-        ? ["stl", "shmp"]
-        : ["stl"];
-  return envs.includes(env);
+  return normalizeEnvironments(
+    user.environments,
+    user.role,
+    isSuperAdmin(user),
+  ).includes(env);
 }

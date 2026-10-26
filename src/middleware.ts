@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { AUTH_COOKIE, parseAuthCookie } from "@/lib/session";
-import { homePathForRole } from "@/lib/roles";
+import {
+  canSupervisorAccessShmpPath,
+  homePathForRole,
+  supervisorShmpHome,
+} from "@/lib/roles";
+import {
+  homePathForEnvironment,
+  normalizeEnvironments,
+} from "@/lib/environment";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -9,11 +17,11 @@ export function middleware(request: NextRequest) {
   const session = parseAuthCookie(raw);
   const role = session?.role;
   const authed = Boolean(session?.token);
-  const environments = Array.isArray(session?.environments)
-    ? session.environments.map((e) => String(e).toLowerCase())
-    : role === "Supervisor"
-      ? ["shmp"]
-      : ["stl"];
+  const environments = normalizeEnvironments(
+    session?.environments,
+    role,
+    session?.isSuperAdmin === true,
+  );
   const environment = String(session?.environment || "").toLowerCase();
 
   if (pathname.startsWith("/admin")) {
@@ -67,6 +75,14 @@ export function middleware(request: NextRequest) {
       url.pathname = "/select-environment";
       return NextResponse.redirect(url);
     }
+    if (
+      role === "Supervisor" &&
+      !canSupervisorAccessShmpPath(pathname)
+    ) {
+      const url = request.nextUrl.clone();
+      url.pathname = supervisorShmpHome();
+      return NextResponse.redirect(url);
+    }
   }
 
   if (pathname === "/select-environment") {
@@ -82,7 +98,7 @@ export function middleware(request: NextRequest) {
     if (environments.length > 1 && !environment) {
       url.pathname = "/select-environment";
     } else if (environment === "shmp") {
-      url.pathname = "/shmp";
+      url.pathname = homePathForEnvironment("shmp", role);
     } else {
       url.pathname = homePathForRole(role);
     }

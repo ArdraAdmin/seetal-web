@@ -7,6 +7,7 @@ import {
   getSalesLeave,
   type LeaveRequestRow,
 } from "@/lib/api";
+import { SalesAccountTabs, SelectField } from "@/components/StlFeatureUi";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
@@ -26,6 +27,10 @@ function fmtDate(value?: string) {
   return d.toISOString().slice(0, 10);
 }
 
+type LeaveBalance = NonNullable<
+  Awaited<ReturnType<typeof getSalesLeave>>["balance"]
+>;
+
 export default function SalesLeavePage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -38,6 +43,8 @@ export default function SalesLeavePage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [reason, setReason] = useState("");
+  const [leaveType, setLeaveType] = useState<"annual" | "sick">("annual");
+  const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -49,6 +56,7 @@ export default function SalesLeavePage() {
       setApprovedCount(data.approvedCount || 0);
       setPendingCount(data.pendingCount || 0);
       setLeaves(data.leaves || []);
+      setBalance(data.balance ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load leave");
     } finally {
@@ -73,6 +81,7 @@ export default function SalesLeavePage() {
         startDate,
         endDate: endDate || startDate,
         reason,
+        leaveType,
       });
       toast("Leave request submitted", "success");
       setStartDate("");
@@ -112,6 +121,41 @@ export default function SalesLeavePage() {
         }
       />
 
+      <SalesAccountTabs />
+
+      {balance ? (
+        <div className="mb-3 grid gap-3 sm:grid-cols-2">
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Annual leave remaining ({balance.year})
+            </p>
+            <p className="text-2xl font-semibold text-ink">
+              {balance.remaining.annual}{" "}
+              <span className="text-sm font-normal text-slate-500">
+                / {balance.entitlements.annual} days
+              </span>
+            </p>
+            <p className="text-xs text-slate-500">
+              Used {balance.used.annual}d · Pending {balance.pending.annual}d
+            </p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-sm text-slate-500">
+              Sick leave remaining ({balance.year})
+            </p>
+            <p className="text-2xl font-semibold text-ink">
+              {balance.remaining.sick}{" "}
+              <span className="text-sm font-normal text-slate-500">
+                / {balance.entitlements.sick} days
+              </span>
+            </p>
+            <p className="text-xs text-slate-500">
+              Used {balance.used.sick}d · Pending {balance.pending.sick}d
+            </p>
+          </Card>
+        </div>
+      ) : null}
+
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         <Card className="p-4">
           <p className="text-sm text-slate-500">Approved</p>
@@ -146,6 +190,22 @@ export default function SalesLeavePage() {
               onChange={(e) => setEndDate(e.target.value)}
             />
           </label>
+          <div className="sm:col-span-2">
+            <SelectField
+              label="Leave type"
+              value={leaveType}
+              onChange={(e) =>
+                setLeaveType(e.target.value === "sick" ? "sick" : "annual")
+              }
+            >
+              <option value="annual">
+                Annual{balance ? ` (${balance.remaining.annual} left)` : ""}
+              </option>
+              <option value="sick">
+                Sick{balance ? ` (${balance.remaining.sick} left)` : ""}
+              </option>
+            </SelectField>
+          </div>
           <label className="text-sm sm:col-span-2">
             Reason (optional)
             <input
@@ -195,7 +255,10 @@ export default function SalesLeavePage() {
                     {fmtDate(leave.startDate)} → {fmtDate(leave.endDate)}
                   </p>
                   <p className="text-sm text-slate-500">
-                    {leave.dayCount} day(s) · {leave.status}
+                    <span className="capitalize">
+                      {leave.leaveType || "annual"}
+                    </span>{" "}
+                    · {leave.dayCount} day(s) · {leave.status}
                   </p>
                   {leave.reason ? (
                     <p className="mt-1 text-sm text-slate-600">{leave.reason}</p>

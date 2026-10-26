@@ -16,14 +16,21 @@ import {
   saveDownloadedStores,
 } from "@/lib/sales-company";
 import {
+  storeAssignedToSalesman,
   storeLocation,
   storeMarks,
   storeProductsHref,
-  storeSalesmanId,
   storeTitle,
 } from "@/lib/sales";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
+import {
+  loadSalesWorkspace,
+  onSelectedSalesCompanyChange,
+  salesCompanyStoreMode,
+  SALES_COMPANY_LABELS,
+  type SalesCompanyKey,
+} from "@/lib/sales-selected-company";
 import {
   Card,
   EmptyState,
@@ -35,12 +42,16 @@ import {
   TextField,
 } from "@/components/ui";
 
-function splitStores(list: StoreProfile[], userId: string) {
+function splitStores(
+  list: StoreProfile[],
+  userId: string,
+  assignedOnly = false,
+) {
   const mine: StoreProfile[] = [];
   const other: StoreProfile[] = [];
   for (const store of list) {
-    if (userId && storeSalesmanId(store) === userId) mine.push(store);
-    else other.push(store);
+    if (userId && storeAssignedToSalesman(store, userId)) mine.push(store);
+    else if (!assignedOnly) other.push(store);
   }
   return { mine, other };
 }
@@ -50,6 +61,15 @@ export default function SalesHomePage() {
   const firstName = (user?.name || "Sales").trim().split(/\s+/)[0];
   const cacheRef = useRef(createSalesStoreCache());
   const loadGen = useRef(0);
+  const [companyKey, setCompanyKey] = useState<SalesCompanyKey | null>(
+    () => loadSalesWorkspace(),
+  );
+  const [companyLabel, setCompanyLabel] = useState(
+    () => {
+      const workspace = loadSalesWorkspace();
+      return workspace ? SALES_COMPANY_LABELS[workspace] : "";
+    },
+  );
   const [myStores, setMyStores] = useState<StoreProfile[]>([]);
   const [otherStores, setOtherStores] = useState<StoreProfile[]>([]);
   const [page, setPage] = useState(1);
@@ -60,16 +80,32 @@ export default function SalesHomePage() {
   const [appliedQuery, setAppliedQuery] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  const assignedOnly = salesCompanyStoreMode(companyKey) === "assigned";
 
-  const showLists = (list: StoreProfile[], nextPage: number, tag: string) => {
+  useEffect(() => {
+    function refresh() {
+      const workspace = loadSalesWorkspace();
+      setCompanyKey(workspace);
+      setCompanyLabel(workspace ? SALES_COMPANY_LABELS[workspace] : "");
+    }
+    refresh();
+    return onSelectedSalesCompanyChange(refresh);
+  }, []);
+
+  const showLists = (
+    list: StoreProfile[],
+    nextPage: number,
+    tag: string,
+    assigned = assignedOnly,
+  ) => {
     if (!user?.id) return;
-    const { mine, other } = splitStores(list, user.id);
+    const { mine, other } = splitStores(list, user.id, assigned);
     if (tag) {
       setMyStores([]);
       setOtherStores(list);
     } else {
       setMyStores(mine);
-      setOtherStores(other);
+      setOtherStores(assigned ? [] : other);
     }
     setPage(nextPage);
     setAppliedQuery(tag);
@@ -78,12 +114,13 @@ export default function SalesHomePage() {
 
   const loadStores = useCallback(
     async (nextPage = 1, tag = "") => {
-      if (!user?.id) return;
+      if (!user?.id || !companyKey) return;
       const gen = ++loadGen.current;
+      const assigned = salesCompanyStoreMode(companyKey) === "assigned";
       setLoading(true);
       setError(null);
       try {
-        const cached = loadDownloadedStores();
+        const cached = loadDownloadedStores(companyKey);
         if (cached.length > 0) {
           const filtered = tag
             ? cached.filter((store) => {
@@ -101,7 +138,7 @@ export default function SalesHomePage() {
               })
             : cached;
           if (gen !== loadGen.current) return;
-          showLists(filtered as StoreProfile[], nextPage, tag);
+          showLists(filtered as StoreProfile[], nextPage, tag, assigned);
           setDownloaded(true);
           return;
         }
@@ -110,6 +147,8 @@ export default function SalesHomePage() {
             tag,
             nextPage,
             cacheRef.current,
+            companyKey,
+            user.id,
           );
           if (gen !== loadGen.current) return;
           setMyStores([]);
@@ -120,11 +159,12 @@ export default function SalesHomePage() {
             user.id,
             nextPage,
             cacheRef.current,
+            companyKey,
           );
           if (gen !== loadGen.current) return;
           setMyStores(data.myStores);
-          setOtherStores(data.otherStores);
-          setHasNext(data.hasNext);
+          setOtherStores(assigned ? [] : data.otherStores);
+          setHasNext(assigned ? false : data.hasNext);
         }
         setPage(nextPage);
         setAppliedQuery(tag);
@@ -135,25 +175,30 @@ export default function SalesHomePage() {
         if (gen === loadGen.current) setLoading(false);
       }
     },
-    [user?.id],
+    [user?.id, companyKey],
   );
 
   useEffect(() => {
     cacheRef.current = createSalesStoreCache();
+    setDownloaded(false);
+    setQuery("");
+    setAppliedQuery("");
+    setMyStores([]);
+    setOtherStores([]);
     void loadStores(1, "");
   }, [loadStores]);
 
   async function onDownloadStores() {
-    if (!user?.id) return;
+    if (!user?.id || !companyKey) return;
     const gen = ++loadGen.current;
     setDownloading(true);
     setError(null);
     try {
-      const stores = await downloadSalesStores(user.id);
+      const stores = await downloadSalesStores(user.id, companyKey);
       const list = Array.isArray(stores) ? stores : [];
-      saveDownloadedStores(list);
+      saveDownloadedStores(list, companyKey);
       if (gen !== loadGen.current) return;
-      showLists(list, 1, "");
+      showLists(list, 1, "", assignedOnly);
       setQuery("");
       setDownloaded(true);
       setLoading(false);
@@ -183,7 +228,13 @@ export default function SalesHomePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Welcome, {firstName}</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Search a store, then open it to add an order.
+          {companyLabel
+            ? assignedOnly
+              ? `${companyLabel} stores assigned to you. Open a store to add an order.`
+              : companyKey === "sarvah"
+                ? `${companyLabel} stores. Open a store, then choose STL or SHMP inventory.`
+                : `${companyLabel} stores. Open a store to add an order from ${companyLabel} inventory.`
+            : "Search a store, then open it to add an order."}
         </p>
       </div>
 
@@ -229,7 +280,9 @@ export default function SalesHomePage() {
               description={
                 appliedQuery
                   ? `Nothing matched “${appliedQuery}”. Try a store name, marks, or city.`
-                  : "No stores are available for this account yet."
+                  : assignedOnly
+                    ? "No stores are assigned to you for this company yet."
+                    : "No stores are available for this account yet."
               }
             />
           ) : (
@@ -240,6 +293,7 @@ export default function SalesHomePage() {
                   count={otherStores.length}
                   empty={`Nothing matched “${appliedQuery}”.`}
                   stores={otherStores}
+                  pickInventory={companyKey === "sarvah"}
                 />
               ) : (
                 <>
@@ -249,14 +303,18 @@ export default function SalesHomePage() {
                       count={myStores.length}
                       empty="No stores assigned to you yet."
                       stores={myStores}
+                      pickInventory={companyKey === "sarvah"}
                     />
                   ) : null}
-                  <StoreSection
-                    title="Other stores"
-                    count={otherStores.length}
-                    empty="No other stores on this page."
-                    stores={otherStores}
-                  />
+                  {assignedOnly ? null : (
+                    <StoreSection
+                      title="Other stores"
+                      count={otherStores.length}
+                      empty="No other stores on this page."
+                      stores={otherStores}
+                      pickInventory={companyKey === "sarvah"}
+                    />
+                  )}
                 </>
               )}
               {downloaded ? null : (
@@ -307,11 +365,13 @@ function StoreSection({
   count,
   empty,
   stores,
+  pickInventory = false,
 }: {
   title: string;
   count: number;
   empty: string;
   stores: StoreProfile[];
+  pickInventory?: boolean;
 }) {
   return (
     <section>
@@ -332,7 +392,11 @@ function StoreSection({
             return (
               <Link
                 key={store._id}
-                href={`/sales/company?next=${encodeURIComponent(storeProductsHref(store))}`}
+                href={
+                  pickInventory
+                    ? `/sales/company?next=${encodeURIComponent(storeProductsHref(store))}&pick=inventory`
+                    : storeProductsHref(store)
+                }
                 className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 hover:bg-[#f7f5f0]"
               >
                 <div className="min-w-0">

@@ -16,6 +16,8 @@ import {
 } from "@/lib/sales-location";
 import {
   hasSelectedSalesCompany,
+  hasSelectedSalesWorkspace,
+  loadSalesWorkspace,
   onSelectedSalesCompanyChange,
 } from "@/lib/sales-selected-company";
 
@@ -29,9 +31,13 @@ export default function SalesLayout({
   const pathname = usePathname();
   const isCompanyPage = pathname === "/sales/company";
   const isAttendancePage = pathname === "/sales/attendance";
-  const needsCompany = pathname.startsWith("/sales/stores");
+  const needsWorkspace =
+    pathname === "/sales" || pathname.startsWith("/sales/stores");
+  const needsInventory = pathname.startsWith("/sales/stores");
   const [companyReady, setCompanyReady] = useState(false);
-  const [hasCompany, setHasCompany] = useState(false);
+  const [hasWorkspace, setHasWorkspace] = useState(false);
+  const [hasInventory, setHasInventory] = useState(false);
+  const [workspace, setWorkspace] = useState<string | null>(null);
   const [attendanceReady, setAttendanceReady] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
 
@@ -49,7 +55,9 @@ export default function SalesLayout({
 
   useEffect(() => {
     function refresh() {
-      setHasCompany(hasSelectedSalesCompany());
+      setHasWorkspace(hasSelectedSalesWorkspace());
+      setHasInventory(hasSelectedSalesCompany());
+      setWorkspace(loadSalesWorkspace());
       setCompanyReady(true);
     }
     refresh();
@@ -77,7 +85,7 @@ export default function SalesLayout({
   }, [user?.id, user?.role, refreshAttendance]);
 
   useEffect(() => {
-    if (!user?.id || user.role !== "Sales" || !hasCompany || !checkedIn) return;
+    if (!user?.id || user.role !== "Sales" || !hasInventory || !checkedIn) return;
     const userId = user.id;
     function sync() {
       if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -97,7 +105,7 @@ export default function SalesLayout({
       window.removeEventListener("online", sync);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user?.id, user?.role, hasCompany, checkedIn]);
+  }, [user?.id, user?.role, hasInventory, checkedIn]);
 
   useEffect(() => {
     if (!loading && (!user || user.role !== "Sales")) {
@@ -110,28 +118,30 @@ export default function SalesLayout({
     if (!checkedIn && !isAttendancePage) {
       router.replace("/sales/attendance");
     }
-  }, [
-    loading,
-    user,
-    attendanceReady,
-    checkedIn,
-    isAttendancePage,
-    router,
-  ]);
+  }, [loading, user, attendanceReady, checkedIn, isAttendancePage, router]);
 
   useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !companyReady) return;
     if (!checkedIn) return;
-    if (!hasCompany && needsCompany) {
+    if (!hasWorkspace && needsWorkspace) {
       const next = `${pathname}${window.location.search}`;
       router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    if (needsInventory && !hasInventory) {
+      const next = `${pathname}${window.location.search}`;
+      const pick = workspace === "sarvah" ? "&pick=inventory" : "";
+      router.replace(`/sales/company?next=${encodeURIComponent(next)}${pick}`);
     }
   }, [
     loading,
     user,
     companyReady,
-    hasCompany,
-    needsCompany,
+    hasWorkspace,
+    hasInventory,
+    needsWorkspace,
+    needsInventory,
+    workspace,
     pathname,
     router,
     checkedIn,
@@ -165,7 +175,10 @@ export default function SalesLayout({
     return <SalesShell attendanceLocked>{children}</SalesShell>;
   }
 
-  if (needsCompany && (!companyReady || !hasCompany)) {
+  if (
+    (needsWorkspace && (!companyReady || !hasWorkspace)) ||
+    (needsInventory && (!companyReady || !hasInventory))
+  ) {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
         <LoadingState label="Opening company selection…" />

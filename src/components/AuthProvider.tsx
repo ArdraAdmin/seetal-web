@@ -9,8 +9,14 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { login as apiLogin } from "@/lib/api";
-import { clearAuth, getStoredAuth, saveAuth } from "@/lib/auth";
+import { fetchCurrentUser, login as apiLogin } from "@/lib/api";
+import {
+  canAccessEnvironment,
+  clearAuth,
+  getStoredAuth,
+  saveAuth,
+} from "@/lib/auth";
+import { clearSelectedSalesCompany } from "@/lib/sales-selected-company";
 import { postLoginPath, areaPrefix, homePathForRole } from "@/lib/roles";
 import {
   clearEnvironment,
@@ -40,9 +46,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    setUser(getStoredAuth());
-    setEnvironment(loadEnvironment());
-    setLoading(false);
+    let cancelled = false;
+    async function hydrate() {
+      const stored = getStoredAuth();
+      const env = loadEnvironment();
+      if (!stored) {
+        if (!cancelled) {
+          setUser(null);
+          setEnvironment(env);
+          setLoading(false);
+        }
+        return;
+      }
+      // Refresh cookie so middleware sees normalized environments (fixes empty []).
+      saveAuth(stored, env);
+      if (!cancelled) {
+        setUser(stored);
+        setEnvironment(env);
+      }
+      try {
+        const fresh = await fetchCurrentUser();
+        if (cancelled) return;
+        saveAuth(fresh, env);
+        setUser(fresh);
+      } catch {
+        // Keep stored session if /user/me is unavailable (older API).
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(
@@ -52,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Sign-in failed");
       }
       clearEnvironment();
+      clearSelectedSalesCompany();
       saveAuth(authUser, null);
       setUser(authUser);
       setEnvironment(null);
@@ -72,12 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const selectEnvironment = useCallback(
     (env: AppEnvironment) => {
       if (!user) return;
-      const allowed = user.environments?.length
-        ? user.environments
-        : user.role === "Supervisor"
-          ? (["shmp"] as AppEnvironment[])
-          : (["stl"] as AppEnvironment[]);
-      if (!allowed.includes(env)) {
+      if (!canAccessEnvironment(user, env)) {
         throw new Error(`No access to ${env.toUpperCase()}`);
       }
       saveEnvironment(env);

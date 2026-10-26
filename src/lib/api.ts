@@ -10,6 +10,8 @@ import type {
   ProfileUser,
   StoreProfile,
   Vehicle,
+  VehicleExtras,
+  VehicleMaintenance,
   WarehouseCounts,
   WarehouseCheckLine,
   WarehouseCheckOrder,
@@ -46,8 +48,11 @@ import {
 } from "./warehouse";
 import {
   accessFromSelectedCompany,
+  isSalesInventoryKey,
   loadSelectedSalesCompany,
   resolveSalesCompanyByKey,
+  SALES_COMPANY_LABELS,
+  saveSalesWorkspace,
   saveSelectedSalesCompany,
   type SalesCompanyKey,
 } from "./sales-selected-company";
@@ -224,6 +229,52 @@ export async function updateSundayDeliverySetting(enabled: boolean) {
   return next;
 }
 
+function authUserFromPayload(
+  data: Record<string, unknown>,
+  fallbackEmail = "",
+  tokenOverride?: string,
+): AuthUser {
+  const field =
+    data.field && typeof data.field === "object"
+      ? (data.field as Record<string, unknown>)
+      : null;
+  const adminField =
+    field?.admin && typeof field.admin === "object"
+      ? (field.admin as Record<string, unknown>)
+      : null;
+
+  const environments = Array.isArray(data.environments)
+    ? (data.environments as unknown[])
+        .map((e) => String(e).toLowerCase())
+        .filter((e): e is "stl" | "shmp" => e === "stl" || e === "shmp")
+    : undefined;
+
+  const token = String(tokenOverride ?? data.token ?? "");
+
+  return {
+    id: String(data._id ?? ""),
+    name: String(data.name ?? ""),
+    email: String(data.email ?? fallbackEmail),
+    role: String(data.role ?? ""),
+    token,
+    mobileNumber: data.mobileNumber
+      ? String(data.mobileNumber)
+      : undefined,
+    isSuperAdmin: adminField?.isSuperAdmin === true,
+    environments:
+      environments && environments.length
+        ? environments
+        : String(data.role) === "Supervisor"
+          ? (["shmp"] as ("stl" | "shmp")[])
+          : adminField?.isSuperAdmin === true
+            ? (["stl", "shmp"] as ("stl" | "shmp")[])
+            : (["stl"] as ("stl" | "shmp")[]),
+    hrCompanyAccess: Array.isArray(data.hrCompanyAccess)
+      ? (data.hrCompanyAccess as AuthUser["hrCompanyAccess"])
+      : undefined,
+  };
+}
+
 export async function login(
   email: string,
   password: string,
@@ -253,43 +304,27 @@ export async function login(
     throw new ApiError("Login succeeded but no token was returned", 400);
   }
 
-  const field =
-    data.field && typeof data.field === "object"
-      ? (data.field as Record<string, unknown>)
-      : null;
-  const adminField =
-    field?.admin && typeof field.admin === "object"
-      ? (field.admin as Record<string, unknown>)
-      : null;
+  return authUserFromPayload(data, email, token);
+}
 
-  const environments = Array.isArray(data.environments)
-    ? (data.environments as unknown[])
-        .map((e) => String(e).toLowerCase())
-        .filter((e): e is "stl" | "shmp" => e === "stl" || e === "shmp")
-    : undefined;
-
-  return {
-    id: String(data._id ?? ""),
-    name: String(data.name ?? ""),
-    email: String(data.email ?? email),
-    role: String(data.role ?? ""),
-    token,
-    mobileNumber: data.mobileNumber
-      ? String(data.mobileNumber)
-      : undefined,
-    isSuperAdmin: adminField?.isSuperAdmin === true,
-    environments:
-      environments && environments.length
-        ? environments
-        : String(data.role) === "Supervisor"
-          ? (["shmp"] as ("stl" | "shmp")[])
-          : adminField?.isSuperAdmin === true
-            ? (["stl", "shmp"] as ("stl" | "shmp")[])
-            : (["stl"] as ("stl" | "shmp")[]),
-    hrCompanyAccess: Array.isArray(data.hrCompanyAccess)
-      ? (data.hrCompanyAccess as AuthUser["hrCompanyAccess"])
-      : undefined,
-  };
+/** Refresh auth profile (environments, HR ACL) from STLAPI. */
+export async function fetchCurrentUser(): Promise<AuthUser> {
+  const stored = getStoredAuth();
+  if (!stored?.token) {
+    throw new ApiError("Not signed in", 401);
+  }
+  const { body, ok, status } = await requestRaw("/user/me", { method: "GET" });
+  if (!ok) {
+    throw new ApiError(
+      errorMessage(body, `Request failed (${status})`),
+      status,
+    );
+  }
+  const data =
+    body && typeof body === "object"
+      ? (body as Record<string, unknown>)
+      : {};
+  return authUserFromPayload(data, stored.email, stored.token);
 }
 
 export const changeOwnPassword = (
@@ -331,15 +366,44 @@ export const addVehicle = (vehicleNumber: number) =>
     method: "POST",
     body: JSON.stringify({ vehicleNumber }),
   });
-export const editVehicle = (vehicleId: string, vehicleNumber: number) =>
+export const editVehicle = (
+  vehicleId: string,
+  vehicleNumber: number,
+  extras?: VehicleExtras,
+) =>
   siteRequest<string>("/api/admin/vehicle/edit", {
     method: "POST",
-    body: JSON.stringify({ vehicleId, vehicleNumber }),
+    body: JSON.stringify({ vehicleId, vehicleNumber, ...extras }),
   });
 export const deleteVehicle = (vehicleId: string) =>
   siteRequest<string>("/api/admin/vehicle/delete", {
     method: "POST",
     body: JSON.stringify({ vehicleId }),
+  });
+export const getVehicleDetails = (vehicleId: string) =>
+  siteRequest<{ extras: VehicleExtras; maintenance: VehicleMaintenance[] }>(
+    `/api/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}`,
+  );
+export const getVehicleExtrasMap = (ids: string[]) => {
+  if (ids.length === 0) {
+    return Promise.resolve({ extras: {} as Record<string, VehicleExtras> });
+  }
+  return siteRequest<{ extras: Record<string, VehicleExtras> }>(
+    `/api/admin/vehicle/details?ids=${ids.map(encodeURIComponent).join(",")}`,
+  );
+};
+export const addVehicleMaintenance = (
+  vehicleId: string,
+  payload: {
+    title: string;
+    amount: number;
+    description: string;
+    date: string;
+  },
+) =>
+  siteRequest<VehicleMaintenance>("/api/admin/vehicle/maintenance", {
+    method: "POST",
+    body: JSON.stringify({ vehicleId, ...payload }),
   });
 
 // —— Stores ——
@@ -1753,11 +1817,7 @@ export interface SalesStorePage {
 export const SALES_STORE_PAGE_SIZE = 30;
 const SALES_STORE_API_PAGE_SIZE = 50;
 
-export async function getSalesStorePage(userId: string, page = 1): Promise<SalesStorePage> {
-  const data = await request<unknown>("/sales/store", {
-    method: "POST",
-    body: JSON.stringify({ userId, page }),
-  });
+function parseSalesStorePage(data: unknown): SalesStorePage {
   if (!data || typeof data !== "object") {
     return { myStores: [], otherStores: [] };
   }
@@ -1768,7 +1828,96 @@ export async function getSalesStorePage(userId: string, page = 1): Promise<Sales
   };
 }
 
-export async function searchSalesStores(tag: string, page = 1) {
+function shouldUseShmpStoreFallback(error: unknown) {
+  if (!(error instanceof ApiError)) return false;
+  return (
+    error.status === 404 ||
+    error.status === 0 ||
+    /cannot (get|post)|not found/i.test(error.message)
+  );
+}
+
+async function requestShmpStorePage(userId: string, page: number) {
+  try {
+    return parseSalesStorePage(
+      await request<unknown>("/sales/shmpStore", {
+        method: "POST",
+        body: JSON.stringify({ userId, page }),
+      }),
+    );
+  } catch (error) {
+    if (!shouldUseShmpStoreFallback(error)) throw error;
+    return parseSalesStorePage(
+      await siteRequest<unknown>("/api/sales/shmp-stores", {
+        method: "POST",
+        body: JSON.stringify({ userId, page }),
+      }),
+    );
+  }
+}
+
+async function searchShmpStorePage(tag: string, page: number, userId: string) {
+  try {
+    return asStoreList(
+      await request<unknown>("/sales/searchShmpStore", {
+        method: "POST",
+        body: JSON.stringify({ tag, page, userId }),
+      }),
+    );
+  } catch (error) {
+    if (!shouldUseShmpStoreFallback(error)) throw error;
+    const data = await siteRequest<unknown>("/api/sales/shmp-stores", {
+      method: "POST",
+      body: JSON.stringify({ userId, tag, page }),
+    });
+    if (Array.isArray(data)) return asStoreList(data);
+    return parseSalesStorePage(data).myStores;
+  }
+}
+
+async function downloadShmpAssignedStores(userId: string) {
+  try {
+    return asStoreList(
+      await request<unknown>(
+        `/sales/shmpStore?userId=${encodeURIComponent(userId)}`,
+      ),
+    );
+  } catch (error) {
+    if (!shouldUseShmpStoreFallback(error)) throw error;
+    return asStoreList(
+      await siteRequest<unknown>(
+        `/api/sales/shmp-stores?userId=${encodeURIComponent(userId)}`,
+      ),
+    );
+  }
+}
+
+export async function getSalesStorePage(
+  userId: string,
+  page = 1,
+  company?: SalesCompanyKey | null,
+): Promise<SalesStorePage> {
+  if (company === "shmp") return requestShmpStorePage(userId, page);
+  const data = await request<unknown>("/sales/store", {
+    method: "POST",
+    body: JSON.stringify({ userId, page }),
+  });
+  return parseSalesStorePage(data);
+}
+
+export async function searchSalesStores(
+  tag: string,
+  page = 1,
+  company?: SalesCompanyKey | null,
+  userId?: string,
+) {
+  if (company === "shmp") {
+    return searchShmpStorePage(
+      tag,
+      page,
+      userId || getStoredAuth()?.id || "",
+    );
+  }
   const data = await request<unknown>("/sales/searchStore", {
     method: "POST",
     body: JSON.stringify({ tag, page }),
@@ -1790,10 +1939,11 @@ async function otherStoreApiPage(
   userId: string,
   apiPage: number,
   cache: SalesStoreCache,
+  company?: SalesCompanyKey | null,
 ) {
   const cached = cache.other.get(apiPage);
   if (cached) return cached;
-  const batch = await getSalesStorePage(userId, apiPage);
+  const batch = await getSalesStorePage(userId, apiPage, company);
   if (apiPage === 1) cache.myStores = batch.myStores;
   cache.other.set(apiPage, batch.otherStores);
   return batch.otherStores;
@@ -1803,6 +1953,8 @@ async function searchStoreApiPage(
   tag: string,
   apiPage: number,
   cache: SalesStoreCache,
+  company?: SalesCompanyKey | null,
+  userId?: string,
 ) {
   let pages = cache.search.get(tag);
   if (!pages) {
@@ -1811,7 +1963,7 @@ async function searchStoreApiPage(
   }
   const cached = pages.get(apiPage);
   if (cached) return cached;
-  const list = await searchSalesStores(tag, apiPage);
+  const list = await searchSalesStores(tag, apiPage, company, userId);
   pages.set(apiPage, list);
   return list;
 }
@@ -1826,9 +1978,10 @@ export async function loadSalesStoreUiPage(
   userId: string,
   uiPage: number,
   cache: SalesStoreCache,
+  company?: SalesCompanyKey | null,
 ) {
   const start = (uiPage - 1) * SALES_STORE_PAGE_SIZE;
-  await otherStoreApiPage(userId, 1, cache);
+  await otherStoreApiPage(userId, 1, cache, company);
   const my = cache.myStores ?? [];
 
   const stores: StoreProfile[] = [];
@@ -1839,7 +1992,7 @@ export async function loadSalesStoreUiPage(
     }
     const otherIndex = i - my.length;
     const apiPage = Math.floor(otherIndex / SALES_STORE_API_PAGE_SIZE) + 1;
-    const list = await otherStoreApiPage(userId, apiPage, cache);
+    const list = await otherStoreApiPage(userId, apiPage, cache, company);
     const item = storeAtApiIndex(list, otherIndex);
     if (!item) break;
     stores.push(item);
@@ -1852,7 +2005,7 @@ export async function loadSalesStoreUiPage(
   } else {
     const otherIndex = nextIndex - my.length;
     const apiPage = Math.floor(otherIndex / SALES_STORE_API_PAGE_SIZE) + 1;
-    const list = await otherStoreApiPage(userId, apiPage, cache);
+    const list = await otherStoreApiPage(userId, apiPage, cache, company);
     hasNext = Boolean(storeAtApiIndex(list, otherIndex));
   }
 
@@ -1870,12 +2023,14 @@ export async function loadSalesStoreSearchPage(
   tag: string,
   uiPage: number,
   cache: SalesStoreCache,
+  company?: SalesCompanyKey | null,
+  userId?: string,
 ) {
   const start = (uiPage - 1) * SALES_STORE_PAGE_SIZE;
   const stores: StoreProfile[] = [];
   for (let i = start; i < start + SALES_STORE_PAGE_SIZE; i++) {
     const apiPage = Math.floor(i / SALES_STORE_API_PAGE_SIZE) + 1;
-    const list = await searchStoreApiPage(tag, apiPage, cache);
+    const list = await searchStoreApiPage(tag, apiPage, cache, company, userId);
     const item = storeAtApiIndex(list, i);
     if (!item) break;
     stores.push(item);
@@ -1883,7 +2038,13 @@ export async function loadSalesStoreSearchPage(
 
   const nextIndex = start + SALES_STORE_PAGE_SIZE;
   const nextApiPage = Math.floor(nextIndex / SALES_STORE_API_PAGE_SIZE) + 1;
-  const nextList = await searchStoreApiPage(tag, nextApiPage, cache);
+  const nextList = await searchStoreApiPage(
+    tag,
+    nextApiPage,
+    cache,
+    company,
+    userId,
+  );
   return {
     stores,
     hasNext: Boolean(storeAtApiIndex(nextList, nextIndex)),
@@ -1891,7 +2052,24 @@ export async function loadSalesStoreSearchPage(
   };
 }
 
-export async function downloadSalesStores(userId?: string) {
+export async function downloadSalesStores(
+  userId?: string,
+  company?: SalesCompanyKey | null,
+) {
+  if (company === "shmp") {
+    if (!userId) return [] as StoreProfile[];
+    const downloaded = await downloadShmpAssignedStores(userId);
+    const byId = new Map(downloaded.map((store) => [store._id, store]));
+    try {
+      const page = await requestShmpStorePage(userId, 1);
+      for (const store of page.myStores) {
+        byId.set(store._id, { ...byId.get(store._id), ...store });
+      }
+    } catch {
+      /* Keep the assigned download even if paging fails. */
+    }
+    return [...byId.values()];
+  }
   const downloaded = asStoreList(await request<unknown>("/sales/store"));
   const byId = new Map(downloaded.map((store) => [store._id, store]));
   if (userId) {
@@ -1979,12 +2157,18 @@ export async function getSalesCompanyAccess(
 export async function selectSalesCompany(
   userId: string,
   key: SalesCompanyKey,
+  options?: { keepWorkspace?: boolean },
 ) {
+  if (!isSalesInventoryKey(key)) {
+    throw new Error(
+      `${SALES_COMPANY_LABELS[key] || "This company"} is not available yet.`,
+    );
+  }
   const companies = await warmCompanyDirectory();
   const resolved = resolveSalesCompanyByKey(key, companies);
   if (!resolved) {
     throw new Error(
-      `Could not find ${key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
+      `Could not find ${SALES_COMPANY_LABELS[key] || key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
     );
   }
   const access = accessFromSelectedCompany(resolved);
@@ -1993,6 +2177,7 @@ export async function selectSalesCompany(
   if (existing?.accessKey === catalogKey && existing.products.length > 0) {
     saveSalesCompanyAccess(access);
     saveSelectedSalesCompany(resolved);
+    if (!options?.keepWorkspace) saveSalesWorkspace(key);
     warmSalesInventoryIndex();
     return { access, products: catalogForAccess(access) || existing.products };
   }
@@ -2003,6 +2188,7 @@ export async function selectSalesCompany(
   saveSalesCompanyAccess(access);
   const firstPage = prefetchCompanyInventoryPage(resolved.id, 1);
   saveSelectedSalesCompany(resolved);
+  if (!options?.keepWorkspace) saveSalesWorkspace(key);
   void firstPage.finally(() => {
     queueSalesCatalogDownload(userId, access, generation);
   });
@@ -3152,45 +3338,6 @@ export const createPdc = (body: {
     body: JSON.stringify(body),
   });
 
-function summarizePayments(payments: PaymentRecord[]): {
-  paymentReceived: number;
-  receivable: number;
-} {
-  const byOrder = new Map<string, { paid: number; total: number }>();
-  let paymentReceived = 0;
-
-  for (const payment of payments) {
-    const paid = Number(payment.amountPaid) || 0;
-    const balance = Number(payment.balance) || 0;
-    paymentReceived += paid;
-
-    const order = payment.order;
-    const orderId =
-      typeof order === "string"
-        ? order
-        : String(order?._id ?? payment._id);
-    const orderTotal =
-      typeof order === "object" && typeof order?.totalCost === "number"
-        ? order.totalCost
-        : paid + balance;
-
-    const existing = byOrder.get(orderId);
-    if (existing) {
-      existing.paid += paid;
-      if (orderTotal > existing.total) existing.total = orderTotal;
-    } else {
-      byOrder.set(orderId, { paid, total: orderTotal });
-    }
-  }
-
-  let receivable = 0;
-  for (const { paid, total } of byOrder.values()) {
-    receivable += Math.max(0, total - paid);
-  }
-
-  return { paymentReceived, receivable };
-}
-
 const LIST_PAGE_SIZE = 50;
 
 function pageItems(data: unknown): unknown[] {
@@ -3271,15 +3418,12 @@ export interface DashboardStats {
   totalWarehouseUsers: number;
   expiredTradeLicenses: number;
   totalInventory: number;
-  paymentReceived: number;
-  receivable: number;
   pendingApprovals: number;
 }
 
 export async function loadDashboardStats(
   onUpdate: (partial: Partial<DashboardStats>) => void,
 ): Promise<void> {
-  const userId = getStoredAuth()?.id ?? "";
   let salesman = 0;
   let warehouseUsers = 0;
   let adminUsers = 0;
@@ -3326,9 +3470,6 @@ export async function loadDashboardStats(
         }),
       )
       .catch(() => onUpdate({ totalInventory: 0 })),
-    (userId ? getPayments(userId) : Promise.resolve([] as PaymentRecord[]))
-      .then((payments) => onUpdate(summarizePayments(payments)))
-      .catch(() => onUpdate({ paymentReceived: 0, receivable: 0 })),
     getApprovalQueue()
       .then((orders) =>
         onUpdate({
@@ -3349,8 +3490,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     totalWarehouseUsers: 0,
     expiredTradeLicenses: 0,
     totalInventory: 0,
-    paymentReceived: 0,
-    receivable: 0,
     pendingApprovals: 0,
   };
   await loadDashboardStats((partial) => Object.assign(stats, partial));
@@ -3383,6 +3522,7 @@ export type LeaveRequestRow = {
   endDate: string;
   reason?: string;
   status: string;
+  leaveType?: string;
   dayCount: number;
   decidedBy?: { name?: string } | string;
   decidedAt?: string;
@@ -3402,6 +3542,19 @@ export async function getSalesLeave(userId: string, status?: string) {
     approvedCount: number;
     pendingCount: number;
     leaves: LeaveRequestRow[];
+    balance?: {
+      year: number;
+      entitlements: { annual: number; sick: number };
+      used: { annual: number; sick: number };
+      pending: { annual: number; sick: number; count: number };
+      remaining: { annual: number; sick: number };
+    };
+    attendanceToday?: {
+      attendance: AttendanceRecord | null;
+      override: unknown;
+      checkedIn: boolean;
+      checkedOut: boolean;
+    };
   }>(`/sales/leave?${qs.toString()}`);
 }
 
@@ -3410,6 +3563,7 @@ export async function applySalesLeave(payload: {
   startDate: string;
   endDate: string;
   reason?: string;
+  leaveType?: "annual" | "sick";
 }) {
   return request<LeaveRequestRow>("/sales/leave", {
     method: "POST",

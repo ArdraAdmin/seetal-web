@@ -116,8 +116,12 @@ async function loadStores(): Promise<StoreDoc[]> {
     salesPerson: 1,
     tradeLicenseExpiry: 1,
   };
+  // Keep SHMP (environment: shmp) stores out of the STL admin stores list.
   const [permanent, temporary] = await Promise.all([
-    database.collection("stores").find({}, { projection }).toArray(),
+    database
+      .collection("stores")
+      .find({ environment: { $ne: "shmp" } }, { projection })
+      .toArray(),
     database.collection("tempstores").find({}, { projection }).toArray(),
   ]);
   return [

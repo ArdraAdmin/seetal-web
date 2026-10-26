@@ -1,5 +1,6 @@
 import type { Product, SalesCartLine } from "./types";
 import { dropSalesCatalogCache } from "./sales-company";
+import { loadSelectedSalesCompany } from "./sales-selected-company";
 import {
   productCategoryId,
   productMasterCategoryId,
@@ -24,7 +25,8 @@ export function clearCatalogCache() {
 }
 
 function key(storeId: string) {
-  return `${PREFIX}${storeId}`;
+  const company = loadSelectedSalesCompany()?.name || "none";
+  return `${PREFIX}${company}_${storeId}`;
 }
 
 export function loadCart(storeId: string): SalesCartLine[] {
