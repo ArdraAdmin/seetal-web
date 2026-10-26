@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
-import { isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
+import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
 import {
   isTrackingUnlocked,
   onTrackingUnlockChange,
@@ -86,7 +86,7 @@ const NAV: NavItem[] = [
 const COLLAPSE_KEY = "stl_sidebar_collapsed";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, clearSelectedEnvironment } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -239,6 +239,21 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <p className="truncate text-xs text-black/80">{user?.email}</p>
             </div>
           </Link>
+          {canAccessEnvironment(user, "shmp") ? (
+            <button
+              type="button"
+              onClick={() => clearSelectedEnvironment()}
+              title="Switch environment"
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-black hover:bg-white/50 ${
+                collapsed ? "lg:justify-center lg:px-2" : ""
+              }`}
+            >
+              <ArrowLeftRight className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span className={collapsed ? "lg:hidden" : undefined}>
+                Switch STL / SHMP
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={logout}

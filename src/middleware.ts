@@ -9,12 +9,23 @@ export function middleware(request: NextRequest) {
   const session = parseAuthCookie(raw);
   const role = session?.role;
   const authed = Boolean(session?.token);
+  const environments = Array.isArray(session?.environments)
+    ? session.environments.map((e) => String(e).toLowerCase())
+    : role === "Supervisor"
+      ? ["shmp"]
+      : ["stl"];
+  const environment = String(session?.environment || "").toLowerCase();
 
   if (pathname.startsWith("/admin")) {
     if (!authed || role !== "Admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
+    if (environments.includes("stl") === false) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/select-environment";
       return NextResponse.redirect(url);
     }
   }
@@ -37,9 +48,44 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  if (pathname.startsWith("/shmp")) {
+    if (!authed) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
+    const allowedRoles = ["Admin", "Supervisor"];
+    if (!allowedRoles.includes(String(role))) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
+    if (!environments.includes("shmp")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/select-environment";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (pathname === "/select-environment") {
+    if (!authed) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (pathname === "/login" && authed) {
     const url = request.nextUrl.clone();
-    url.pathname = homePathForRole(role);
+    if (environments.length > 1 && !environment) {
+      url.pathname = "/select-environment";
+    } else if (environment === "shmp") {
+      url.pathname = "/shmp";
+    } else {
+      url.pathname = homePathForRole(role);
+    }
     return NextResponse.redirect(url);
   }
 
@@ -54,6 +100,9 @@ export const config = {
     "/sales/:path*",
     "/warehouse",
     "/warehouse/:path*",
+    "/shmp",
+    "/shmp/:path*",
+    "/select-environment",
     "/login",
   ],
 };
