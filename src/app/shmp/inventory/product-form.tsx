@@ -346,30 +346,34 @@ function PricingEditor({
   );
 }
 
+export type BuiltInventoryPayload =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string };
+
 export function buildPayload(
   form: ProductFormState,
   groups: CategoryGroup[],
-): Record<string, unknown> | { error: string } {
+): BuiltInventoryPayload {
   const group =
     groups.find(
       (entry) =>
         entry.masterCategoryId === form.category || entry.name === form.category,
     ) || null;
   if (!group || !form.subCategory) {
-    return { error: "Select a category and sub category" };
+    return { ok: false, error: "Select a category and sub category" };
   }
-  if (!form.company) return { error: "Select a company" };
-  if (!form.itemRef.trim()) return { error: "Item ref is required" };
-  if (!form.itemName.trim()) return { error: "Item name is required" };
+  if (!form.company) return { ok: false, error: "Select a company" };
+  if (!form.itemRef.trim()) return { ok: false, error: "Item ref is required" };
+  if (!form.itemName.trim()) return { ok: false, error: "Item name is required" };
 
   const storeProfiles: ShmpStoreProfileInput[] = [];
   const seen = new Set<string>();
   for (const row of form.pricing) {
     if (!row.storeId) {
-      return { error: "Each pricing row needs a store" };
+      return { ok: false, error: "Each pricing row needs a store" };
     }
     if (seen.has(row.storeId)) {
-      return { error: "Duplicate store in pricing rows" };
+      return { ok: false, error: "Duplicate store in pricing rows" };
     }
     seen.add(row.storeId);
     const price =
@@ -377,7 +381,7 @@ export function buildPayload(
         ? undefined
         : Number(row.storePrice);
     if (price != null && (!Number.isFinite(price) || price < 0)) {
-      return { error: "Store prices must be valid non-negative numbers" };
+      return { ok: false, error: "Store prices must be valid non-negative numbers" };
     }
     storeProfiles.push({
       storeId: row.storeId,
@@ -390,30 +394,33 @@ export function buildPayload(
   const baseItemCode = form.baseItemCode.trim();
 
   return {
-    itemRef: form.itemRef.trim(),
-    baseItemCode: baseItemCode || undefined,
-    itemCode: baseItemCode || undefined,
-    itemName: form.itemName.trim(),
-    barCode: form.barCode.trim(),
-    barcode: form.barCode.trim(),
-    masterCategoryId: group.masterCategoryId || undefined,
-    category: form.subCategory,
-    company: form.company,
-    companyId: form.company,
-    unit: form.unit.trim() || "PCS",
-    ratio: Number(form.ratio) || 1,
-    amountInUnits: Number(form.amountInUnits) || 0,
-    sellingPrice: Number(form.sellingPrice) || 0,
-    isDisplay: form.isDisplay,
-    description: form.description.trim() || undefined,
-    dimensions: form.dimensions.trim() || undefined,
-    weight:
-      form.weight.trim() === ""
-        ? undefined
-        : Number(form.weight),
-    storeProfiles,
-    source: SHMP_OWN_SOURCE,
-    ownInventory: true,
+    ok: true,
+    data: {
+      itemRef: form.itemRef.trim(),
+      baseItemCode: baseItemCode || undefined,
+      itemCode: baseItemCode || undefined,
+      itemName: form.itemName.trim(),
+      barCode: form.barCode.trim(),
+      barcode: form.barCode.trim(),
+      masterCategoryId: group.masterCategoryId || undefined,
+      category: form.subCategory,
+      company: form.company,
+      companyId: form.company,
+      unit: form.unit.trim() || "PCS",
+      ratio: Number(form.ratio) || 1,
+      amountInUnits: Number(form.amountInUnits) || 0,
+      sellingPrice: Number(form.sellingPrice) || 0,
+      isDisplay: form.isDisplay,
+      description: form.description.trim() || undefined,
+      dimensions: form.dimensions.trim() || undefined,
+      weight:
+        form.weight.trim() === ""
+          ? undefined
+          : Number(form.weight),
+      storeProfiles,
+      source: SHMP_OWN_SOURCE,
+      ownInventory: true,
+    },
   };
 }
 

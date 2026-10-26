@@ -8,6 +8,7 @@ import {
   useEffect,
   useState,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -150,13 +151,13 @@ function InventoryItemDetail() {
     e.preventDefault();
     if (!editForm) return;
     const payload = buildPayload(editForm, groups);
-    if ("error" in payload) {
+    if (!payload.ok) {
       toast(payload.error, "info");
       return;
     }
     setSaving(true);
     try {
-      const updated = await shmpUpdateInventory(id, payload);
+      const updated = await shmpUpdateInventory(id, payload.data);
       setProduct(updated);
       setEditing(false);
       toast("Product updated", "success");
@@ -235,7 +236,12 @@ function InventoryItemDetail() {
           <form onSubmit={onSave} className="space-y-4">
             <ProductFields
               form={editForm}
-              setForm={setEditForm}
+              setForm={(next: SetStateAction<ProductFormState>) => {
+                setEditForm((prev) => {
+                  if (!prev) return prev;
+                  return typeof next === "function" ? next(prev) : next;
+                });
+              }}
               groups={groups}
               companies={companies}
               stores={stores}

@@ -113,13 +113,13 @@ export default function ShmpInventoryPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     const payload = buildPayload(addForm, groups);
-    if ("error" in payload) {
+    if (!payload.ok) {
       toast(payload.error, "info");
       return;
     }
     setCreating(true);
     try {
-      const created = await shmpCreateInventory(payload);
+      const created = await shmpCreateInventory(payload.data);
       if (created?._id) rememberOwnShmpInventoryId(created._id);
       toast("Product created", "success");
       setAddForm(blankForm(shmpCompanyId));
