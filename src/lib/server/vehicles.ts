@@ -1,6 +1,10 @@
 import { ObjectId, type Collection } from "mongodb";
 import { getMongoClient, isDatabaseNotConfigured } from "./mongo";
 import { userIdFromAuthHeader } from "./password";
+import {
+  mulkyaAlertsFromVehicles,
+  type ExpiryAlertRow,
+} from "../expiry-window";
 import type { VehicleExtras, VehicleMaintenance } from "../types";
 
 type VehicleDoc = {
@@ -198,6 +202,26 @@ export async function deleteVehicleRecord(vehicleId: unknown): Promise<void> {
   } catch {
     // Maintenance cleanup is best-effort if the collection is unavailable.
   }
+}
+
+export async function listMulkyaExpiringSoon(
+  now = Date.now(),
+): Promise<ExpiryAlertRow[]> {
+  const col = await vehicles();
+  const rows = await col
+    .find(
+      { mulkyaExpiry: { $exists: true, $nin: [null, ""] } },
+      { projection: { value: 1, mulkyaExpiry: 1 } },
+    )
+    .toArray();
+  return mulkyaAlertsFromVehicles(
+    rows.map((row) => ({
+      _id: String(row._id),
+      value: row.value,
+      mulkyaExpiry: row.mulkyaExpiry,
+    })),
+    now,
+  );
 }
 
 export async function getVehicleExtrasMap(

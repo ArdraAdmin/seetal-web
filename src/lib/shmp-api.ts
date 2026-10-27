@@ -373,35 +373,6 @@ export const shmpDailyDeliveryReport = (params?: Record<string, string>) => {
   return shmpRequest(`/deliveries/report/daily?${q}`);
 };
 
-export const shmpFleetVehicles = (ownershipCompany?: string) =>
-  shmpRequest(
-    `/fleet/vehicles${ownershipCompany ? `?ownershipCompany=${ownershipCompany}` : ""}`,
-  );
-
-export const shmpCreateFleetVehicle = (body: Record<string, unknown>) =>
-  shmpRequest("/fleet/vehicles", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
-export const shmpAddVehicleExpense = (
-  id: string,
-  body: Record<string, unknown>,
-) =>
-  shmpRequest(`/fleet/vehicles/${id}/expenses`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
-export const shmpAddVehicleService = (
-  id: string,
-  body: Record<string, unknown>,
-) =>
-  shmpRequest(`/fleet/vehicles/${id}/services`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
 export const shmpCostProducts = (companyId?: string) =>
   shmpRequest(
     `/costing/products${companyId ? `?companyId=${companyId}` : ""}`,
@@ -684,6 +655,7 @@ export type ShmpInventoryProduct = {
   masterCategoryId?: string;
   category?: string | { _id?: string; subCategory?: string };
   company?: string | { _id?: string; name?: string; prefix?: string };
+  imagePath?: string;
   inQty?: { amountInCartons?: number; amountInUnits?: number };
   storeProfileList?: ShmpStoreProfile[];
   source?: string;

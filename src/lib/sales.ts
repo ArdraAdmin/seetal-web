@@ -9,6 +9,23 @@ export function salesMoney(value: number) {
   return `AED ${formatted}`;
 }
 
+/** Short AED label for dashboard figures. Values under 10,000 stay exact. */
+export function compactMoney(value: number) {
+  const amount = Number.isFinite(value) ? value : 0;
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) {
+    return `AED ${sign}${(abs / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (abs >= 1_000_000) {
+    return `AED ${sign}${(abs / 1_000_000).toFixed(1)}M`;
+  }
+  if (abs >= 10_000) {
+    return `AED ${sign}${(abs / 1_000).toFixed(1)}K`;
+  }
+  return salesMoney(amount);
+}
+
 export function roundMoney(value: number) {
   return Number((Number(value) || 0).toFixed(2));
 }

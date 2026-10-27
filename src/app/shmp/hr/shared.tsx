@@ -202,6 +202,43 @@ export function trackedAccessRole(role?: string): role is ShmpAccessRole {
   return role === "Sales" || role === "Supervisor";
 }
 
+export function mergeAccessAndSales(
+  access: ShmpAccessUser[],
+  sales: Array<{
+    _id: string;
+    name: string;
+    email?: string;
+    role?: string;
+    mobileNumber?: string;
+  }>,
+): ShmpAccessUser[] {
+  const map = new Map<string, ShmpAccessUser>();
+  for (const user of access) map.set(user._id, user);
+  for (const row of sales) {
+    const existing = map.get(row._id);
+    if (existing) {
+      map.set(row._id, {
+        ...existing,
+        name: existing.name || row.name,
+        email: existing.email || row.email,
+        mobileNumber: existing.mobileNumber || row.mobileNumber,
+        role: existing.role || row.role || "Sales",
+      });
+    } else {
+      map.set(row._id, {
+        _id: row._id,
+        name: row.name,
+        email: row.email,
+        role: row.role || "Sales",
+        mobileNumber: row.mobileNumber,
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) =>
+    (a.name || a.email || "").localeCompare(b.name || b.email || ""),
+  );
+}
+
 type HistoryRow = {
   id: string;
   date: string;

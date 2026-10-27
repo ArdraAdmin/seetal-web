@@ -4,6 +4,7 @@ import { normalizeEnvironments, homePathForEnvironment } from "./environment";
 /** SHMP routes Supervisors may open (prefix match). All other /shmp paths are Admin-only. */
 export const SUPERVISOR_SHMP_PREFIXES = [
   "/shmp/hr",
+  "/shmp/attendance",
   "/shmp/production",
   "/shmp/orders",
   "/shmp/settings",

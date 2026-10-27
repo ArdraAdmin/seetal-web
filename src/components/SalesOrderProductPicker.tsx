@@ -19,6 +19,7 @@ import {
 } from "@/lib/sales";
 import type { Product } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
+import { ProductThumb } from "@/components/ProductImage";
 import {
   Card,
   LoadingState,
@@ -196,6 +197,12 @@ function AddProductRow({
 
   return (
     <div className="rounded-xl border border-line bg-white p-3">
+      <div className="flex items-start gap-3">
+        <ProductThumb
+          imagePath={product.imagePath}
+          name={product.itemName || product.itemRef || "Product"}
+        />
+        <div className="min-w-0">
       <p className="text-xs font-bold tracking-wide text-ink">{product.itemRef}</p>
       <p className="text-sm font-semibold text-slate-900">
         {product.itemName || product.itemRef || "Product"}
@@ -205,6 +212,8 @@ function AddProductRow({
         {productUnitStock(product)}
         {productRatio(product) ? ` · ${productRatio(product)} ${unit}/CTN` : ""}
       </p>
+        </div>
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={unitReq}

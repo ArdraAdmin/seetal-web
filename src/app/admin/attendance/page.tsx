@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getAdminAttendance,
+  getWarehouseProfiles,
   type AttendanceRecord,
 } from "@/lib/api";
 import { isSuperAdmin } from "@/lib/auth";
+import { attendanceRecordUserId } from "@/lib/hr-scope";
 import { useAuth } from "@/components/AuthProvider";
 import {
   Card,
@@ -24,11 +26,11 @@ function fmtDateTime(value?: string) {
   return d.toLocaleString();
 }
 
-function salesName(row: AttendanceRecord) {
+function staffName(row: AttendanceRecord) {
   if (row.sales && typeof row.sales === "object") {
-    return row.sales.name || row.sales.email || "Sales";
+    return row.sales.name || row.sales.email || "Warehouse staff";
   }
-  return "Sales";
+  return "Warehouse staff";
 }
 
 export default function AdminAttendancePage() {
@@ -51,11 +53,19 @@ export default function AdminAttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getAdminAttendance({
-        userId: user.id,
-        today: todayOnly,
-      });
-      setRecords(data.attendance || []);
+      const [data, warehouse] = await Promise.all([
+        getAdminAttendance({
+          userId: user.id,
+          today: todayOnly,
+        }),
+        getWarehouseProfiles().catch(() => []),
+      ]);
+      const warehouseIds = new Set(warehouse.map((row) => row._id));
+      setRecords(
+        (data.attendance || []).filter((row) =>
+          warehouseIds.has(attendanceRecordUserId(row.sales)),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load attendance");
     } finally {
@@ -75,7 +85,7 @@ export default function AdminAttendancePage() {
     <div>
       <PageHeader
         title="Attendance"
-        subtitle="Salesman check-in and check-out times (super admin only)."
+        subtitle="Warehouse user and warehouse manager check-in and check-out times (super admin only)."
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
             Refresh
@@ -114,7 +124,7 @@ export default function AdminAttendancePage() {
         <div className="space-y-2">
           {records.map((row) => (
             <Card key={row._id} className="p-4">
-              <p className="font-semibold text-slate-900">{salesName(row)}</p>
+              <p className="font-semibold text-slate-900">{staffName(row)}</p>
               <p className="mt-2 text-sm text-slate-700">
                 Check in: {fmtDateTime(row.checkInAt)}
               </p>

@@ -97,6 +97,15 @@ export type SalesAccountDashboard = {
   }>;
 };
 
+export type VisaExpiryPerson = {
+  id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  source?: "employee" | "user" | string;
+  expiryDate?: string;
+};
+
 export type AdminKpiDashboard = {
   now: { date: string; time: string; timezone: string };
   companyKey: string | null;
@@ -144,8 +153,11 @@ export type AdminKpiDashboard = {
     year: number;
     month: number;
   };
-  mulkiyaExpiry: { count: number; vehicles: unknown[] };
-  visaExpiry: { count: number; employees: unknown[]; users: unknown[] };
+  visaExpiry: {
+    count: number;
+    employees: VisaExpiryPerson[];
+    users: VisaExpiryPerson[];
+  };
 };
 
 export async function getSalesAccountDashboard(
@@ -312,9 +324,13 @@ export async function getSalesAttendanceReport(
   }>(`/admin/attendance/reports/sales?${qs}`);
 }
 
-export async function getHrStaff(userId: string, companyId?: string) {
+export async function getHrStaff(
+  userId: string,
+  opts?: { companyId?: string; role?: string },
+) {
   const qs = new URLSearchParams({ userId });
-  if (companyId) qs.set("companyId", companyId);
+  if (opts?.companyId) qs.set("companyId", opts.companyId);
+  if (opts?.role) qs.set("role", opts.role);
   return request<{ staff: HrStaff[] }>(`/admin/hr?${qs}`);
 }
 
@@ -372,87 +388,6 @@ export async function addHrIncrement(
     method: "POST",
     body: JSON.stringify({ userId: adminUserId, ...payload }),
   });
-}
-
-export type FleetVehicle = {
-  _id: string;
-  plateNumber: string;
-  ownershipCompany?: string;
-  ownershipType?: string;
-  purchaseDate?: string;
-  purchasePrice?: number;
-  make?: string;
-  model?: string;
-  mulkiya?: { expiryDate?: string; gracePeriodDays?: number };
-  insurance?: { expiryDate?: string };
-  allowedUsers?: Array<{ _id: string; name?: string; email?: string }>;
-  reminders?: {
-    mulkiyaExpiringSoon?: boolean;
-    insuranceExpiringSoon?: boolean;
-  };
-};
-
-export async function getFleetVehicles(userId: string) {
-  return request<{ vehicles: FleetVehicle[] }>(
-    `/admin/fleet/vehicles?userId=${encodeURIComponent(userId)}`,
-  );
-}
-
-export async function saveFleetVehicle(
-  userId: string,
-  payload: Record<string, unknown>,
-  id?: string,
-) {
-  if (id) {
-    return request<FleetVehicle>(`/admin/fleet/vehicles/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ ...payload, userId }),
-    });
-  }
-  return request<FleetVehicle>(`/admin/fleet/vehicles`, {
-    method: "POST",
-    body: JSON.stringify({ ...payload, userId }),
-  });
-}
-
-export async function updateFleetVehicleAccess(
-  userId: string,
-  vehicleId: string,
-  allowedUsers: string[],
-) {
-  return request<FleetVehicle>(`/admin/fleet/vehicles/${vehicleId}/access`, {
-    method: "PUT",
-    body: JSON.stringify({ userId, allowedUsers }),
-  });
-}
-
-export async function addFleetExpense(
-  userId: string,
-  vehicleId: string,
-  payload: {
-    category: "tyre" | "repair" | "fuel" | "other";
-    amount: number;
-    description?: string;
-    expenseDate?: string;
-    odometer?: number;
-  },
-) {
-  return request<unknown>(`/admin/fleet/vehicles/${vehicleId}/expenses`, {
-    method: "POST",
-    body: JSON.stringify({ ...payload, userId }),
-  });
-}
-
-export async function getFleetExpenses(vehicleId: string) {
-  return request<{ expenses: unknown[] }>(
-    `/admin/fleet/vehicles/${vehicleId}/expenses`,
-  );
-}
-
-export async function getFleetReminders(userId: string) {
-  return request<{ reminders: unknown[]; defaultGracePeriodDays: number }>(
-    `/admin/fleet/reminders?userId=${encodeURIComponent(userId)}`,
-  );
 }
 
 export async function getDriverDeliveriesToday(opts: {

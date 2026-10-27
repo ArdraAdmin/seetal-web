@@ -16,6 +16,7 @@ import {
   getCompanies,
   type CompanyRecord,
 } from "@/lib/api";
+import { ProductImageField } from "@/components/ProductImage";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { salesMoney } from "@/lib/sales";
 import {
@@ -234,6 +235,16 @@ function InventoryItemDetail() {
       ) : editing && editForm ? (
         <Card>
           <form onSubmit={onSave} className="space-y-4">
+            <ProductImageField
+              itemName={editForm.itemName}
+              imagePath={product.imagePath}
+              productId={product._id}
+              onUploaded={(url) =>
+                setProduct((current) =>
+                  current ? { ...current, imagePath: url } : current,
+                )
+              }
+            />
             <ProductFields
               form={editForm}
               setForm={(next: SetStateAction<ProductFormState>) => {
@@ -264,6 +275,22 @@ function InventoryItemDetail() {
         </Card>
       ) : (
         <div className="space-y-4">
+          <Card>
+            <h2 className="mb-1 text-sm font-semibold text-ink">Product image</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Upload a finished image here, or generate one from Catalog.
+            </p>
+            <ProductImageField
+              itemName={product.itemName || ""}
+              imagePath={product.imagePath}
+              productId={product._id}
+              onUploaded={(url) =>
+                setProduct((current) =>
+                  current ? { ...current, imagePath: url } : current,
+                )
+              }
+            />
+          </Card>
           <Card>
             <h2 className="mb-4 text-sm font-semibold text-ink">
               Product details

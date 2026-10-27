@@ -17,17 +17,6 @@ import {
   SecondaryButton,
 } from "@/components/ui";
 
-function normalizeOrders(data: unknown): PendingOrder[] {
-  if (Array.isArray(data)) return data as PendingOrder[];
-  if (data && typeof data === "object") {
-    const o = data as Record<string, unknown>;
-    if (Array.isArray(o.orders)) return o.orders as PendingOrder[];
-    if (Array.isArray(o.data)) return o.data as PendingOrder[];
-    if (Array.isArray(o.results)) return o.results as PendingOrder[];
-  }
-  return [];
-}
-
 export default function PendingOrdersPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -44,8 +33,7 @@ export default function PendingOrdersPage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await getPendingOrders(user.id, p, 0);
-        setOrders(normalizeOrders(data));
+        setOrders(await getPendingOrders(user.id, p, 0));
         setPage(p);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load orders");

@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardList,
   Factory,
+  Image as ImageIcon,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -17,7 +18,7 @@ import {
   Settings,
   Store,
   Truck,
-  Users,
+  UserSquare,
   X,
   ArrowLeftRight,
 } from "lucide-react";
@@ -32,9 +33,11 @@ type NavItem = { href: string; label: string; icon: NavIcon; match?: string[] };
 
 const NAV: NavItem[] = [
   { href: "/shmp", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/shmp/hr", label: "HR & Attendance", icon: Users },
+  { href: "/shmp/hr", label: "HR", icon: UserSquare },
+  { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays },
   { href: "/shmp/stores", label: "Stores", icon: Store },
   { href: "/shmp/inventory", label: "Inventory", icon: Package },
+  { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon },
   { href: "/shmp/production", label: "Production", icon: Factory },
   { href: "/shmp/rm", label: "RM Store", icon: Boxes },
   { href: "/shmp/orders", label: "Orders & Deliveries", icon: ClipboardList },

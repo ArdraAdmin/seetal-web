@@ -110,18 +110,23 @@ async function assertWarehouseUser(token: string | null) {
 async function loadTodayOrders(
   database: Awaited<ReturnType<typeof assertWarehouseUser>>["database"],
   extra: Document,
+  options?: { allDates?: boolean },
 ) {
-  const { start, end } = warehouseWorkDayRange(
-    Date.now(),
-    await readSundayDelivery(database),
-  );
+  const dateFilter: Document = {};
+  if (!options?.allDates) {
+    const { start, end } = warehouseWorkDayRange(
+      Date.now(),
+      await readSundayDelivery(database),
+    );
+    dateFilter.date = { $gte: start, $lte: end };
+  }
   const orders = await database
     .collection("temporders")
     .find({
       status: "Pending",
       isDraft: { $ne: true },
       needsApproval: { $ne: true },
-      date: { $gte: start, $lte: end },
+      ...dateFilter,
       ...extra,
     })
     .sort({ date: -1 })
@@ -207,13 +212,14 @@ export async function buildWarehouseList(token: string | null, tag: string) {
   const { database } = await assertWarehouseUser(token);
   const extra: Document =
     tag === "daily"
-      ? { invoiceGenerated: true, firstCheck: true }
+      ? { loadCheck: true, unloaded: { $ne: true }, firstCheck: true }
       : tag === "customs"
         ? { loadCheck: { $ne: true } }
         : {};
   const { orders, storeMap, productMap, companyMap } = await loadTodayOrders(
     database,
     extra,
+    { allDates: tag === "daily" },
   );
 
   if (tag === "loading") {
@@ -277,7 +283,12 @@ export async function buildWarehouseList(token: string | null, tag: string) {
         if (qtyAv !== 0 || qtyReq <= 0) continue;
         const product = productMap.get(String(asId(line.product) || ""));
         if (!product) continue;
-        if (!reportDate && order.date) reportDate = order.date;
+        if (!reportDate) {
+          const source = order.date ? new Date(String(order.date)) : new Date();
+          if (!Number.isNaN(source.getTime())) {
+            reportDate = source.toISOString().slice(0, 10);
+          }
+        }
         const key = String(product._id);
         const ratio = Number(product.ratio) || 0;
         const storeCost = Number(line.storeCost) || 0;

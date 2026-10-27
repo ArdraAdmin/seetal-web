@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   getCategories,
   getCompanies,
+  uploadProductImage,
   type CompanyRecord,
 } from "@/lib/api";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
@@ -21,6 +22,7 @@ import {
   type ShmpInventoryProduct,
   type ShmpStore,
 } from "@/lib/shmp-api";
+import { ProductImageField, ProductThumb } from "@/components/ProductImage";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -56,6 +58,7 @@ export default function ShmpInventoryPage() {
   const [addForm, setAddForm] = useState<ProductFormState>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
 
   const loadMeta = useCallback(async () => {
     setLoadingCategories(true);
@@ -121,7 +124,21 @@ export default function ShmpInventoryPage() {
     try {
       const created = await shmpCreateInventory(payload.data);
       if (created?._id) rememberOwnShmpInventoryId(created._id);
+      if (pendingImage && created?._id) {
+        try {
+          const saved = await uploadProductImage(created._id, pendingImage);
+          created.imagePath = saved.imagePath;
+        } catch (imageError) {
+          toast(
+            imageError instanceof Error
+              ? `Product saved, but the image upload failed: ${imageError.message}`
+              : "Product saved, but the image upload failed",
+            "error",
+          );
+        }
+      }
       toast("Product created", "success");
+      setPendingImage(null);
       setAddForm(blankForm(shmpCompanyId));
       setAdding(false);
       await load();
@@ -197,6 +214,10 @@ export default function ShmpInventoryPage() {
               loadingCategories={loadingCategories}
               loadingCompanies={loadingCompanies}
             />
+            <ProductImageField
+              itemName={addForm.itemName}
+              onPendingFile={setPendingImage}
+            />
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="submit" disabled={creating}>
                 {creating ? "Creating…" : "Create product"}
@@ -254,6 +275,11 @@ export default function ShmpInventoryPage() {
                 key={product._id}
                 className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
               >
+                <div className="flex min-w-0 items-start gap-3">
+                  <ProductThumb
+                    imagePath={product.imagePath}
+                    name={product.itemName || "Product"}
+                  />
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-900">
                     {product.itemName || "Unnamed"}
@@ -275,6 +301,7 @@ export default function ShmpInventoryPage() {
                       ? ` · ${profiles.length} store price${profiles.length === 1 ? "" : "s"}`
                       : " · No store prices"}
                   </p>
+                </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Link

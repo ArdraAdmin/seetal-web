@@ -132,6 +132,25 @@ export function pendingCheckRank(order: {
   return 0;
 }
 
+/** Pull the order list out of warehouse API payloads (`orderArr`, raw arrays, etc.). */
+export function ordersFromWarehousePayload(data: unknown): PendingOrder[] {
+  if (Array.isArray(data)) return data as PendingOrder[];
+  if (!data || typeof data !== "object") return [];
+  const o = data as Record<string, unknown>;
+  for (const key of [
+    "orderArr",
+    "orders",
+    "data",
+    "tempOder",
+    "tempOrder",
+    "order",
+    "results",
+  ]) {
+    if (Array.isArray(o[key])) return o[key] as PendingOrder[];
+  }
+  return [];
+}
+
 /** Pending page order: pending, then first check, then double check, then unloaded. */
 export function sortPendingWarehouseOrders<
   T extends {

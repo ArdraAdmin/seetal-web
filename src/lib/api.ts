@@ -1,4 +1,5 @@
 import { getStoredAuth } from "./auth";
+import type { ExpiryAlertRow } from "./expiry-window";
 import type {
   Driver,
   GrvLine,
@@ -41,6 +42,7 @@ import {
 } from "./sales-company";
 import {
   isSundayDeliveryEnabled,
+  ordersFromWarehousePayload,
   pendingSkipsSunday,
   setSundayDeliveryEnabled,
   sortPendingWarehouseOrders,
@@ -392,6 +394,10 @@ export const getVehicleExtrasMap = (ids: string[]) => {
     `/api/admin/vehicle/details?ids=${ids.map(encodeURIComponent).join(",")}`,
   );
 };
+export const getMulkyaAlerts = () =>
+  siteRequest<{ vehicles: ExpiryAlertRow[] }>(
+    "/api/admin/vehicle/mulkya-alerts",
+  );
 export const addVehicleMaintenance = (
   vehicleId: string,
   payload: {
@@ -667,6 +673,7 @@ export interface CompanyProduct {
   itemName?: string;
   itemRef?: string;
   company?: string;
+  imagePath?: string;
 }
 
 export interface CompanyProductsPage {
@@ -693,6 +700,7 @@ function asCompanyProduct(item: unknown): CompanyProduct | null {
     itemName: o.itemName ? String(o.itemName) : undefined,
     itemRef: o.itemRef ? String(o.itemRef) : undefined,
     company: company || undefined,
+    imagePath: typeof o.imagePath === "string" ? o.imagePath : undefined,
   };
 }
 
@@ -700,10 +708,16 @@ export async function getCompanyProducts(
   companyId: string,
   page = 1,
   limit = 500,
+  query = "",
 ): Promise<CompanyProductsPage> {
   const data = await request<unknown>("/admin/company/products", {
     method: "POST",
-    body: JSON.stringify({ companyId, page, limit }),
+    body: JSON.stringify({
+      companyId,
+      page,
+      limit,
+      q: query.trim(),
+    }),
   });
   if (Array.isArray(data)) {
     const products = data
@@ -944,6 +958,77 @@ export const updateProduct = (data: Record<string, unknown>) =>
     method: "PUT",
     body: JSON.stringify(data),
   });
+
+async function authorizedFetch(path: string, options: RequestInit) {
+  const headers = new Headers(options.headers);
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  const user = getStoredAuth();
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
+  try {
+    return await fetch(`${apiBase()}${path}`, {
+      ...options,
+      cache: "no-store",
+      headers,
+    });
+  } catch {
+    throw new ApiError(
+      "Cannot reach the STL API. The request was blocked before your credentials were checked.",
+      0,
+    );
+  }
+}
+
+export async function getCatalogTemplateStatus() {
+  return request<{ ready: boolean }>("/admin/product/image/template");
+}
+
+export async function previewCatalogImage(productId: string, file: File) {
+  const body = new FormData();
+  body.append("productId", productId);
+  body.append("image", file, file.name);
+  const res = await authorizedFetch("/admin/product/image/preview", {
+    method: "POST",
+    body,
+  });
+  if (!res.ok) {
+    const payload = await parseBody(res);
+    throw new ApiError(errorMessage(payload, `Request failed (${res.status})`), res.status);
+  }
+  return res.blob();
+}
+
+export async function uploadProductImage(
+  productId: string,
+  file: Blob,
+  filename = "product.jpg",
+) {
+  const body = new FormData();
+  body.append("productId", productId);
+  const named = file instanceof File ? file : new File([file], filename, { type: "image/jpeg" });
+  body.append("image", named, named.name);
+  return request<{ imagePath: string; imageCount: number }>(
+    "/admin/product/image",
+    { method: "POST", body },
+  );
+}
+
+export function createdProductId(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const record = data as Record<string, unknown>;
+  const result = record.result;
+  if (result && typeof result === "object" && "_id" in result) {
+    return String((result as { _id?: unknown })._id ?? "");
+  }
+  if (record._id) return String(record._id);
+  return "";
+}
 export const getCategories = () => request<unknown>("/admin/category");
 export const getMasterCategories = () =>
   request<unknown>("/admin/category/master");
@@ -995,10 +1080,12 @@ export const deleteSubCategory = (catId: string) =>
   });
 
 // —— Pending orders ——
-export const getPendingOrders = (userId: string, page = 1, tabIndex = 0) =>
-  request<PendingOrder[] | { orders?: PendingOrder[]; data?: PendingOrder[] }>(
-    `/mock/warehouse/order/pending?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
+export async function getPendingOrders(userId: string, page = 1, tabIndex = 0) {
+  const data = await request<unknown>(
+    `/warehouse/order/pending?userId=${encodeURIComponent(userId)}&page=${page}&tabIndex=${tabIndex}`,
   );
+  return ordersFromWarehousePayload(data);
+}
 
 export type WarehouseTabIndex = 0 | 1 | 2 | 3 | 4;
 
@@ -1008,21 +1095,7 @@ export interface WarehouseOrdersResult {
 }
 
 function asWarehouseOrders(data: unknown): PendingOrder[] {
-  if (Array.isArray(data)) return data as PendingOrder[];
-  if (!data || typeof data !== "object") return [];
-  const o = data as Record<string, unknown>;
-  for (const key of [
-    "orderArr",
-    "orders",
-    "data",
-    "tempOder",
-    "tempOrder",
-    "order",
-    "results",
-  ]) {
-    if (Array.isArray(o[key])) return o[key] as PendingOrder[];
-  }
-  return [];
+  return ordersFromWarehousePayload(data);
 }
 
 function asWarehouseCounts(data: unknown): WarehouseCounts | undefined {

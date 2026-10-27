@@ -3,10 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  isFreshShmpInventory,
   shmpDashboard,
+  shmpInventory,
   type ShmpDashboardSummary,
   type ShmpStaffCounts,
 } from "@/lib/shmp-api";
+import {
+  attendanceFilterHref,
+  shmpSalesCategoryRows,
+  shmpSalesTotal,
+} from "@/lib/shmp-dashboard";
 
 const emptyStaff: ShmpStaffCounts = {
   present: 0,
@@ -36,6 +43,7 @@ type CategorySlice = {
 
 export default function ShmpDashboardPage() {
   const [data, setData] = useState<ShmpDashboardSummary | null>(null);
+  const [hasOwnInventory, setHasOwnInventory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -45,9 +53,16 @@ export default function ShmpDashboardPage() {
 
     (async () => {
       try {
-        const summary = await shmpDashboard({
-          signal: controller.signal,
-        });
+        const [summary, products] = await Promise.all([
+          shmpDashboard({
+            signal: controller.signal,
+          }),
+          shmpInventory({ ownOnly: "1", excludeStl: "1" }).catch(() => []),
+        ]);
+        const own = (Array.isArray(products) ? products : []).filter((product) =>
+          isFreshShmpInventory(product),
+        );
+        setHasOwnInventory(own.length > 0);
         setData(summary);
         setError(null);
       } catch (e) {
@@ -72,32 +87,17 @@ export default function ShmpDashboardPage() {
   }, []);
 
   const staffToday = data?.staffToday || emptyStaff;
-  const staffMtd = data?.staffMtd || data?.staff || emptyStaff;
-  const ready = data?.productionReady || [];
   const byCat = useMemo(() => {
-    const rows =
-      data?.salesValueByCategory?.length
-        ? data.salesValueByCategory
-        : data?.deliveryValueByCategory || [];
-    const grouped = new Map<string, number>();
-    for (const row of rows) {
-      const raw =
-        row.categoryName || (row._id ? String(row._id) : "Uncategorised");
-      const label = raw.split(" — ")[0].trim() || "Uncategorised";
-      const value = Number(row.value) || 0;
-      if (value <= 0) continue;
-      grouped.set(label, (grouped.get(label) || 0) + value);
-    }
-    return [...grouped.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, value], i) => ({
-        key: label,
-        label,
-        value,
-        color: PIE_COLORS[i % PIE_COLORS.length],
-      }));
-  }, [data]);
-  const totalSales = byCat.reduce((sum, row) => sum + row.value, 0);
+    const rows = shmpSalesCategoryRows(
+      data?.salesValueByCategory,
+      hasOwnInventory,
+    );
+    return rows.map((row, i) => ({
+      ...row,
+      color: PIE_COLORS[i % PIE_COLORS.length],
+    }));
+  }, [data, hasOwnInventory]);
+  const totalSales = shmpSalesTotal(byCat);
   const onHoliday = (staffToday.leave || 0) + (staffToday.holiday || 0);
   const rangeLabel =
     data?.from && data?.to
@@ -130,15 +130,22 @@ export default function ShmpDashboardPage() {
             <Metric
               label="Present today"
               value={String(staffToday.present || 0)}
+              href={attendanceFilterHref("present")}
             />
             <Metric
               label="Absent today"
               value={String(staffToday.absent || 0)}
+              href={attendanceFilterHref("absent")}
             />
-            <Metric label="On holiday today" value={String(onHoliday)} />
+            <Metric
+              label="On holiday today"
+              value={String(onHoliday)}
+              href={attendanceFilterHref("leave")}
+            />
             <Metric
               label="Cartons ready for delivery"
               value={String(Number(data?.totalReadyQty) || 0)}
+              href="/shmp/production"
             />
           </div>
 
@@ -149,16 +156,19 @@ export default function ShmpDashboardPage() {
                   Sales value by category
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Confirmed order value, grouped by product category.
+                  Confirmed SHMP production sales only. Existing SHMP-labelled
+                  catalogue stock is Sarvah inventory and is not counted.
                 </p>
               </div>
               <p className="text-lg font-semibold text-ink">
-                {formatMoney(totalSales || Number(data?.totalSalesValue) || 0)}
+                {formatMoney(totalSales)}
               </p>
             </div>
             {byCat.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">
-                No confirmed sales in this range.
+                {hasOwnInventory
+                  ? "No confirmed SHMP production sales in this range."
+                  : "No SHMP production inventory yet, so there are no SHMP sales to show."}
               </p>
             ) : (
               <div className="mt-5 grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
@@ -185,68 +195,6 @@ export default function ShmpDashboardPage() {
               </div>
             )}
           </section>
-
-          <section className="rounded-2xl border border-line bg-white p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Staff month-to-date
-            </h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <MtdStat label="Present" value={staffMtd.present || 0} />
-              <MtdStat label="Absent" value={staffMtd.absent || 0} />
-              <MtdStat
-                label="On holiday"
-                value={(staffMtd.leave || 0) + (staffMtd.holiday || 0)}
-              />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-line bg-white p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Cartons ready for delivery
-              </h2>
-              <Link
-                href="/shmp/production"
-                className="text-sm font-medium text-brand-dark"
-              >
-                Open production
-              </Link>
-            </div>
-            {ready.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">Nothing ready yet.</p>
-            ) : (
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-line text-slate-500">
-                      <th className="py-2 pr-4">Order</th>
-                      <th className="py-2 pr-4">Product</th>
-                      <th className="py-2 pr-4">Produced</th>
-                      <th className="py-2 pr-4">Delivered</th>
-                      <th className="py-2">Ready</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ready.slice(0, 20).map((r, i) => (
-                      <tr key={i} className="border-b border-line/60">
-                        <td className="py-2 pr-4">
-                          {String(r.invoiceNo || r.orderId || "")}
-                        </td>
-                        <td className="py-2 pr-4">
-                          {r.productName ||
-                            r.itemRef ||
-                            String(r.productId || "")}
-                        </td>
-                        <td className="py-2 pr-4">{String(r.produced)}</td>
-                        <td className="py-2 pr-4">{String(r.delivered)}</td>
-                        <td className="py-2 font-medium">{String(r.ready)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
         </>
       )}
     </div>
@@ -260,14 +208,14 @@ function CategoryPie({ slices }: { slices: CategorySlice[] }) {
   const cx = 110;
   const cy = 110;
   const r = 96;
-  let angle = 0;
-  const paths = slices.map((slice) => {
+  const paths = slices.reduce<
+    Array<CategorySlice & { start: number; end: number; sweep: number }>
+  >((acc, slice) => {
+    const start = acc.length ? acc[acc.length - 1].end : 0;
     const sweep = (slice.value / total) * 360;
-    const start = angle;
-    const end = angle + sweep;
-    angle = end;
-    return { ...slice, start, end, sweep };
-  });
+    acc.push({ ...slice, start, end: start + sweep, sweep });
+    return acc;
+  }, []);
 
   return (
     <svg
@@ -329,23 +277,25 @@ function polar(cx: number, cy: number, r: number, angle: number) {
   return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href: string;
+}) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-4">
+    <Link
+      href={href}
+      className="rounded-2xl border border-line bg-white p-4 transition hover:bg-[#f7f5f0]"
+    >
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </p>
       <p className="mt-2 text-2xl font-bold text-ink">{value}</p>
-    </div>
-  );
-}
-
-function MtdStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-ink">{value}</p>
-    </div>
+    </Link>
   );
 }
 

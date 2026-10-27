@@ -12,18 +12,21 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import { getWarehouseProfiles } from "@/lib/api";
+import { isStlHrRole, warehouseStaffLabel } from "@/lib/hr-scope";
+import { warehouseField } from "@/lib/profiles";
 import { salesMoney } from "@/lib/sales";
+import { isExpiringWithinDays } from "@/lib/expiry-window";
 import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
 
 function visaSoon(expiry?: string) {
-  if (!expiry) return false;
-  const t = new Date(expiry).getTime();
-  return Number.isFinite(t) && t - Date.now() < 60 * 24 * 3600 * 1000;
+  return isExpiringWithinDays(expiry);
 }
 
 export default function AdminHrPage() {
   const { user } = useAuth();
   const [staff, setStaff] = useState<HrStaff[]>([]);
+  const [managerIds, setManagerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -33,13 +36,24 @@ export default function AdminHrPage() {
     setLoading(true);
     setError(null);
     try {
-      setStaff((await getHrStaff(user.id)).staff || []);
+      const [hr, warehouse] = await Promise.all([
+        getHrStaff(user.id, { role: "Warehouse" }),
+        getWarehouseProfiles().catch(() => []),
+      ]);
+      setStaff((hr.staff || []).filter((row) => isStlHrRole(row.role)));
+      setManagerIds(
+        new Set(
+          warehouse
+            .filter((row) => warehouseField(row).isSuperManager)
+            .map((row) => row._id),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load staff");
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user]);
 
   useEffect(() => {
     void load();
@@ -47,14 +61,16 @@ export default function AdminHrPage() {
 
   const term = q.trim().toLowerCase();
   const rows = term
-    ? staff.filter((s) => `${s.name} ${s.email} ${s.role}`.toLowerCase().includes(term))
+    ? staff.filter((s) =>
+        `${s.name} ${s.email} ${warehouseStaffLabel(managerIds.has(s.id))}`.toLowerCase().includes(term),
+      )
     : staff;
 
   return (
     <div>
       <PageHeader
         title="HR"
-        subtitle="Staff visa, salary and increment records."
+        subtitle="Warehouse user and warehouse manager visa, salary and increment records."
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
             Refresh
@@ -69,7 +85,7 @@ export default function AdminHrPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No staff found" />
+        <EmptyState title="No warehouse staff found" />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="w-full text-left text-sm">
@@ -91,7 +107,9 @@ export default function AdminHrPage() {
                     <p className="font-medium">{s.name}</p>
                     <p className="text-xs text-slate-500">{s.email}</p>
                   </td>
-                  <td className="px-4 py-2">{s.role}</td>
+                  <td className="px-4 py-2">
+                    {warehouseStaffLabel(managerIds.has(s.id))}
+                  </td>
                   <td className="px-4 py-2">{fmtDateOnly(s.joiningDate)}</td>
                   <td className="px-4 py-2 text-right">{s.yearsOfService ?? "-"}</td>
                   <td

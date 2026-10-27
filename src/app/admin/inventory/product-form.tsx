@@ -6,6 +6,8 @@ import {
   addProductManual,
   checkProductsByItemRefs,
   companyLabel,
+  createdProductId,
+  uploadProductImage,
   existingItemLabel,
   getCategories,
   getCompanies,
@@ -16,6 +18,7 @@ import {
 import type { Product } from "@/lib/types";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useToast } from "@/components/Toast";
+import { ProductImageField } from "@/components/ProductImage";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
 
 const COMPANY_ORDER = ["SH Lakshmi", "SHMP", "Sarvah", "STL"] as const;
@@ -226,6 +229,8 @@ export function ProductForm({
   const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [existsError, setExistsError] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePath, setImagePath] = useState<unknown>(product?.imagePath);
 
   useEffect(() => {
     let cancelled = false;
@@ -358,10 +363,26 @@ export function ProductForm({
       if (editing) {
         await updateProduct(payload);
         toast("Product updated", "success");
-      } else {
-        await addProductManual(payload);
-        toast("Product added", "success");
+        router.push("/admin/inventory");
+        return;
       }
+      const created = await addProductManual(payload);
+      const createdId = createdProductId(created);
+      if (pendingImage && createdId) {
+        try {
+          await uploadProductImage(createdId, pendingImage);
+        } catch (imageError) {
+          toast(
+            imageError instanceof Error
+              ? `Product saved, but the image upload failed: ${imageError.message}`
+              : "Product saved, but the image upload failed",
+            "error",
+          );
+          router.push(`/admin/inventory/${createdId}/edit`);
+          return;
+        }
+      }
+      toast("Product added", "success");
       router.push("/admin/inventory");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Save failed";
@@ -517,6 +538,13 @@ export function ProductForm({
           />
           Display in catalog
         </label>
+        <ProductImageField
+          itemName={form.itemName}
+          imagePath={imagePath}
+          productId={editing ? product?._id : undefined}
+          onUploaded={setImagePath}
+          onPendingFile={setPendingImage}
+        />
         <div className="flex items-end gap-2 sm:col-span-2">
           <PrimaryButton type="submit" disabled={saving}>
             {saving ? "Saving…" : editing ? "Save changes" : "Add product"}

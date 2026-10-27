@@ -71,7 +71,6 @@ export default function ShmpReportsPage() {
             <option value="monthly_production">Monthly production</option>
             <option value="daily_delivery">Daily delivery</option>
             <option value="monthly_attendance">Monthly attendance</option>
-            <option value="fleet_expiry">Fleet expiry</option>
           </select>
           <input
             className="min-w-[240px] flex-1 rounded-xl border border-line px-3 py-2 text-sm"

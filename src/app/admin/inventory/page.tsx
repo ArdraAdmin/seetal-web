@@ -11,6 +11,7 @@ import {
 import type { Product } from "@/lib/types";
 import { salesMoney } from "@/lib/sales";
 import { useAuth } from "@/components/AuthProvider";
+import { ProductThumb } from "@/components/ProductImage";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -196,6 +197,11 @@ export default function InventoryPage() {
               key={p._id}
               className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
             >
+              <div className="flex min-w-0 items-start gap-3">
+                <ProductThumb
+                  imagePath={p.imagePath}
+                  name={p.itemName || "Product"}
+                />
               <div className="min-w-0">
                 <p className="font-semibold text-slate-900">
                   {p.itemName || "Unnamed"}
@@ -209,6 +215,7 @@ export default function InventoryPage() {
                   {p.inQty?.amountInUnits ?? 0} units
                   {p.isDisplay === false ? " · Hidden" : ""}
                 </p>
+              </div>
               </div>
               <div className="flex gap-2">
                 <Link
