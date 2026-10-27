@@ -10,6 +10,7 @@ import {
   getProduct,
   loadSalesInventoryUiPage,
   localSalesInventoryPage,
+  localShmpStoreCatalog,
   SALES_INVENTORY_PAGE_SIZE,
   syncSalesInventory,
 } from "@/lib/api";
@@ -51,9 +52,9 @@ import {
   ensureLocationForOrders,
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
+import { loadSalesWorkspace } from "@/lib/sales-selected-company";
 
-function categoriesFromCatalog(): CategoryGroup[] {
-  const products = catalogForAccess(loadSalesCompanyAccess()) || [];
+function categoriesFromProducts(products: Product[]): CategoryGroup[] {
   const groups = new Map<string, CategoryGroup>();
   for (const product of products) {
     const category =
@@ -88,6 +89,14 @@ function categoriesFromCatalog(): CategoryGroup[] {
     groups.set(name, current);
   }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function categoriesFromCatalog(storeId = ""): CategoryGroup[] {
+  const products =
+    localShmpStoreCatalog(storeId) ||
+    catalogForAccess(loadSalesCompanyAccess()) ||
+    [];
+  return categoriesFromProducts(products);
 }
 
 export default function SalesStoreProductsPage() {
@@ -142,7 +151,7 @@ export default function SalesStoreProductsPage() {
       if (!user?.id || !storeId) return;
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
-      const local = localSalesInventoryPage(nextPage, tag, cat, sub);
+      const local = localSalesInventoryPage(nextPage, tag, cat, sub, storeId);
       if (local) {
         if (gen !== loadGen.current) return;
         setProducts(local.products);
@@ -151,6 +160,8 @@ export default function SalesStoreProductsPage() {
         setAppliedQuery(tag);
         setError(null);
         setLoading(false);
+        const shmpGroups = categoriesFromCatalog(storeId);
+        if (shmpGroups.length > 0) setCategories(shmpGroups);
         return;
       }
       setLoading(true);
@@ -172,6 +183,8 @@ export default function SalesStoreProductsPage() {
         setHasNext(data.hasNext);
         setPage(nextPage);
         setAppliedQuery(tag);
+        const shmpGroups = categoriesFromCatalog(storeId);
+        if (shmpGroups.length > 0) setCategories(shmpGroups);
       } catch (e) {
         if (gen !== loadGen.current) return;
         setError(e instanceof Error ? e.message : "Failed to load products");
@@ -196,6 +209,7 @@ export default function SalesStoreProductsPage() {
   }, [load]);
 
   useEffect(() => {
+    if (loadSalesWorkspace() === "shmp") return;
     void getCategories()
       .then((data) => {
         const groups = parseCategoryGroups(data);
@@ -203,10 +217,10 @@ export default function SalesStoreProductsPage() {
           setCategories(groups);
           return;
         }
-        setCategories(categoriesFromCatalog());
+        setCategories(categoriesFromCatalog(storeId));
       })
-      .catch(() => setCategories(categoriesFromCatalog()));
-  }, []);
+      .catch(() => setCategories(categoriesFromCatalog(storeId)));
+  }, [storeId]);
 
   function applySearch() {
     void load(1, query.trim());
@@ -347,7 +361,9 @@ export default function SalesStoreProductsPage() {
         <p className="text-sm text-slate-500">
           {appliedQuery
             ? `No items matched “${appliedQuery}”.`
-            : "No products for this store."}
+            : loadSalesWorkspace() === "shmp"
+              ? "No SHMP products are assigned to this store."
+              : "No products for this store."}
         </p>
       ) : (
         <>

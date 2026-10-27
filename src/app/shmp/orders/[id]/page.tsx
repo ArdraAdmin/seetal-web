@@ -5,16 +5,18 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   shmpAssignOrderItem,
-  shmpCreateDelivery,
   shmpEmployees,
-  shmpMarkOrderItemDone,
   shmpOrderDetail,
   shmpShifts,
-  shmpStartOrder,
   type ShmpOrderProgress,
 } from "@/lib/shmp-api";
 import { getCompanies } from "@/lib/api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
+import {
+  currentShift,
+  shiftLabel,
+  type ShiftWindow,
+} from "@/lib/shmp-shift";
 
 type AssignedWorker = {
   employee?: string | { _id?: string; name?: string };
@@ -41,6 +43,9 @@ type OrderDetail = {
   progress?: ShmpOrderProgress;
 };
 
+type WorkerOption = { _id: string; name?: string };
+type ShiftOption = ShiftWindow & { _id: string; name: string };
+
 function companyIdOf(value: unknown) {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -57,6 +62,29 @@ function workerName(row: AssignedWorker) {
   return emp.name || emp._id || "Worker";
 }
 
+function remainingCartons(line: DetailLine) {
+  const remaining = Number(line.remainingProduction);
+  if (Number.isFinite(remaining) && remaining >= 0) return remaining;
+  return Math.max(0, Number(line.ordered || 0) - Number(line.produced || 0));
+}
+
+function asShiftList(value: unknown): ShiftOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((row): row is ShiftOption => {
+    if (!row || typeof row !== "object") return false;
+    const shift = row as ShiftOption;
+    return Boolean(shift._id && shift.startTime && shift.endTime);
+  });
+}
+
+function asWorkerList(value: unknown): WorkerOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((row): row is WorkerOption => {
+    if (!row || typeof row !== "object") return false;
+    return Boolean((row as WorkerOption)._id);
+  });
+}
+
 export default function ShmpOrderDetailPage() {
   const params = useParams();
   const orderId = String(params?.id || "");
@@ -64,21 +92,15 @@ export default function ShmpOrderDetailPage() {
   const [companyId, setCompanyId] = useState("");
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [productId, setProductId] = useState("");
-  const [qty, setQty] = useState("1");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [workers, setWorkers] = useState<Array<{ _id: string; name?: string }>>(
-    [],
+  const [workers, setWorkers] = useState<WorkerOption[]>([]);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
+  const [workerByProduct, setWorkerByProduct] = useState<Record<string, string>>(
+    {},
   );
-  const [shifts, setShifts] = useState<Array<{ _id: string; name: string }>>(
-    [],
-  );
-  const [shiftId, setShiftId] = useState("");
-  const [assignProductId, setAssignProductId] = useState("");
-  const [assignWorkerId, setAssignWorkerId] = useState("");
-  const [assignCartons, setAssignCartons] = useState("1");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const activeShift = currentShift(shifts);
 
   async function ensureCompany() {
     if (companyId) return companyId;
@@ -94,11 +116,6 @@ export default function ShmpOrderDetailPage() {
     try {
       const d = (await shmpOrderDetail(orderId)) as OrderDetail;
       setDetail(d);
-      const first = d.lines?.[0]?.product?._id;
-      if (first) {
-        setProductId(first);
-        setAssignProductId(first);
-      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Detail failed");
@@ -112,55 +129,51 @@ export default function ShmpOrderDetailPage() {
       try {
         const cid = await ensureCompany();
         const [emps, sh] = await Promise.all([
-          shmpEmployees(cid || undefined) as Promise<
-            Array<{ _id: string; name?: string }>
-          >,
-          shmpShifts(cid || undefined) as Promise<
-            Array<{ _id: string; name: string }>
-          >,
+          shmpEmployees(cid || undefined),
+          shmpShifts(cid || undefined),
         ]);
-        setWorkers(Array.isArray(emps) ? emps : []);
-        setShifts(Array.isArray(sh) ? sh : []);
-        if (sh[0]) setShiftId(sh[0]._id);
+        setWorkers(asWorkerList(emps));
+        setShifts(asShiftList(sh));
       } catch {
-        /* optional */
+        /* workers/shifts are required to assign; detail can still load */
       }
       await loadDetail();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  async function startProcessing() {
-    if (!orderId) return;
-    setBusy(true);
-    try {
-      await shmpStartOrder(orderId);
-      await loadDetail();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start order");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function assignItem(e: FormEvent) {
+  async function assignItem(e: FormEvent, productId: string) {
     e.preventDefault();
-    if (!orderId || !assignProductId || !assignWorkerId) return;
+    const workerId = workerByProduct[productId];
+    const line = (detail?.lines || []).find(
+      (row) => String(row.product?._id || "") === productId,
+    );
+    const cartonQty = line ? remainingCartons(line) : 0;
+    if (!orderId || !productId || !workerId) return;
+    if (!activeShift?._id) {
+      setError("No shift is active for the current time.");
+      return;
+    }
+    if (cartonQty <= 0) {
+      setError("This item has no remaining cartons to assign.");
+      return;
+    }
     setBusy(true);
     try {
       const cid =
         companyIdOf(detail?.order?.company) || (await ensureCompany());
-      await shmpAssignOrderItem(orderId, assignProductId, {
+      await shmpAssignOrderItem(orderId, productId, {
         workers: [
           {
-            employeeId: assignWorkerId,
-            cartonQty: Number(assignCartons) || 1,
+            employeeId: workerId,
+            cartonQty,
             designation: "Operator",
           },
         ],
-        shiftId: shiftId || undefined,
+        shiftId: activeShift._id,
         companyId: cid || undefined,
       });
+      setWorkerByProduct((current) => ({ ...current, [productId]: "" }));
       await loadDetail();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assign failed");
@@ -169,85 +182,35 @@ export default function ShmpOrderDetailPage() {
     }
   }
 
-  async function markDone(productIdValue: string) {
-    if (!orderId) return;
-    setBusy(true);
-    try {
-      await shmpMarkOrderItemDone(orderId, productIdValue);
-      await loadDetail();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not mark Done");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onDeliver(e: FormEvent) {
-    e.preventDefault();
-    const cid = companyId || (await ensureCompany());
-    if (!cid || !orderId || !productId) return;
-    try {
-      await shmpCreateDelivery({
-        companyId: cid,
-        tempOrderId: orderId,
-        lines: [
-          {
-            productId,
-            qty: Number(qty),
-            unitPrice: unitPrice ? Number(unitPrice) : undefined,
-          },
-        ],
-      });
-      await loadDetail();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delivery failed");
-    }
-  }
-
   const orderProgress = useMemo(() => {
     return detail?.progress || { totalItems: 0, doneItems: 0, progressPct: 0 };
   }, [detail]);
 
-  const invoice =
-    detail?.order?.tempOrderInvoiceNo || orderId || "Order";
+  const invoice = detail?.order?.tempOrderInvoiceNo || orderId || "Order";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Link
-            href="/shmp/orders"
-            className="text-sm font-medium text-brand-dark hover:underline"
-          >
-            ← All orders
-          </Link>
-          <h1 className="mt-2 text-2xl font-bold text-ink">{invoice}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {detail?.order?.status
-              ? `Status: ${detail.order.status}`
-              : "Assign workers, mark items done, and confirm deliveries."}
-            {detail
-              ? ` · ${Number(orderProgress.doneItems || 0)} / ${Number(orderProgress.totalItems || 0)} items · ${Number(orderProgress.progressPct || 0)}%`
-              : null}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void startProcessing()}
-            className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
-          >
-            Start processing
-          </button>
-          <button
-            type="button"
-            onClick={() => void loadDetail()}
-            className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"
-          >
-            Refresh
-          </button>
-        </div>
+      <div>
+        <Link
+          href="/shmp/orders"
+          className="text-sm font-medium text-brand-dark hover:underline"
+        >
+          ← All orders
+        </Link>
+        <h1 className="mt-2 text-2xl font-bold text-ink">{invoice}</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          {detail?.order?.status ? `Status: ${detail.order.status}` : "Order"}
+          {detail
+            ? ` · ${Number(orderProgress.doneItems || 0)} / ${Number(orderProgress.totalItems || 0)} items · ${Number(orderProgress.progressPct || 0)}%`
+            : null}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          {activeShift
+            ? `Current shift: ${shiftLabel(activeShift)}`
+            : loading
+              ? ""
+              : "No shift matches the current time."}
+        </p>
       </div>
 
       {error ? (
@@ -259,180 +222,104 @@ export default function ShmpOrderDetailPage() {
       {loading && !detail ? (
         <p className="text-sm text-slate-500">Loading order…</p>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-line bg-white p-5">
-            <h2 className="font-semibold">Order items</h2>
-            <div className="mt-3 space-y-3">
-              {(detail?.lines || []).map((line) => {
-                const pid = String(line.product?._id || "");
-                const status = String(line.productionStatus || "Pending");
-                const ordered = Number(line.ordered || 0);
-                return (
-                  <div
-                    key={pid || line.product?.itemRef}
-                    className="rounded-xl border border-line/60 p-3 text-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-ink">
-                          {line.product?.itemName || "Item"}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {line.product?.itemRef || pid} · {ordered} cartons
-                          ordered
-                        </p>
-                      </div>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          status === "Done"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : status === "Assigned"
-                              ? "bg-amber-50 text-amber-800"
-                              : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {status}
-                      </span>
-                    </div>
-                    {(line.assignedWorkers || []).length ? (
-                      <ul className="mt-2 space-y-1 text-xs text-slate-600">
-                        {(line.assignedWorkers || []).map((w, i) => (
-                          <li key={`${pid}-${i}`}>
-                            {workerName(w)} · {Number(w.cartonQty || 0)} cartons
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-xs text-slate-500">
-                        No workers assigned yet
+        <div className="rounded-2xl border border-line bg-white p-5">
+          <h2 className="font-semibold">Order items</h2>
+          <div className="mt-3 space-y-3">
+            {(detail?.lines || []).map((line) => {
+              const pid = String(line.product?._id || "");
+              const status = String(line.productionStatus || "Pending");
+              const ordered = Number(line.ordered || 0);
+              const remaining = remainingCartons(line);
+              const done = status === "Done" || remaining <= 0;
+              return (
+                <div
+                  key={pid || line.product?.itemRef}
+                  className="rounded-xl border border-line/60 p-3 text-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-ink">
+                        {line.product?.itemName || "Item"}
                       </p>
-                    )}
-                    {status !== "Done" && pid ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void markDone(pid)}
-                        className="mt-2 rounded-lg border border-line px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60"
-                      >
-                        Mark Done
-                      </button>
-                    ) : null}
+                      <p className="text-xs text-slate-500">
+                        {line.product?.itemRef || pid} · {ordered} cartons
+                        ordered
+                        {remaining !== ordered
+                          ? ` · ${remaining} remaining`
+                          : null}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        status === "Done"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : status === "Assigned"
+                            ? "bg-amber-50 text-amber-800"
+                            : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {status}
+                    </span>
                   </div>
-                );
-              })}
-              {!detail?.lines?.length ? (
-                <p className="text-sm text-slate-500">No items on this order.</p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <form
-              onSubmit={assignItem}
-              className="space-y-2 rounded-2xl border border-line bg-white p-5"
-            >
-              <h2 className="font-semibold">Assign worker to item</h2>
-              <p className="text-xs text-slate-500">
-                Assignment is logged as carton production for the worker.
+                  {(line.assignedWorkers || []).length ? (
+                    <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                      {(line.assignedWorkers || []).map((w, i) => (
+                        <li key={`${pid}-${i}`}>
+                          {workerName(w)} · {Number(w.cartonQty || 0)} cartons
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      No workers assigned yet
+                    </p>
+                  )}
+                  {!done && pid ? (
+                    <form
+                      onSubmit={(e) => void assignItem(e, pid)}
+                      className="mt-3 flex flex-wrap items-end gap-2"
+                    >
+                      <label className="min-w-[12rem] flex-1">
+                        <span className="sr-only">Worker</span>
+                        <select
+                          className="w-full rounded-xl border border-line px-3 py-2 text-sm"
+                          value={workerByProduct[pid] || ""}
+                          onChange={(e) =>
+                            setWorkerByProduct((current) => ({
+                              ...current,
+                              [pid]: e.target.value,
+                            }))
+                          }
+                          required
+                        >
+                          <option value="">Assign worker</option>
+                          {workers.map((w) => (
+                            <option key={w._id} value={w._id}>
+                              {w.name || w._id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="submit"
+                        className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                        disabled={busy || !workerByProduct[pid] || !activeShift}
+                      >
+                        Assign
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              );
+            })}
+            {!detail?.lines?.length ? (
+              <p className="text-sm text-slate-500">No items on this order.</p>
+            ) : null}
+            {!workers.length && detail?.lines?.length ? (
+              <p className="text-sm text-slate-500">
+                No workers are available to assign.
               </p>
-              <select
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                value={assignProductId}
-                onChange={(e) => setAssignProductId(e.target.value)}
-              >
-                <option value="">Select item</option>
-                {(detail?.lines || []).map((line) => {
-                  const pid = String(line.product?._id || "");
-                  if (!pid || line.productionStatus === "Done") return null;
-                  return (
-                    <option key={pid} value={pid}>
-                      {line.product?.itemName || pid}
-                    </option>
-                  );
-                })}
-              </select>
-              <select
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                value={assignWorkerId}
-                onChange={(e) => setAssignWorkerId(e.target.value)}
-              >
-                <option value="">Worker</option>
-                {workers.map((w) => (
-                  <option key={w._id} value={w._id}>
-                    {w.name || w._id}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                value={shiftId}
-                onChange={(e) => setShiftId(e.target.value)}
-              >
-                <option value="">Shift (optional if only one)</option>
-                {shifts.map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                type="number"
-                min={1}
-                step={1}
-                placeholder="Cartons assigned"
-                value={assignCartons}
-                onChange={(e) => setAssignCartons(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                disabled={busy}
-              >
-                Assign & log cartons
-              </button>
-            </form>
-
-            <form
-              onSubmit={onDeliver}
-              className="space-y-2 rounded-2xl border border-line bg-white p-5"
-            >
-              <h2 className="font-semibold">Partial delivery</h2>
-              <select
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                value={productId}
-                onChange={(e) => setProductId(e.target.value)}
-              >
-                <option value="">Select item</option>
-                {(detail?.lines || []).map((line) => {
-                  const pid = String(line.product?._id || "");
-                  if (!pid) return null;
-                  return (
-                    <option key={pid} value={pid}>
-                      {line.product?.itemName || pid}
-                    </option>
-                  );
-                })}
-              </select>
-              <input
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                placeholder="Qty (cartons)"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-              />
-              <input
-                className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-                placeholder="Unit price (optional)"
-                value={unitPrice}
-                onChange={(e) => setUnitPrice(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold"
-              >
-                Confirm delivery
-              </button>
-            </form>
+            ) : null}
           </div>
         </div>
       )}

@@ -54,7 +54,7 @@ export function SalesOrderProductPicker({
       if (!user?.id || !storeId) return;
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
-      const local = localSalesInventoryPage(nextPage, tag);
+      const local = localSalesInventoryPage(nextPage, tag, "", "", storeId);
       if (local) {
         if (gen !== loadGen.current) return;
         setProducts(local.products);

@@ -100,7 +100,7 @@ export default function ShmpOrdersPage() {
                 </li>
               );
             })}
-            {!orders.length ? (
+            {!orders.length && !error ? (
               <li className="text-slate-500">No SHMP orders yet.</li>
             ) : null}
           </ul>

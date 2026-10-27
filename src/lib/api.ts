@@ -58,6 +58,7 @@ import {
   saveSelectedSalesCompany,
   type SalesCompanyKey,
 } from "./sales-selected-company";
+import { filterShmpSalesInventory } from "./shmp-sales-inventory";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -2247,7 +2248,11 @@ export async function selectSalesCompany(
   const access = accessFromSelectedCompany(resolved);
   const catalogKey = accessKey(access);
   const existing = loadCachedCatalog();
-  if (existing?.accessKey === catalogKey && existing.products.length > 0) {
+  if (
+    key !== "shmp" &&
+    existing?.accessKey === catalogKey &&
+    existing.products.length > 0
+  ) {
     saveSalesCompanyAccess(access);
     saveSelectedSalesCompany(resolved);
     if (!options?.keepWorkspace) saveSalesWorkspace(key);
@@ -2259,9 +2264,12 @@ export async function selectSalesCompany(
   resetCompanyInventoryMemory();
   dropSalesCatalogCache();
   saveSalesCompanyAccess(access);
-  const firstPage = prefetchCompanyInventoryPage(resolved.id, 1);
   saveSelectedSalesCompany(resolved);
   if (!options?.keepWorkspace) saveSalesWorkspace(key);
+  if (key === "shmp") {
+    return { access, products: [] as Product[] };
+  }
+  const firstPage = prefetchCompanyInventoryPage(resolved.id, 1);
   void firstPage.finally(() => {
     queueSalesCatalogDownload(userId, access, generation);
   });
@@ -2304,12 +2312,60 @@ const companyPageCache = new Map<
   string,
   Promise<{ products: Product[]; hasNext: boolean }>
 >();
+const shmpStoreInventoryCache = new Map<string, Product[]>();
+const shmpStoreInventoryInflight = new Map<string, Promise<Product[]>>();
 
 function resetCompanyInventoryMemory() {
   companyStubCache.clear();
   companyStubInflight.clear();
   companyPageCache.clear();
   companyInventoryGate = null;
+  shmpStoreInventoryCache.clear();
+  shmpStoreInventoryInflight.clear();
+}
+
+function isShmpSalesInventory() {
+  return loadSelectedSalesCompany()?.name === "shmp";
+}
+
+function shmpStoreInventoryKey(storeId: string, companyId: string) {
+  return `${storeId}:${companyId}`;
+}
+
+async function ensureShmpStoreInventory(
+  storeId: string,
+  userId: string,
+  companyId: string,
+) {
+  const key = shmpStoreInventoryKey(storeId, companyId);
+  const cached = shmpStoreInventoryCache.get(key);
+  if (cached) return cached;
+  let pending = shmpStoreInventoryInflight.get(key);
+  if (!pending) {
+    pending = siteRequest<{ products?: Product[] }>("/api/sales/shmp-inventory", {
+      method: "POST",
+      body: JSON.stringify({ storeId, userId, companyId }),
+    })
+      .then((data) => {
+        const products = Array.isArray(data.products) ? data.products : [];
+        shmpStoreInventoryCache.set(key, products);
+        return products;
+      })
+      .finally(() => {
+        shmpStoreInventoryInflight.delete(key);
+      });
+    shmpStoreInventoryInflight.set(key, pending);
+  }
+  return pending;
+}
+
+export function localShmpStoreCatalog(storeId: string) {
+  const selected = loadSelectedSalesCompany();
+  if (selected?.name !== "shmp" || !storeId || !selected.id) return null;
+  return (
+    shmpStoreInventoryCache.get(shmpStoreInventoryKey(storeId, selected.id)) ||
+    null
+  );
 }
 
 function companyStubToProduct(row: CompanyProduct, companyId: string): Product {
@@ -2485,6 +2541,9 @@ function downloadSalesCatalogForAccess(
     if (generation !== catalogGeneration) {
       return { access, products: [] as Product[] };
     }
+    if (isShmpSalesInventory()) {
+      return { access, products: [] as Product[] };
+    }
     try {
       const assigned = await catalogFromAssignedCompanies(access).catch(
         () => [] as Product[],
@@ -2575,6 +2634,9 @@ export async function syncSalesInventory(userId: string) {
 
 async function runSalesInventorySync(userId: string) {
   const previous = loadSalesCompanyAccess();
+  if (isShmpSalesInventory()) {
+    return { access: previous, products: [] as Product[] };
+  }
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return { access: previous, products: catalogForAccess(previous) || [] };
   }
@@ -2893,7 +2955,20 @@ export function localSalesInventoryPage(
   tag: string,
   cat = "",
   subCat = "",
+  storeId = "",
 ) {
+  if (isShmpSalesInventory()) {
+    const selected = loadSelectedSalesCompany();
+    if (!storeId || !selected?.id) return null;
+    const catalog = shmpStoreInventoryCache.get(
+      shmpStoreInventoryKey(storeId, selected.id),
+    );
+    if (!catalog) return null;
+    return sliceSalesInventoryPage(
+      filterShmpSalesInventory(catalog, tag, cat, subCat),
+      uiPage,
+    );
+  }
   const catalog = catalogForAccess(loadSalesCompanyAccess());
   if (!catalog || catalog.length === 0) return null;
   if ((cat || subCat) && !catalogSupportsCategoryFilter(catalog)) return null;
@@ -2919,10 +2994,21 @@ export async function loadSalesInventoryUiPage(
   cat = "",
   subCat = "",
 ) {
-  const local = localSalesInventoryPage(uiPage, tag, cat, subCat);
+  const local = localSalesInventoryPage(uiPage, tag, cat, subCat, storeId);
   if (local) return local;
 
   const selected = loadSelectedSalesCompany();
+  if (selected?.name === "shmp" && selected.id) {
+    const products = await ensureShmpStoreInventory(
+      storeId,
+      userId,
+      selected.id,
+    );
+    return sliceSalesInventoryPage(
+      filterShmpSalesInventory(products, tag, cat, subCat),
+      uiPage,
+    );
+  }
   if (selected?.id && !cat && !subCat) {
     try {
       const needle = tag.trim().toLowerCase();

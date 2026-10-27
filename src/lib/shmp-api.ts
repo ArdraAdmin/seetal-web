@@ -282,9 +282,11 @@ export type ShmpOrderProgress = {
   remaining?: number;
 };
 
-export const shmpOrders = (params?: Record<string, string>) => {
+export const shmpOrders = async (params?: Record<string, string>) => {
   const q = new URLSearchParams(params || {});
-  return shmpRequest(`/orders?${q}`);
+  const qs = q.toString();
+  const data = await shmpRequest(qs ? `/orders?${qs}` : "/orders");
+  return Array.isArray(data) ? data : [];
 };
 
 export const shmpOrderDetail = (id: string) => shmpRequest(`/orders/${id}`);
