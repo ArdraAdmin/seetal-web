@@ -1,18 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { TextField } from "@/components/ui";
 import { shmpOrders, type ShmpOrderProgress } from "@/lib/shmp-api";
+import {
+  orderMatchesQuery,
+  orderStoreName,
+} from "@/lib/shmp-orders";
 
 type OrderRow = Record<string, unknown> & {
   _id?: string;
   tempOrderInvoiceNo?: string;
   status?: string;
+  store?: unknown;
   progress?: ShmpOrderProgress;
 };
 
 export default function ShmpOrdersPage() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,6 +39,11 @@ export default function ShmpOrdersPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  const visible = useMemo(
+    () => orders.filter((order) => orderMatchesQuery(order, query)),
+    [orders, query],
+  );
 
   return (
     <div className="space-y-6">
@@ -59,26 +71,41 @@ export default function ShmpOrdersPage() {
       ) : null}
 
       <div className="rounded-2xl border border-line bg-white p-5">
+        <div className="mb-4 max-w-md">
+          <TextField
+            label="Search orders"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Invoice or store name"
+          />
+        </div>
         {loading ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <ul className="max-h-[70vh] space-y-3 overflow-y-auto text-sm">
-            {orders.map((o) => {
+            {visible.map((o) => {
               const id = String(o._id);
               const pct = Number(o.progress?.progressPct || 0);
               const done = Number(o.progress?.doneItems || 0);
               const total = Number(o.progress?.totalItems || 0);
+              const storeName = orderStoreName(o.store);
               return (
                 <li key={id}>
                   <Link
                     href={`/shmp/orders/${id}`}
                     className="block rounded-xl border border-line/60 p-3 transition hover:border-brand hover:bg-brand/5"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-brand-dark">
-                        {String(o.tempOrderInvoiceNo || o._id)}
-                      </span>
-                      <span className="text-xs text-slate-500">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="font-medium text-brand-dark">
+                          {String(o.tempOrderInvoiceNo || o._id)}
+                        </span>
+                        <p className="mt-0.5 text-xs text-slate-600">
+                          {storeName || "Store not set"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-slate-500">
                         {String(o.status || "")}
                       </span>
                     </div>
@@ -102,6 +129,9 @@ export default function ShmpOrdersPage() {
             })}
             {!orders.length && !error ? (
               <li className="text-slate-500">No SHMP orders yet.</li>
+            ) : null}
+            {orders.length > 0 && visible.length === 0 ? (
+              <li className="text-slate-500">No orders match that search.</li>
             ) : null}
           </ul>
         )}

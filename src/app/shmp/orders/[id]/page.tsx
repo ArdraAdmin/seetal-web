@@ -6,12 +6,17 @@ import { useParams } from "next/navigation";
 import {
   shmpAssignOrderItem,
   shmpEmployees,
+  shmpMarkOrderItemDone,
   shmpOrderDetail,
   shmpShifts,
   type ShmpOrderProgress,
 } from "@/lib/shmp-api";
 import { getCompanies } from "@/lib/api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
+import {
+  canMarkOrderItemComplete,
+  isOrderItemDone,
+} from "@/lib/shmp-order-item";
 import {
   currentShift,
   shiftLabel,
@@ -98,6 +103,7 @@ export default function ShmpOrderDetailPage() {
     {},
   );
   const [busy, setBusy] = useState(false);
+  const [completingId, setCompletingId] = useState("");
   const [loading, setLoading] = useState(true);
 
   const activeShift = currentShift(shifts);
@@ -182,6 +188,22 @@ export default function ShmpOrderDetailPage() {
     }
   }
 
+  async function markComplete(productId: string) {
+    if (!orderId || !productId) return;
+    setBusy(true);
+    setCompletingId(productId);
+    try {
+      await shmpMarkOrderItemDone(orderId, productId);
+      setError(null);
+      await loadDetail();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Mark complete failed");
+    } finally {
+      setBusy(false);
+      setCompletingId("");
+    }
+  }
+
   const orderProgress = useMemo(() => {
     return detail?.progress || { totalItems: 0, doneItems: 0, progressPct: 0 };
   }, [detail]);
@@ -230,7 +252,8 @@ export default function ShmpOrderDetailPage() {
               const status = String(line.productionStatus || "Pending");
               const ordered = Number(line.ordered || 0);
               const remaining = remainingCartons(line);
-              const done = status === "Done" || remaining <= 0;
+              const done = isOrderItemDone(status) || remaining <= 0;
+              const canComplete = Boolean(pid) && canMarkOrderItemComplete(line);
               return (
                 <div
                   key={pid || line.product?.itemRef}
@@ -251,7 +274,7 @@ export default function ShmpOrderDetailPage() {
                     </div>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        status === "Done"
+                        isOrderItemDone(status)
                           ? "bg-emerald-50 text-emerald-700"
                           : status === "Assigned"
                             ? "bg-amber-50 text-amber-800"
@@ -308,6 +331,18 @@ export default function ShmpOrderDetailPage() {
                         Assign
                       </button>
                     </form>
+                  ) : null}
+                  {canComplete ? (
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                        disabled={busy}
+                        onClick={() => void markComplete(pid)}
+                      >
+                        {completingId === pid ? "Saving…" : "Mark complete"}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               );

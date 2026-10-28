@@ -1,4 +1,7 @@
 import { getStoredAuth } from "./auth";
+import type { ShmpProductionLog } from "./shmp-production";
+
+export type { ShmpProductionLog };
 
 const API_BASE =
   typeof window === "undefined"
@@ -343,14 +346,7 @@ export type ShmpProductionDashboard = {
   pendingOrders?: unknown[];
   todayCartons?: number;
   todayValue?: number;
-  byWorker?: Array<{
-    worker?: { _id?: string | null; name?: string };
-    company?: { _id?: string; name?: string } | null;
-    order?: { _id?: string; invoiceNo?: string } | null;
-    item?: { _id?: string; name?: string; itemRef?: string } | null;
-    cartonQty?: number;
-    value?: number;
-  }>;
+  byWorker?: ShmpProductionLog[];
 };
 
 export const shmpProductionLogs = (params?: Record<string, string>) => {
@@ -359,7 +355,7 @@ export const shmpProductionLogs = (params?: Record<string, string>) => {
     date?: string;
     todayCartons?: number;
     todayValue?: number;
-    logs?: ShmpProductionDashboard["byWorker"];
+    logs?: ShmpProductionLog[];
   }>(`/production/logs?${q}`);
 };
 export const shmpDeliveries = (params?: Record<string, string>) => {
