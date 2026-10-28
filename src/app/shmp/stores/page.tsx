@@ -12,6 +12,7 @@ import {
   type ShmpStore,
   type ShmpStorePerson,
 } from "@/lib/shmp-api";
+import { StoreDocumentField } from "@/components/StoreDocumentField";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -24,6 +25,7 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import { storeDocumentError } from "@/lib/store-documents";
 
 type StoreForm = {
   storeName: string;
@@ -280,57 +282,25 @@ function SalesmenPicker({
   );
 }
 
-function DocumentField({
-  label,
-  file,
-  existingUrl,
-  onChange,
-}: {
-  label: string;
-  file: File | null;
-  existingUrl?: string;
-  onChange: (file: File | null) => void;
-}) {
-  return (
-    <label className="block space-y-1.5 sm:col-span-2">
-      <FieldLabel label={label} optional />
-      <input
-        type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
-        onChange={(e) => onChange(e.target.files?.[0] || null)}
-        className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-slate-200"
-      />
-      {file ? (
-        <p className="text-xs text-slate-500">Selected: {file.name}</p>
-      ) : existingUrl ? (
-        <a
-          href={existingUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs font-medium text-brand-dark underline"
-        >
-          View current document
-        </a>
-      ) : (
-        <p className="text-xs text-slate-500">PDF or image · stored in S3</p>
-      )}
-    </label>
-  );
-}
-
 function StoreFields({
   form,
   setField,
   setFile,
   setSalesPersonIds,
   salesPeople,
+  mode,
 }: {
   form: StoreForm;
   setField: (key: keyof StoreForm, value: string) => void;
   setFile: (key: "trnDocument" | "tradeLicenseDocument", file: File | null) => void;
   setSalesPersonIds: (ids: string[]) => void;
   salesPeople: ShmpStorePerson[];
+  mode: "create" | "edit";
 }) {
+  const requireTrn =
+    mode === "create" || !String(form.existingTrnUrl ?? "").trim();
+  const requireLicenseDoc =
+    mode === "create" || !String(form.existingTradeLicenseUrl ?? "").trim();
   return (
     <>
       <TextField
@@ -382,23 +352,27 @@ function StoreFields({
         value={form.uid}
         onChange={(e) => setField("uid", e.target.value)}
       />
-      <DocumentField
+      <StoreDocumentField
         label="TRN document"
+        required={requireTrn}
         file={form.trnDocument}
         existingUrl={form.existingTrnUrl}
+        hint="PDF or image · stored in S3"
         onChange={(file) => setFile("trnDocument", file)}
       />
       <TextField
         label="Trade license expiry"
         type="datetime-local"
-        optional
+        required
         value={form.tradeLicenseExpiry}
         onChange={(e) => setField("tradeLicenseExpiry", e.target.value)}
       />
-      <DocumentField
+      <StoreDocumentField
         label="Trade license document"
+        required={requireLicenseDoc}
         file={form.tradeLicenseDocument}
         existingUrl={form.existingTradeLicenseUrl}
+        hint="PDF or image · stored in S3"
         onChange={(file) => setFile("tradeLicenseDocument", file)}
       />
       <SalesmenPicker
@@ -410,7 +384,11 @@ function StoreFields({
   );
 }
 
-function validateForm(form: StoreForm, toast: (msg: string, kind: "info") => void) {
+function validateForm(
+  form: StoreForm,
+  mode: "create" | "edit",
+  toast: (msg: string, kind: "info") => void,
+) {
   if (!form.storeName.trim()) {
     toast("Enter a store name", "info");
     return false;
@@ -429,6 +407,11 @@ function validateForm(form: StoreForm, toast: (msg: string, kind: "info") => voi
   }
   if (!form.city.trim()) {
     toast("Select a city", "info");
+    return false;
+  }
+  const documentError = storeDocumentError(form, mode);
+  if (documentError) {
+    toast(documentError, "info");
     return false;
   }
   if (form.salesPersonIds.length === 0) {
@@ -534,7 +517,7 @@ export default function ShmpStoresPage() {
   }
 
   async function onCreateStore() {
-    if (!validateForm(addForm, toast)) return;
+    if (!validateForm(addForm, "create", toast)) return;
     setCreating(true);
     try {
       await shmpCreateStore(payloadFromForm(addForm));
@@ -585,6 +568,7 @@ export default function ShmpStoresPage() {
                 setAddForm((prev) => ({ ...prev, salesPersonIds: ids }))
               }
               salesPeople={salesPeople}
+              mode="create"
             />
             <div className="flex items-end gap-2 sm:col-span-2">
               <PrimaryButton
@@ -687,7 +671,7 @@ function StoreCard({
   }
 
   async function onSave() {
-    if (!validateForm(form, toast)) return;
+    if (!validateForm(form, "edit", toast)) return;
     setSaving(true);
     try {
       await shmpUpdateStore(store._id, payloadFromForm(form));
@@ -798,6 +782,7 @@ function StoreCard({
               setForm((prev) => ({ ...prev, salesPersonIds: ids }))
             }
             salesPeople={salesPeople}
+            mode="edit"
           />
           <div className="flex items-end gap-2 sm:col-span-2">
             <PrimaryButton type="button" disabled={saving} onClick={() => void onSave()}>

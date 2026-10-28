@@ -22,6 +22,7 @@ import { ExpiryAlertDialog } from "@/components/ExpiryAlertDialog";
 import { CompanySwitcher } from "@/components/StlFeatureUi";
 import { ErrorState, SecondaryButton } from "@/components/ui";
 import type { DashboardStats } from "@/lib/api";
+import { monthlySalesHref, salesmanBreakdownHref } from "@/lib/admin-kpi";
 import {
   EXPIRY_ALERT_DAYS,
   visaAlertsFromDashboard,
@@ -125,6 +126,10 @@ export function KpiDashboard({
           : ""
       }`
     : "No sales this month";
+  const monthHref = monthlySalesHref(companyKey);
+  const topSalesmanHref = kpi?.topSalesman?.salesId
+    ? salesmanBreakdownHref(String(kpi.topSalesman.salesId), companyKey)
+    : undefined;
 
   return (
     <div className="space-y-8">
@@ -175,6 +180,7 @@ export function KpiDashboard({
                 icon={TrendingUp}
                 value={thisMonth.compact}
                 detail={thisMonth.abbreviated ? thisMonth.full : undefined}
+                href={monthHref}
               >
                 <p className="mt-3 text-xs text-slate-500">
                   vs {compactMoney(month.previous.total)} last month
@@ -201,6 +207,7 @@ export function KpiDashboard({
                   kpi.topSalesman?.name || kpi.topSalesman?.email || "—"
                 }
                 detail={salesmanHint}
+                href={topSalesmanHref}
               >
                 {kpi.topSalesman?.progress != null ? (
                   <ProgressBar
@@ -341,7 +348,7 @@ export function KpiDashboard({
         <SectionLabel>Insights</SectionLabel>
         {kpi ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title="Monthly sales">
+            <Panel title="Monthly sales" href={monthHref}>
               {month ? (
                 <ul className="mt-5 space-y-4">
                   <CompareBar
@@ -403,6 +410,14 @@ export function KpiDashboard({
                         }
                         value={compactMoney(row.delivered)}
                         pct={(row.delivered / maxSalesman) * 100}
+                        href={
+                          row.salesId
+                            ? salesmanBreakdownHref(
+                                String(row.salesId),
+                                companyKey,
+                              )
+                            : undefined
+                        }
                       />
                     ))}
                   </ol>
@@ -602,14 +617,25 @@ function Chip({ children }: { children: ReactNode }) {
 
 function Panel({
   title,
+  href,
   children,
 }: {
   title: string;
+  href?: string;
   children: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-line bg-white p-5 shadow-[0_1px_2px_rgba(14,58,50,0.04)]">
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      {href ? (
+        <Link
+          href={href}
+          className="text-sm font-semibold text-ink hover:text-brand"
+        >
+          {title}
+        </Link>
+      ) : (
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      )}
       {children}
     </section>
   );
@@ -692,15 +718,17 @@ function RankRow({
   hint,
   value,
   pct,
+  href,
 }: {
   rank: number;
   label: string;
   hint?: string;
   value: string;
   pct: number;
+  href?: string;
 }) {
-  return (
-    <li className="flex items-start gap-3">
+  const body = (
+    <>
       <span className="mt-0.5 w-5 shrink-0 text-xs tabular-nums text-slate-400">
         {rank}
       </span>
@@ -723,8 +751,21 @@ function RankRow({
           />
         </div>
       </div>
-    </li>
+    </>
   );
+  if (href) {
+    return (
+      <li>
+        <Link
+          href={href}
+          className="-mx-1 flex items-start gap-3 rounded-lg px-1 py-0.5 hover:bg-[#faf8f3]"
+        >
+          {body}
+        </Link>
+      </li>
+    );
+  }
+  return <li className="flex items-start gap-3">{body}</li>;
 }
 
 function ProgressBar({ pct, className = "" }: { pct: number; className?: string }) {

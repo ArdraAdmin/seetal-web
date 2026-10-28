@@ -2,7 +2,8 @@
  * In-memory unlock for the admin Tracking nav item.
  * Resets on full page reload (not persisted).
  */
-const UNLOCK_CLICKS = 5;
+export const UNLOCK_CLICKS = 5;
+export const SETTINGS_HREF = "/admin/settings";
 
 let settingsClicks = 0;
 let unlocked = false;
@@ -10,6 +11,10 @@ const listeners = new Set<() => void>();
 
 function notify() {
   listeners.forEach((fn) => fn());
+}
+
+export function isSettingsNavHref(href: string) {
+  return href === SETTINGS_HREF || href.startsWith(`${SETTINGS_HREF}/`);
 }
 
 export function isTrackingUnlocked() {
@@ -29,6 +34,12 @@ export function registerTrackingSettingsClick() {
   }
   notify();
   return unlocked;
+}
+
+export function resetTrackingUnlock() {
+  settingsClicks = 0;
+  unlocked = false;
+  notify();
 }
 
 export function onTrackingUnlockChange(callback: () => void) {

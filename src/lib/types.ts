@@ -72,6 +72,8 @@ export interface StoreProfile {
   trnNo?: string | number;
   contactNumber?: string;
   tradeLicenseExpiry?: string | Date | null;
+  trnDocumentUrl?: string;
+  tradeLicenseDocumentUrl?: string;
   copyCount?: number;
   [key: string]: unknown;
 }

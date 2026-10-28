@@ -38,6 +38,7 @@ import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
 import {
+  isSettingsNavHref,
   isTrackingUnlocked,
   onTrackingUnlockChange,
   registerTrackingSettingsClick,
@@ -233,7 +234,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={item.href}
                     title={item.label}
-                    onClick={() => setMobileOpen(false)}
+                    onClick={() => {
+                      if (isSettingsNavHref(item.href)) {
+                        onSettingsNavClick();
+                      } else {
+                        setMobileOpen(false);
+                      }
+                    }}
                     className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
                       collapsed ? "lg:justify-center lg:px-2" : ""
                     } ${

@@ -186,6 +186,66 @@ export async function getAdminKpiDashboard(
   return request<AdminKpiDashboard>(`/admin/dashboard?${qs}`);
 }
 
+export type AdminSalesmanBreakdown = {
+  salesman: { id: string; name?: string; email?: string };
+  year: number;
+  month: number;
+  companyKey: CompanyKey | null;
+  delivered: number;
+  target: number | null;
+  progress: number | null;
+  performance: {
+    totalDelivered: number;
+    stl: {
+      delivered: number;
+      target: number | null;
+      progress: number | null;
+    };
+    shmp: {
+      delivered: number;
+      target: number | null;
+      progress: number | null;
+    };
+  };
+  products: Array<{
+    productId: string;
+    name: string;
+    itemCode?: string;
+    revenue: number;
+    qty: number;
+  }>;
+  stores: Array<{
+    storeId: string;
+    name: string;
+    address?: string;
+    value: number;
+    orders: number;
+  }>;
+  orders: Array<{
+    orderId: string;
+    invoiceNumber?: string;
+    date?: string;
+    storeId?: string;
+    storeName?: string;
+    amount: number;
+    companyKey?: string;
+  }>;
+};
+
+export async function getAdminSalesmanBreakdown(
+  userId: string,
+  salesId: string,
+  opts?: { companyKey?: CompanyKey; year?: number; month?: number },
+) {
+  const qs = new URLSearchParams({ userId });
+  if (opts?.companyKey) qs.set("companyKey", opts.companyKey);
+  if (opts?.year) qs.set("year", String(opts.year));
+  if (opts?.month) qs.set("month", String(opts.month));
+  return request<AdminSalesmanBreakdown>(
+    `/admin/dashboard/salesman/${encodeURIComponent(salesId)}?${qs}`,
+  );
+}
+
 export async function getAdminSalesLost(
   userId: string,
   opts?: { companyKey?: CompanyKey; year?: number; month?: number },

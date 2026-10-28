@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { opsStatsFromDashboard } from "./admin-kpi.ts";
+import {
+  monthlySalesHref,
+  opsStatsFromDashboard,
+  salesmanBreakdownHref,
+} from "./admin-kpi.ts";
 import type { AdminKpiDashboard } from "./stl-features-api.ts";
 
 function kpi(
@@ -50,6 +54,14 @@ describe("opsStatsFromDashboard", () => {
       pendingApprovals: 4,
       totalInventory: 3200,
     });
+  });
+
+  it("builds dashboard drill-down hrefs", () => {
+    assert.equal(monthlySalesHref("stl"), "/admin/monthly-sales?company=stl");
+    assert.equal(
+      salesmanBreakdownHref("abc 1", "shmp"),
+      "/admin/salesmen/abc%201?company=shmp",
+    );
   });
 
   it("leaves ops tiles empty when the API has not sent counts yet", () => {

@@ -475,6 +475,8 @@ export type StoreCreateInput = {
   salesPerson?: string;
   location?: string;
   tradeLicenseExpiry?: string;
+  trnDocument?: File | null;
+  tradeLicenseDocument?: File | null;
 };
 
 export const getAdminStores = () =>

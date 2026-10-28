@@ -1,5 +1,16 @@
 import type { DashboardStats } from "./api";
-import type { AdminKpiDashboard } from "./stl-features-api";
+import type { AdminKpiDashboard, CompanyKey } from "./stl-features-api";
+
+export function monthlySalesHref(companyKey: CompanyKey) {
+  return `/admin/monthly-sales?company=${encodeURIComponent(companyKey)}`;
+}
+
+export function salesmanBreakdownHref(
+  salesId: string,
+  companyKey: CompanyKey,
+) {
+  return `/admin/salesmen/${encodeURIComponent(salesId)}?company=${encodeURIComponent(companyKey)}`;
+}
 
 export function opsStatsFromDashboard(
   kpi: AdminKpiDashboard | null,

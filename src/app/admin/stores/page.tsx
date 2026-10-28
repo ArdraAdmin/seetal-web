@@ -12,6 +12,8 @@ import {
   getSalesProfiles,
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
+import { storeDocumentError } from "@/lib/store-documents";
+import { StoreDocumentField } from "@/components/StoreDocumentField";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -39,9 +41,12 @@ type StoreForm = {
   city: string;
   country: string;
   uid: string;
-  trnNo: string;
   salesPerson: string;
   tradeLicenseExpiry: string;
+  trnDocument: File | null;
+  tradeLicenseDocument: File | null;
+  existingTrnUrl?: string;
+  existingTradeLicenseUrl?: string;
 };
 
 const EMPTY_FORM: StoreForm = {
@@ -55,9 +60,10 @@ const EMPTY_FORM: StoreForm = {
   city: "",
   country: "",
   uid: "",
-  trnNo: "",
   salesPerson: "",
   tradeLicenseExpiry: "",
+  trnDocument: null,
+  tradeLicenseDocument: null,
 };
 
 function text(value: unknown) {
@@ -99,9 +105,12 @@ function formFrom(store: StoreProfile): StoreForm {
     city: text(store.city),
     country: text(store.country),
     uid: text(store.uid),
-    trnNo: text(store.trnNo),
     salesPerson: salesPersonId(store),
     tradeLicenseExpiry: dateTimeLocalValue(store.tradeLicenseExpiry),
+    trnDocument: null,
+    tradeLicenseDocument: null,
+    existingTrnUrl: text(store.trnDocumentUrl) || undefined,
+    existingTradeLicenseUrl: text(store.tradeLicenseDocumentUrl) || undefined,
   };
 }
 
@@ -206,18 +215,21 @@ function CountryCityFields({
 function StoreFields({
   form,
   setField,
+  setFile,
   salesPeople,
   mode,
   isTemp = false,
 }: {
   form: StoreForm;
   setField: (key: keyof StoreForm, value: string) => void;
+  setFile: (key: "trnDocument" | "tradeLicenseDocument", file: File | null) => void;
   salesPeople: ProfileUser[];
   mode: "create" | "edit";
   isTemp?: boolean;
 }) {
   const requireIdentity = mode === "create" || !isTemp;
   const requireApiCore = mode === "create";
+  const requireFiles = mode === "create";
 
   return (
     <>
@@ -271,19 +283,26 @@ function StoreFields({
         value={form.uid}
         onChange={(e) => setField("uid", e.target.value)}
       />
-      <TextField
-        label="TRN"
-        required={requireApiCore}
-        optional={!requireApiCore}
-        value={form.trnNo}
-        onChange={(e) => setField("trnNo", e.target.value)}
+      <StoreDocumentField
+        label="TRN document"
+        required={requireFiles}
+        file={form.trnDocument}
+        existingUrl={form.existingTrnUrl}
+        onChange={(file) => setFile("trnDocument", file)}
       />
       <TextField
         label="Trade license expiry"
         type="datetime-local"
-        optional
+        required
         value={form.tradeLicenseExpiry}
         onChange={(e) => setField("tradeLicenseExpiry", e.target.value)}
+      />
+      <StoreDocumentField
+        label="Trade license document"
+        required={requireFiles}
+        file={form.tradeLicenseDocument}
+        existingUrl={form.existingTradeLicenseUrl}
+        onChange={(file) => setFile("tradeLicenseDocument", file)}
       />
       <label className="block space-y-1.5">
         <FieldLabel
@@ -390,6 +409,13 @@ export default function StoresPage() {
     setAddForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setAddFile(
+    key: "trnDocument" | "tradeLicenseDocument",
+    file: File | null,
+  ) {
+    setAddForm((prev) => ({ ...prev, [key]: file }));
+  }
+
   async function onCreateStore() {
     if (!addForm.storeName.trim()) {
       toast("Enter a store name", "info");
@@ -411,8 +437,9 @@ export default function StoresPage() {
       toast("Select a city", "info");
       return;
     }
-    if (!addForm.trnNo.trim()) {
-      toast("Enter a TRN", "info");
+    const documentError = storeDocumentError(addForm, "create");
+    if (documentError) {
+      toast(documentError, "info");
       return;
     }
     if (!addForm.salesPerson.trim()) {
@@ -432,10 +459,9 @@ export default function StoresPage() {
         city: addForm.city.trim(),
         country: addForm.country.trim(),
         uid: addForm.uid.trim(),
-        trnNo: addForm.trnNo.trim(),
         salesPerson: addForm.salesPerson,
         location: "—",
-        tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry) || undefined,
+        tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry),
       });
       toast("Store created", "success");
       setAddForm(EMPTY_FORM);
@@ -504,6 +530,7 @@ export default function StoresPage() {
             <StoreFields
               form={addForm}
               setField={setAddField}
+              setFile={setAddFile}
               salesPeople={salesPeople}
               mode="create"
             />
@@ -611,6 +638,13 @@ function StoreCard({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setFile(
+    key: "trnDocument" | "tradeLicenseDocument",
+    file: File | null,
+  ) {
+    setForm((prev) => ({ ...prev, [key]: file }));
+  }
+
   async function onSave() {
     if (!form.storeName.trim()) {
       toast("Enter a store name", "info");
@@ -632,6 +666,11 @@ function StoreCard({
       toast("Enter a store code", "info");
       return;
     }
+    const documentError = storeDocumentError(form, "edit", false);
+    if (documentError) {
+      toast(documentError, "info");
+      return;
+    }
     setSaving(true);
     try {
       await editAdminStore({
@@ -646,7 +685,7 @@ function StoreCard({
         city: form.city.trim(),
         country: form.country.trim(),
         uid: form.uid.trim(),
-        trnNo: form.trnNo.trim(),
+        trnNo: text(store.trnNo),
         salesPerson: form.salesPerson,
         tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
         isTemp,
@@ -710,6 +749,34 @@ function StoreCard({
               ? ` · License expires ${new Date(licenseExpiry).toLocaleString()}`
               : ""}
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            TRN doc:{" "}
+            {store.trnDocumentUrl ? (
+              <a
+                href={store.trnDocumentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-brand-dark underline"
+              >
+                View
+              </a>
+            ) : (
+              "—"
+            )}
+            {" · License doc: "}
+            {store.tradeLicenseDocumentUrl ? (
+              <a
+                href={store.tradeLicenseDocumentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-brand-dark underline"
+              >
+                View
+              </a>
+            ) : (
+              "—"
+            )}
+          </p>
         </div>
         <div className="flex gap-2">
           <SecondaryButton
@@ -737,6 +804,7 @@ function StoreCard({
           <StoreFields
             form={form}
             setField={setField}
+            setFile={setFile}
             salesPeople={salesOptions}
             mode="edit"
             isTemp={isTemp}
