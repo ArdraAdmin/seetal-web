@@ -209,7 +209,8 @@ export default function SalesStoreProductsPage() {
   }, [load]);
 
   useEffect(() => {
-    if (loadSalesWorkspace() === "shmp") return;
+    const workspace = loadSalesWorkspace();
+    if (workspace === "shmp" || workspace === "sarvah") return;
     void getCategories()
       .then((data) => {
         const groups = parseCategoryGroups(data);

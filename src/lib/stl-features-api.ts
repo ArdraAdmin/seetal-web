@@ -158,6 +158,12 @@ export type AdminKpiDashboard = {
     employees: VisaExpiryPerson[];
     users: VisaExpiryPerson[];
   };
+  counts?: {
+    stores: number;
+    expiredTradeLicenses: number;
+    pendingApprovals: number;
+    inventorySkus: number;
+  };
 };
 
 export async function getSalesAccountDashboard(

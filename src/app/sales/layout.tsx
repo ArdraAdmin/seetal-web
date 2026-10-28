@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
 import {
   getSalesAttendanceToday,
+  selectSalesCompany,
   syncSalesInventory,
   warmCompanyDirectory,
 } from "@/lib/api";
@@ -37,9 +38,9 @@ export default function SalesLayout({
   const [companyReady, setCompanyReady] = useState(false);
   const [hasWorkspace, setHasWorkspace] = useState(false);
   const [hasInventory, setHasInventory] = useState(false);
-  const [workspace, setWorkspace] = useState<string | null>(null);
   const [attendanceReady, setAttendanceReady] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
+  const bindingSarvah = useRef(false);
 
   const refreshAttendance = useCallback(async () => {
     if (!user?.id || user.role !== "Sales") return;
@@ -57,7 +58,6 @@ export default function SalesLayout({
     function refresh() {
       setHasWorkspace(hasSelectedSalesWorkspace());
       setHasInventory(hasSelectedSalesCompany());
-      setWorkspace(loadSalesWorkspace());
       setCompanyReady(true);
     }
     refresh();
@@ -123,6 +123,7 @@ export default function SalesLayout({
   useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !companyReady) return;
     if (!checkedIn) return;
+    if (hasInventory) bindingSarvah.current = false;
     if (!hasWorkspace && needsWorkspace) {
       const next = `${pathname}${window.location.search}`;
       router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
@@ -130,8 +131,17 @@ export default function SalesLayout({
     }
     if (needsInventory && !hasInventory) {
       const next = `${pathname}${window.location.search}`;
-      const pick = workspace === "sarvah" ? "&pick=inventory" : "";
-      router.replace(`/sales/company?next=${encodeURIComponent(next)}${pick}`);
+      if (loadSalesWorkspace() === "sarvah") {
+        if (!bindingSarvah.current) {
+          bindingSarvah.current = true;
+          void selectSalesCompany(user.id, "sarvah").catch(() => {
+            bindingSarvah.current = false;
+            router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
+          });
+        }
+        return;
+      }
+      router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
     }
   }, [
     loading,
@@ -141,7 +151,6 @@ export default function SalesLayout({
     hasInventory,
     needsWorkspace,
     needsInventory,
-    workspace,
     pathname,
     router,
     checkedIn,
@@ -181,7 +190,13 @@ export default function SalesLayout({
   ) {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
-        <LoadingState label="Opening company selection…" />
+        <LoadingState
+          label={
+            needsInventory && hasWorkspace && !hasInventory
+              ? "Opening inventory…"
+              : "Opening company selection…"
+          }
+        />
       </div>
     );
   }

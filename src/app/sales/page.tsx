@@ -231,9 +231,7 @@ export default function SalesHomePage() {
           {companyLabel
             ? assignedOnly
               ? `${companyLabel} stores assigned to you. Open a store to add an order.`
-              : companyKey === "sarvah"
-                ? `${companyLabel} stores. Open a store, then choose STL or SHMP inventory.`
-                : `${companyLabel} stores. Open a store to add an order from ${companyLabel} inventory.`
+              : `${companyLabel} stores. Open a store to add an order from ${companyLabel} inventory.`
             : "Search a store, then open it to add an order."}
         </p>
       </div>
@@ -293,7 +291,6 @@ export default function SalesHomePage() {
                   count={otherStores.length}
                   empty={`Nothing matched “${appliedQuery}”.`}
                   stores={otherStores}
-                  pickInventory={companyKey === "sarvah"}
                 />
               ) : (
                 <>
@@ -303,7 +300,6 @@ export default function SalesHomePage() {
                       count={myStores.length}
                       empty="No stores assigned to you yet."
                       stores={myStores}
-                      pickInventory={companyKey === "sarvah"}
                     />
                   ) : null}
                   {assignedOnly ? null : (
@@ -312,7 +308,6 @@ export default function SalesHomePage() {
                       count={otherStores.length}
                       empty="No other stores on this page."
                       stores={otherStores}
-                      pickInventory={companyKey === "sarvah"}
                     />
                   )}
                 </>
@@ -365,13 +360,11 @@ function StoreSection({
   count,
   empty,
   stores,
-  pickInventory = false,
 }: {
   title: string;
   count: number;
   empty: string;
   stores: StoreProfile[];
-  pickInventory?: boolean;
 }) {
   return (
     <section>
@@ -392,11 +385,7 @@ function StoreSection({
             return (
               <Link
                 key={store._id}
-                href={
-                  pickInventory
-                    ? `/sales/company?next=${encodeURIComponent(storeProductsHref(store))}&pick=inventory`
-                    : storeProductsHref(store)
-                }
+                href={storeProductsHref(store)}
                 className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 hover:bg-[#f7f5f0]"
               >
                 <div className="min-w-0">

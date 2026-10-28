@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KpiDashboard } from "@/components/KpiDashboard";
 import { useAuth } from "@/components/AuthProvider";
 import { useDubaiNow } from "@/components/StlFeatureUi";
-import { getMulkyaAlerts, loadDashboardStats, type DashboardStats } from "@/lib/api";
+import { getMulkyaAlerts } from "@/lib/api";
 import type { ExpiryAlertRow } from "@/lib/expiry-window";
+import { opsStatsFromDashboard } from "@/lib/admin-kpi";
 import {
   getAdminKpiDashboard,
   type AdminKpiDashboard,
@@ -19,12 +20,10 @@ export default function AdminDashboardPage() {
   const [kpi, setKpi] = useState<AdminKpiDashboard | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiError, setKpiError] = useState<string | null>(null);
-  const [stats, setStats] = useState<Partial<DashboardStats>>({});
-  const [statsError, setStatsError] = useState<string | null>(null);
   const [kpiEpoch, setKpiEpoch] = useState(0);
-  const [statsEpoch, setStatsEpoch] = useState(0);
   const [mulkyaAlerts, setMulkyaAlerts] = useState<ExpiryAlertRow[]>([]);
   const [mulkyaLoading, setMulkyaLoading] = useState(true);
+  const stats = useMemo(() => opsStatsFromDashboard(kpi), [kpi]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -70,31 +69,6 @@ export default function AdminDashboardPage() {
     };
   }, [kpiEpoch]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const next: Partial<DashboardStats> = {};
-        await loadDashboardStats((partial) => {
-          Object.assign(next, partial);
-          if (!cancelled) setStats({ ...next });
-        });
-        if (!cancelled) setStatsError(null);
-      } catch (e) {
-        if (!cancelled) {
-          setStatsError(
-            e instanceof Error ? e.message : "Failed to load dashboard totals",
-          );
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [statsEpoch]);
-
   return (
     <KpiDashboard
       dubai={dubai}
@@ -107,9 +81,7 @@ export default function AdminDashboardPage() {
       onRefresh={() => {
         setKpiLoading(true);
         setMulkyaLoading(true);
-        setStats({});
         setKpiEpoch((n) => n + 1);
-        setStatsEpoch((n) => n + 1);
       }}
       kpi={kpi}
       kpiError={kpiError}
@@ -119,8 +91,11 @@ export default function AdminDashboardPage() {
         setKpiEpoch((n) => n + 1);
       }}
       stats={stats}
-      statsError={statsError}
-      onRetryStats={() => setStatsEpoch((n) => n + 1)}
+      statsError={null}
+      onRetryStats={() => {
+        setKpiLoading(true);
+        setKpiEpoch((n) => n + 1);
+      }}
       mulkyaAlerts={mulkyaAlerts}
       mulkyaLoading={mulkyaLoading}
     />

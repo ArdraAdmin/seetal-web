@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -15,8 +15,6 @@ import { useAuth } from "@/components/AuthProvider";
 import { selectSalesCompany, warmCompanyDirectory } from "@/lib/api";
 import {
   hasSelectedSalesWorkspace,
-  isSalesInventoryKey,
-  openSarvahWorkspace,
   SALES_COMPANY_LABELS,
   type SalesCompanyKey,
 } from "@/lib/sales-selected-company";
@@ -37,7 +35,7 @@ const WORKSPACE_COMPANIES: Array<{
   {
     key: "sarvah",
     title: SALES_COMPANY_LABELS.sarvah,
-    subtitle: "Current stores, then STL or SHMP inventory",
+    subtitle: "Current stores and Sarvah inventory",
     icon: Landmark,
   },
   {
@@ -54,16 +52,6 @@ const WORKSPACE_COMPANIES: Array<{
     comingSoon: true,
   },
 ];
-
-const INVENTORY_COMPANIES = WORKSPACE_COMPANIES.filter((company) =>
-  isSalesInventoryKey(company.key),
-).map((company) => ({
-  ...company,
-  subtitle:
-    company.key === "stl"
-      ? "STL inventory for this order"
-      : "SHMP inventory for this order",
-}));
 
 function inventoryDestination(raw: string | null) {
   if (
@@ -82,14 +70,9 @@ function SalesCompanySelectionPage() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pickInventory = searchParams.get("pick") === "inventory";
   const [loadingKey, setLoadingKey] = useState<SalesCompanyKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canGoBack = hasSelectedSalesWorkspace();
-  const cards = useMemo(
-    () => (pickInventory ? INVENTORY_COMPANIES : WORKSPACE_COMPANIES),
-    [pickInventory],
-  );
 
   useEffect(() => {
     void warmCompanyDirectory().catch(() => {});
@@ -100,16 +83,6 @@ function SalesCompanySelectionPage() {
     setLoadingKey(key);
     setError(null);
     try {
-      if (pickInventory) {
-        await selectSalesCompany(user.id, key, { keepWorkspace: true });
-        router.replace(inventoryDestination(searchParams.get("next")));
-        return;
-      }
-      if (key === "sarvah") {
-        openSarvahWorkspace();
-        router.replace("/sales");
-        return;
-      }
       await selectSalesCompany(user.id, key);
       router.replace(inventoryDestination(searchParams.get("next")));
     } catch (e) {
@@ -130,18 +103,15 @@ function SalesCompanySelectionPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-dark">
             Sales
           </p>
-          <h1 className="text-2xl font-bold text-ink">
-            {pickInventory ? "Select inventory" : "Select company"}
-          </h1>
+          <h1 className="text-2xl font-bold text-ink">Select company</h1>
         </div>
       </div>
 
       <p className="max-w-xl text-sm text-slate-600">
-        {pickInventory
-          ? "Choose STL or SHMP inventory for this store. This is the current Sarvah order flow."
-          : "Choose a company first. Stores and add-to-cart inventory will match that company."}
+        Choose a company first. Stores and add-to-cart inventory will match that
+        company.
       </p>
-      {canGoBack && !pickInventory ? (
+      {canGoBack ? (
         <button
           type="button"
           onClick={() => router.replace("/sales")}
@@ -158,7 +128,7 @@ function SalesCompanySelectionPage() {
       ) : null}
 
       <div className="mt-10 grid flex-1 content-center gap-4 sm:grid-cols-2">
-        {cards.map((company) => (
+        {WORKSPACE_COMPANIES.map((company) => (
           <CompanyCard
             key={company.key}
             title={company.title}

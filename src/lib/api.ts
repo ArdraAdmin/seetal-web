@@ -2227,11 +2227,10 @@ export async function getSalesCompanyAccess(
   );
 }
 
-/** Persist STL/SHMP and open inventory without waiting for the full catalog. */
+/** Persist STL/Sarvah/SHMP and open inventory without waiting for the full catalog. */
 export async function selectSalesCompany(
   userId: string,
   key: SalesCompanyKey,
-  options?: { keepWorkspace?: boolean },
 ) {
   if (!isSalesInventoryKey(key)) {
     throw new Error(
@@ -2242,7 +2241,9 @@ export async function selectSalesCompany(
   const resolved = resolveSalesCompanyByKey(key, companies);
   if (!resolved) {
     throw new Error(
-      `Could not find ${SALES_COMPANY_LABELS[key] || key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
+      key === "sarvah"
+        ? "Could not find the SHMP catalog used for Sarvah inventory. Ask admin to add SHMP in company list, then try again."
+        : `Could not find ${SALES_COMPANY_LABELS[key] || key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
     );
   }
   const access = accessFromSelectedCompany(resolved);
@@ -2255,7 +2256,7 @@ export async function selectSalesCompany(
   ) {
     saveSalesCompanyAccess(access);
     saveSelectedSalesCompany(resolved);
-    if (!options?.keepWorkspace) saveSalesWorkspace(key);
+    saveSalesWorkspace(key);
     warmSalesInventoryIndex();
     return { access, products: catalogForAccess(access) || existing.products };
   }
@@ -2265,7 +2266,7 @@ export async function selectSalesCompany(
   dropSalesCatalogCache();
   saveSalesCompanyAccess(access);
   saveSelectedSalesCompany(resolved);
-  if (!options?.keepWorkspace) saveSalesWorkspace(key);
+  saveSalesWorkspace(key);
   if (key === "shmp") {
     return { access, products: [] as Product[] };
   }
@@ -3497,79 +3498,6 @@ export const createPdc = (body: {
     body: JSON.stringify(body),
   });
 
-const LIST_PAGE_SIZE = 50;
-
-function pageItems(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (data && typeof data === "object") {
-    const o = data as Record<string, unknown>;
-    for (const key of ["stores", "products", "data", "users"]) {
-      if (Array.isArray(o[key])) return o[key];
-    }
-  }
-  return [];
-}
-
-function pageFirstId(items: unknown[]): string {
-  const first = items[0];
-  if (!first || typeof first !== "object") return "";
-  const id = (first as { _id?: unknown })._id;
-  return typeof id === "string" ? id : "";
-}
-
-/** Count paged records without downloading every page. */
-async function countByPaging(
-  fetchPage: (page: number) => Promise<unknown>,
-  pageSize = LIST_PAGE_SIZE,
-  maxPages = 80,
-): Promise<number> {
-  const first = pageItems(await fetchPage(1));
-  if (first.length === 0) return 0;
-  if (first.length !== pageSize) return first.length;
-
-  const firstId = pageFirstId(first);
-  const second = pageItems(await fetchPage(2));
-  if (second.length === 0) return first.length;
-  if (firstId && firstId === pageFirstId(second)) return first.length;
-  if (second.length < pageSize) return first.length + second.length;
-
-  let lastFull = 2;
-  let probe = 4;
-  while (probe <= maxPages) {
-    const items = pageItems(await fetchPage(probe));
-    if (items.length === 0) break;
-    if (firstId && firstId === pageFirstId(items)) break;
-    if (items.length < pageSize) {
-      return (probe - 1) * pageSize + items.length;
-    }
-    lastFull = probe;
-    probe *= 2;
-  }
-
-  let left = lastFull + 1;
-  let right = Math.min(probe, maxPages);
-  let lastPage = lastFull;
-  let lastCount = pageSize;
-
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    const items = pageItems(await fetchPage(mid));
-    if (
-      items.length === 0 ||
-      (firstId && firstId === pageFirstId(items) && mid !== 1)
-    ) {
-      right = mid - 1;
-      continue;
-    }
-    lastPage = mid;
-    lastCount = items.length;
-    if (items.length < pageSize) break;
-    left = mid + 1;
-  }
-
-  return (lastPage - 1) * pageSize + lastCount;
-}
-
 export interface DashboardStats {
   totalUsers: number;
   totalStores: number;
@@ -3578,81 +3506,6 @@ export interface DashboardStats {
   expiredTradeLicenses: number;
   totalInventory: number;
   pendingApprovals: number;
-}
-
-export async function loadDashboardStats(
-  onUpdate: (partial: Partial<DashboardStats>) => void,
-): Promise<void> {
-  let salesman = 0;
-  let warehouseUsers = 0;
-  let adminUsers = 0;
-
-  const pushUsers = () =>
-    onUpdate({
-      totalSalesman: salesman,
-      totalWarehouseUsers: warehouseUsers,
-      totalUsers: salesman + warehouseUsers + adminUsers,
-    });
-
-  await Promise.all([
-    getSalesProfiles()
-      .then((list) => {
-        salesman = list.length;
-        pushUsers();
-      })
-      .catch(() => pushUsers()),
-    getWarehouseProfiles()
-      .then((list) => {
-        warehouseUsers = list.length;
-        pushUsers();
-      })
-      .catch(() => pushUsers()),
-    getAdminProfiles()
-      .then((list) => {
-        adminUsers = list.length;
-        pushUsers();
-      })
-      .catch(() => pushUsers()),
-    getExpiredTradeLicenses()
-      .then((list) => onUpdate({ expiredTradeLicenses: list.length }))
-      .catch(() => onUpdate({ expiredTradeLicenses: 0 })),
-    countByPaging(getStores)
-      .then((totalStores) => onUpdate({ totalStores }))
-      .catch(() => onUpdate({ totalStores: 0 })),
-    getCompanies()
-      .then((companies) =>
-        onUpdate({
-          totalInventory: companies.reduce(
-            (sum, company) => sum + (company.productCount ?? 0),
-            0,
-          ),
-        }),
-      )
-      .catch(() => onUpdate({ totalInventory: 0 })),
-    getApprovalQueue()
-      .then((orders) =>
-        onUpdate({
-          pendingApprovals: orders.filter(
-            (order) => order.approvalStatus === "pending",
-          ).length,
-        }),
-      )
-      .catch(() => onUpdate({ pendingApprovals: 0 })),
-  ]);
-}
-
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const stats: DashboardStats = {
-    totalUsers: 0,
-    totalStores: 0,
-    totalSalesman: 0,
-    totalWarehouseUsers: 0,
-    expiredTradeLicenses: 0,
-    totalInventory: 0,
-    pendingApprovals: 0,
-  };
-  await loadDashboardStats((partial) => Object.assign(stats, partial));
-  return stats;
 }
 
 

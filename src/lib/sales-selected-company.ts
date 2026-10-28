@@ -1,7 +1,7 @@
 import type { SalesCompanyAccess } from "./sales-company";
 
 export type SalesCompanyKey = "stl" | "sarvah" | "shmp" | "shlaxmi";
-export type SalesInventoryKey = "stl" | "shmp";
+export type SalesInventoryKey = "stl" | "sarvah" | "shmp";
 
 export type SelectedSalesCompany = {
   id: string;
@@ -67,7 +67,7 @@ export function isSelectableSalesCompanyKey(
 }
 
 export function isSalesInventoryKey(value: string): value is SalesInventoryKey {
-  return value === "stl" || value === "shmp";
+  return value === "stl" || value === "sarvah" || value === "shmp";
 }
 
 export function onSelectedSalesCompanyChange(callback: () => void) {
@@ -99,14 +99,6 @@ export function saveSalesWorkspace(key: SalesCompanyKey) {
   if (typeof window === "undefined") return;
   if (!isSelectableSalesCompanyKey(key)) return;
   localStorage.setItem(WORKSPACE_KEY, key);
-  notify();
-}
-
-export function openSarvahWorkspace() {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(WORKSPACE_KEY, "sarvah");
-  localStorage.removeItem(ID_KEY);
-  localStorage.removeItem(NAME_KEY);
   notify();
 }
 
@@ -160,13 +152,8 @@ export function selectedCompanyDisplayName(
 
 export function salesWorkspaceDisplayName() {
   const workspace = loadSalesWorkspace();
-  const inventory = loadSelectedSalesCompany();
-  if (!workspace) return selectedCompanyDisplayName(inventory);
-  const workspaceLabel = SALES_COMPANY_LABELS[workspace];
-  if (inventory && workspace === "sarvah") {
-    return `${workspaceLabel} · ${SALES_COMPANY_LABELS[inventory.name]}`;
-  }
-  return workspaceLabel;
+  if (!workspace) return selectedCompanyDisplayName(loadSelectedSalesCompany());
+  return SALES_COMPANY_LABELS[workspace];
 }
 
 export function salesCompanyStoreMode(
@@ -202,20 +189,36 @@ function matchesCompanyKey(
   });
 }
 
+/**
+ * Resolve a sales card to the company catalog it should order from.
+ * Sarvah still sells the SHMP-labeled catalog, not a separate Sarvah company list.
+ */
+export function sellingCatalogKey(
+  key: SalesCompanyKey,
+): Exclude<SalesInventoryKey, "sarvah"> | null {
+  if (key === "stl") return "stl";
+  if (key === "sarvah" || key === "shmp") return "shmp";
+  return null;
+}
+
 /** Resolve STL / SHMP inventory to a company id from `/admin/company`. */
 export function resolveSalesCompanyByKey(
   key: SalesCompanyKey,
   companies: { _id: string; name?: string; prefix?: string }[],
 ): SelectedSalesCompany | null {
   if (!isSalesInventoryKey(key)) return null;
-  const aliases = COMPANY_ALIASES[key];
+  const catalogKey = sellingCatalogKey(key);
+  if (!catalogKey) return null;
+  const aliases = COMPANY_ALIASES[catalogKey];
   const exactName = companies.find((company) =>
     aliases.includes(normalizeCompanyToken(String(company.name || ""))),
   );
   const exactPrefix = companies.find((company) =>
     aliases.includes(normalizeCompanyToken(String(company.prefix || ""))),
   );
-  const fuzzy = companies.find((company) => matchesCompanyKey(company, key));
+  const fuzzy = companies.find((company) =>
+    matchesCompanyKey(company, catalogKey),
+  );
   const match = exactName || exactPrefix || fuzzy;
   const id = String(match?._id || "").trim();
   if (!id) return null;
@@ -225,11 +228,12 @@ export function resolveSalesCompanyByKey(
 export function accessFromSelectedCompany(
   selected: SelectedSalesCompany,
 ): SalesCompanyAccess {
+  const catalogKey = sellingCatalogKey(selected.name) || selected.name;
   return {
     companyIds: selected.id ? [selected.id] : [],
-    companyNames: COMPANY_ACCESS_NAMES[selected.name] || [
+    companyNames: COMPANY_ACCESS_NAMES[catalogKey] || [
       SALES_COMPANY_LABELS[selected.name],
     ],
-    includeUnassigned: selected.name === "stl",
+    includeUnassigned: catalogKey === "stl",
   };
 }
