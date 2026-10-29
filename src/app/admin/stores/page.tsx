@@ -462,6 +462,8 @@ export default function StoresPage() {
         salesPerson: addForm.salesPerson,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry),
+        trnDocument: addForm.trnDocument,
+        tradeLicenseDocument: addForm.tradeLicenseDocument,
       });
       toast("Store created", "success");
       setAddForm(EMPTY_FORM);
@@ -685,11 +687,14 @@ function StoreCard({
         city: form.city.trim(),
         country: form.country.trim(),
         uid: form.uid.trim(),
-        trnNo: text(store.trnNo),
+        trnNo: text(store.trnNo) || undefined,
         salesPerson: form.salesPerson,
+        location: "—",
         tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
         isTemp,
         isTempStore: isTemp,
+        trnDocument: form.trnDocument,
+        tradeLicenseDocument: form.tradeLicenseDocument,
       });
       toast("Store updated", "success");
       setEditing(false);

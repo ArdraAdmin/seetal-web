@@ -25,6 +25,8 @@ type StoreDoc = {
   trnNo?: number | string;
   salesPerson?: ObjectId;
   tradeLicenseExpiry?: Date | string | null;
+  trnDocumentUrl?: string;
+  tradeLicenseDocumentUrl?: string;
   isTemp: boolean;
 };
 
@@ -48,6 +50,8 @@ export type AdminStoreRow = {
   uid: string;
   trnNo: string;
   tradeLicenseExpiry: string;
+  trnDocumentUrl?: string;
+  tradeLicenseDocumentUrl?: string;
   isTemp: boolean;
   isTempStore: boolean;
   salesPerson: string;
@@ -115,6 +119,10 @@ async function loadStores(): Promise<StoreDoc[]> {
     trnNo: 1,
     salesPerson: 1,
     tradeLicenseExpiry: 1,
+    trnDocumentKey: 1,
+    tradeLicenseDocumentKey: 1,
+    trnDocumentUrl: 1,
+    tradeLicenseDocumentUrl: 1,
   };
   // Keep SHMP (environment: shmp) stores out of the STL admin stores list.
   const [permanent, temporary] = await Promise.all([
@@ -285,6 +293,8 @@ function toRow(
     uid: text(doc.uid),
     trnNo: doc.trnNo == null || doc.trnNo === "" ? "" : String(doc.trnNo),
     tradeLicenseExpiry: tradeLicenseExpiryIso(doc.tradeLicenseExpiry),
+    trnDocumentUrl: text(doc.trnDocumentUrl) || undefined,
+    tradeLicenseDocumentUrl: text(doc.tradeLicenseDocumentUrl) || undefined,
     isTemp: doc.isTemp,
     isTempStore: doc.isTemp,
     salesPerson: salesId,
@@ -584,6 +594,8 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
     uid: text(store.uid),
     trnNo: store.trnNo == null || store.trnNo === "" ? "" : String(store.trnNo),
     tradeLicenseExpiry: tradeLicenseExpiryIso(store.tradeLicenseExpiry),
+    trnDocumentUrl: text(store.trnDocumentUrl) || undefined,
+    tradeLicenseDocumentUrl: text(store.tradeLicenseDocumentUrl) || undefined,
     isTemp,
     isTempStore: isTemp,
     salesPerson: salesId,
@@ -696,7 +708,6 @@ export async function proxyUpdateStoreRecord(
       }
     }
     if (!uid) return new Response("Enter a store code", { status: 400 });
-    if (!trnNo) return new Response("Enter a TRN", { status: 400 });
     if (!salesPerson) {
       return new Response("Choose a sales person", { status: 400 });
     }

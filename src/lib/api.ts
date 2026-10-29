@@ -455,9 +455,12 @@ export type StoreEditInput = {
   uid?: string;
   trnNo?: string;
   salesPerson?: string;
+  location?: string;
   tradeLicenseExpiry?: string;
   isTemp?: boolean;
   isTempStore?: boolean;
+  trnDocument?: File | null;
+  tradeLicenseDocument?: File | null;
 };
 
 export type StoreCreateInput = {
@@ -479,19 +482,68 @@ export type StoreCreateInput = {
   tradeLicenseDocument?: File | null;
 };
 
+function appendAdminStoreFormData(
+  body: StoreCreateInput | StoreEditInput,
+) {
+  const fd = new FormData();
+  const scalarKeys = [
+    "storeName",
+    "marks",
+    "alias",
+    "contactNumber",
+    "addressLine1",
+    "addressLine2",
+    "addressLine3",
+    "city",
+    "country",
+    "uid",
+    "trnNo",
+    "salesPerson",
+    "location",
+    "tradeLicenseExpiry",
+  ] as const;
+  for (const key of scalarKeys) {
+    const value = body[key];
+    if (value == null || value === "") continue;
+    fd.append(key, String(value));
+  }
+  if (body.trnDocument instanceof File) fd.append("trnDocument", body.trnDocument);
+  if (body.tradeLicenseDocument instanceof File) {
+    fd.append("tradeLicenseDocument", body.tradeLicenseDocument);
+  }
+  return fd;
+}
+
+function adminStoreHasFiles(body: StoreCreateInput | StoreEditInput) {
+  return (
+    body.trnDocument instanceof File ||
+    body.tradeLicenseDocument instanceof File
+  );
+}
+
 export const getAdminStores = () =>
   siteRequest<AdminStoreList>("/api/admin/stores");
 
-export const editAdminStore = (body: StoreEditInput) =>
-  siteRequest<string>("/api/admin/stores/edit", {
+export const editAdminStore = (body: StoreEditInput) => {
+  if (adminStoreHasFiles(body)) {
+    return request<{ message?: string; result?: StoreProfile }>(
+      `/admin/edit/store/${encodeURIComponent(body.storeId)}`,
+      {
+        method: "POST",
+        body: appendAdminStoreFormData({ ...body, location: body.location || "—" }),
+      },
+    );
+  }
+  return siteRequest<string>("/api/admin/stores/edit", {
     method: "POST",
     body: JSON.stringify(body),
   });
+};
 
 export const createAdminStore = (body: StoreCreateInput) =>
   request<{ store?: StoreProfile }>("/admin/create/store", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: appendAdminStoreFormData({ ...body, location: body.location || "—" }),
   });
 
 export const deleteAdminStore = (storeId: string) =>
