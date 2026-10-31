@@ -71,6 +71,20 @@ describe("productFromShmpStoreDoc", () => {
     );
   });
 
+  it("uses the first gallery image as the sales thumbnail", () => {
+    const product = productFromShmpStoreDoc(
+      {
+        ...assignedDoc,
+        imagePath: [
+          "https://cdn.example/primary.jpg",
+          "https://cdn.example/second.jpg",
+        ],
+      },
+      storeId,
+    );
+    assert.equal(product?.imagePath, "https://cdn.example/primary.jpg");
+  });
+
   it("matches populated store objects", () => {
     const profile = matchingStoreProfile(
       [{ store: { _id: storeId }, storePrice: 10, isDisplayed: true }],

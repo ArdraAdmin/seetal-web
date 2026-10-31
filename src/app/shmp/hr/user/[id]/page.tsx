@@ -56,6 +56,8 @@ function UserDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const supervisor = isSupervisor(user);
+  const backHref = supervisor ? "/shmp/attendance" : "/shmp/hr";
+  const backLabel = supervisor ? "Back to attendance" : "Back to HR";
   const id = String(params?.id || "");
   const [accessUser, setAccessUser] = useState<ShmpAccessUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -176,8 +178,8 @@ function UserDetail() {
   if (error || !accessUser) {
     return (
       <div className="space-y-4">
-        <Link href="/shmp/hr" className="text-sm text-slate-600 underline">
-          Back to HR
+        <Link href={backHref} className="text-sm text-slate-600 underline">
+          {backLabel}
         </Link>
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error || "User not found"}
@@ -192,8 +194,8 @@ function UserDetail() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link href="/shmp/hr" className="text-sm text-slate-600 underline">
-            Back to HR
+          <Link href={backHref} className="text-sm text-slate-600 underline">
+            {backLabel}
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-ink">
             {accessUser.name || "User"}

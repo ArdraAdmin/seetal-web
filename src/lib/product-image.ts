@@ -1,15 +1,28 @@
+export const MAX_PRODUCT_IMAGES = 5;
+
 export function productImageUrl(imagePath: unknown): string {
   if (Array.isArray(imagePath)) {
-    for (const item of imagePath) {
-      const url = productImageUrl(item);
-      if (url) return url;
-    }
-    return "";
+    return productImageUrl(imagePath[0]);
   }
   if (typeof imagePath === "string" && /^https?:\/\//i.test(imagePath.trim())) {
     return imagePath.trim();
   }
   return "";
+}
+
+export function productImageUrls(imagePath: unknown): string[] {
+  if (Array.isArray(imagePath)) {
+    return imagePath
+      .slice(0, MAX_PRODUCT_IMAGES)
+      .map((item) => productImageUrl(item))
+      .filter((url) => url.length > 0);
+  }
+  const url = productImageUrl(imagePath);
+  return url ? [url] : [];
+}
+
+export function remainingProductImageSlots(imagePath: unknown): number {
+  return Math.max(0, MAX_PRODUCT_IMAGES - productImageUrls(imagePath).length);
 }
 
 export function productBelongsToCompany(

@@ -76,6 +76,7 @@ function asNumber(value: unknown, fallback = 0) {
 }
 
 function imageUrl(value: unknown) {
+  if (Array.isArray(value)) return imageUrl(value[0]);
   const text = String(value || "").trim();
   return /^https?:\/\//i.test(text) ? text : "";
 }
@@ -147,7 +148,6 @@ export function productFromShmpStoreDoc(
   const imagePath =
     imageUrl(profile?.storeImagePath) ||
     imageUrl(doc.imagePath) ||
-    String(doc.imagePath || profile?.storeImagePath || "") ||
     undefined;
 
   return {

@@ -12,6 +12,24 @@ export function isShmpHrPortalRole(role?: string | null) {
   return role === "Sales" || role === "Supervisor";
 }
 
+/** Supervisors may see factory workers and other supervisors, not sales. */
+export function presentRowVisibleToSupervisor(row: {
+  kind?: string | null;
+  role?: string | null;
+}) {
+  if (row.kind === "worker") return true;
+  return row.role === "Supervisor";
+}
+
+export function presentRowVisibleToCaller(
+  row: { kind?: string | null; role?: string | null },
+  supervisor: boolean,
+) {
+  if (row.kind === "worker") return true;
+  if (supervisor) return presentRowVisibleToSupervisor(row);
+  return isShmpHrPortalRole(row.role);
+}
+
 export function warehouseStaffLabel(isManager: boolean) {
   return isManager ? "Warehouse manager" : "Warehouse user";
 }

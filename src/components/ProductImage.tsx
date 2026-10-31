@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { uploadProductImage } from "@/lib/api";
-import { productImageFileError, productImageUrl } from "@/lib/product-image";
+import { useEffect, useId, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Star, Trash2 } from "lucide-react";
+import {
+  deleteProductImage,
+  reorderProductImages,
+  uploadProductImage,
+} from "@/lib/api";
+import {
+  MAX_PRODUCT_IMAGES,
+  productImageFileError,
+  productImageUrl,
+  productImageUrls,
+} from "@/lib/product-image";
 import { useToast } from "./Toast";
-import { SecondaryButton } from "./ui";
 
 export function ProductThumb({
   imagePath,
@@ -36,102 +45,235 @@ export function ProductThumb({
   );
 }
 
+function acceptedImageFiles(list: FileList | File[]): File[] {
+  return Array.from(list);
+}
+
 export function ProductImageField({
   itemName,
   imagePath,
   productId,
   onUploaded,
-  onPendingFile,
+  onPendingFiles,
 }: {
   itemName: string;
   imagePath?: unknown;
   productId?: string;
-  onUploaded?: (url: string) => void;
-  onPendingFile?: (file: File | null) => void;
+  onUploaded?: (imagePath: string | string[]) => void;
+  onPendingFiles?: (files: File[]) => void;
 }) {
   const inputId = useId();
   const { toast } = useToast();
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [uploadedUrl, setUploadedUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const current = uploadedUrl || previewUrl || productImageUrl(imagePath);
+  const savedUrls = productImageUrls(imagePath);
+  const [pending, setPendingState] = useState<{ file: File; previewUrl: string }[]>(
+    [],
+  );
+  const pendingRef = useRef(pending);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      for (const item of pendingRef.current) URL.revokeObjectURL(item.previewUrl);
     };
-  }, [previewUrl]);
+  }, []);
 
-  function chooseFile(next: File | null) {
-    if (!next) {
-      setFile(null);
-      setPreviewUrl("");
-      onPendingFile?.(null);
-      return;
-    }
-    const error = productImageFileError(next);
-    if (error) {
-      toast(error, "error");
-      return;
-    }
-    setFile(next);
-    setPreviewUrl(URL.createObjectURL(next));
-    onPendingFile?.(next);
+  const displayed = productId ? savedUrls : pending.map((item) => item.previewUrl);
+  const remaining = MAX_PRODUCT_IMAGES - displayed.length;
+
+  function setPending(nextFiles: File[]) {
+    setPendingState((current) => {
+      for (const item of current) URL.revokeObjectURL(item.previewUrl);
+      const next = nextFiles.map((file) => ({
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      pendingRef.current = next;
+      return next;
+    });
+    onPendingFiles?.(nextFiles);
   }
 
-  async function onUpload() {
-    if (!productId || !file) return;
-    setUploading(true);
+  function chooseFiles(list: FileList | File[] | null) {
+    if (!list) return;
+    const incoming = acceptedImageFiles(list);
+    if (incoming.length === 0) return;
+    const room = productId
+      ? MAX_PRODUCT_IMAGES - savedUrls.length
+      : MAX_PRODUCT_IMAGES - pending.length;
+    if (room <= 0) {
+      toast("Maximum of 5 images per product", "error");
+      return;
+    }
+    const selected: File[] = [];
+    for (const file of incoming.slice(0, room)) {
+      const error = productImageFileError(file);
+      if (error) {
+        toast(error, "error");
+        continue;
+      }
+      selected.push(file);
+    }
+    if (selected.length === 0) return;
+    if (productId) {
+      void uploadFiles(selected);
+      return;
+    }
+    setPending([...pending.map((item) => item.file), ...selected]);
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (!productId) return;
+    setBusy(true);
     try {
-      const saved = await uploadProductImage(productId, file);
-      setUploadedUrl(saved.imagePath);
-      setFile(null);
-      setPreviewUrl("");
-      onUploaded?.(saved.imagePath);
-      toast("Product image saved", "success");
+      let lastPath: string | string[] | undefined;
+      for (const file of files) {
+        const saved = await uploadProductImage(productId, file);
+        lastPath = saved.imagePath;
+      }
+      if (lastPath !== undefined) onUploaded?.(lastPath);
+      toast(
+        files.length === 1 ? "Product image saved" : "Product images saved",
+        "success",
+      );
     } catch (err) {
       toast(err instanceof Error ? err.message : "Image upload failed", "error");
     } finally {
-      setUploading(false);
+      setBusy(false);
+    }
+  }
+
+  async function move(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    if (!productId) {
+      const next = pending.map((item) => item.file);
+      const [moved] = next.splice(fromIndex, 1);
+      if (!moved) return;
+      next.splice(toIndex, 0, moved);
+      setPending(next);
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await reorderProductImages(productId, fromIndex, toIndex);
+      onUploaded?.(saved.imagePath);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not reorder images", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAt(index: number) {
+    const label = index === 0 ? "the thumbnail image" : `image ${index + 1}`;
+    if (!confirm(`Remove ${label}?`)) return;
+    if (!productId) {
+      setPending(pending.filter((_, itemIndex) => itemIndex !== index).map((item) => item.file));
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await deleteProductImage(productId, index);
+      onUploaded?.(saved.imagePath);
+      toast("Image removed", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not remove image", "error");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <div className="space-y-3 sm:col-span-2 lg:col-span-3">
-      <div className="flex items-start gap-3">
-        <ProductThumb
-          imagePath={current}
-          name={itemName || "Product"}
-          className="h-20 w-20"
-        />
-        <div className="min-w-0 flex-1 space-y-2">
-          <label htmlFor={inputId} className="block text-[13px] font-medium text-slate-700">
-            Product image
-          </label>
-          <input
-            id={inputId}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-line file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700"
-            onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
-          />
-          <p className="text-xs text-slate-500">
-            {productId
-              ? "JPEG, PNG, or WebP up to 8 MB. Uploading replaces the current product image."
-              : "JPEG, PNG, or WebP up to 8 MB. The image is saved when the product is created."}
-          </p>
-          {productId ? (
-            <SecondaryButton
-              type="button"
-              disabled={!file || uploading}
-              onClick={() => void onUpload()}
-            >
-              {uploading ? "Uploading…" : "Upload image"}
-            </SecondaryButton>
-          ) : null}
-        </div>
+      <div className="space-y-1">
+        <label htmlFor={inputId} className="block text-[13px] font-medium text-slate-700">
+          Product images
+        </label>
+        <p className="text-xs text-slate-500">
+          Up to 5 JPEG, PNG, or WebP files, 8 MB each. Image 1 is the thumbnail
+          used in inventory lists and sales.
+        </p>
       </div>
+      <div className="flex flex-wrap gap-3">
+        {displayed.map((url, index) => (
+          <div
+            key={`${url}-${index}`}
+            className="w-[7.5rem] space-y-2 rounded-lg border border-line bg-white p-2"
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                {index + 1}
+                {index === 0 ? " · Thumbnail" : ""}
+              </span>
+            </div>
+            <ProductThumb
+              imagePath={url}
+              name={`${itemName || "Product"} image ${index + 1}`}
+              className="h-24 w-full"
+            />
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                className="rounded border border-line bg-white p-1 text-slate-600 hover:bg-[#f7f5f0] disabled:opacity-40"
+                disabled={busy || index === 0}
+                aria-label={`Move image ${index + 1} earlier`}
+                onClick={() => void move(index, index - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded border border-line bg-white p-1 text-slate-600 hover:bg-[#f7f5f0] disabled:opacity-40"
+                disabled={busy || index === displayed.length - 1}
+                aria-label={`Move image ${index + 1} later`}
+                onClick={() => void move(index, index + 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded border border-line bg-white p-1 text-slate-600 hover:bg-[#f7f5f0] disabled:opacity-40"
+                disabled={busy || index === 0}
+                aria-label={`Make image ${index + 1} the thumbnail`}
+                onClick={() => void move(index, 0)}
+              >
+                <Star className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded border border-line bg-white p-1 text-red-700 hover:bg-red-50 disabled:opacity-40"
+                disabled={busy}
+                aria-label={`Remove image ${index + 1}`}
+                onClick={() => void removeAt(index)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+        {remaining > 0 ? (
+          <label
+            htmlFor={inputId}
+            className="flex h-[11.5rem] w-[7.5rem] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-line bg-[#f7f5f0] px-2 text-center text-xs font-medium text-slate-500 hover:bg-white"
+          >
+            {busy ? "Uploading…" : `Add image${remaining === 5 ? "" : ` (${displayed.length}/5)`}`}
+          </label>
+        ) : null}
+      </div>
+      <input
+        id={inputId}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+        multiple
+        disabled={busy || remaining <= 0}
+        className="sr-only"
+        onChange={(event) => {
+          chooseFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      {remaining <= 0 ? (
+        <p className="text-xs text-slate-500">This product already has 5 images.</p>
+      ) : null}
     </div>
   );
 }

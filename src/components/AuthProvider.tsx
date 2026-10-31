@@ -25,6 +25,8 @@ import {
   saveEnvironment,
   type AppEnvironment,
 } from "@/lib/environment";
+import { getMyCustomAccess } from "@/lib/custom-users-api";
+import { canCustomUserAccessPath, firstAllowedPath } from "@/lib/custom-users";
 import type { AuthUser } from "@/lib/types";
 
 interface AuthContextValue {
@@ -67,8 +69,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const fresh = await fetchCurrentUser();
         if (cancelled) return;
-        saveAuth(fresh, env);
-        setUser(fresh);
+        let customAccess = stored.customAccess;
+        try {
+          customAccess = (await getMyCustomAccess()) ?? undefined;
+        } catch {
+          /* Keep the access already stored with this session. */
+        }
+        const next = { ...fresh, customAccess };
+        saveAuth(next, env);
+        setUser(next);
       } catch {
         // Keep stored session if /user/me is unavailable (older API).
       } finally {
@@ -83,20 +92,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const authUser = await apiLogin(email, password);
-      if (!authUser?.token) {
+      const signedIn = await apiLogin(email, password);
+      if (!signedIn?.token) {
         throw new Error("Sign-in failed");
       }
       clearEnvironment();
       clearSelectedSalesCompany();
+      saveAuth(signedIn, null);
+      let customAccess = signedIn.customAccess;
+      try {
+        customAccess = (await getMyCustomAccess()) ?? undefined;
+      } catch {
+        /* Sign-in still succeeds. Module limits refresh on the next load. */
+      }
+      const authUser = { ...signedIn, customAccess };
       saveAuth(authUser, null);
       setUser(authUser);
       setEnvironment(null);
       const home = postLoginPath(authUser);
       const next = new URLSearchParams(window.location.search).get("next");
       if (next && home !== "/select-environment") {
-        const prefix = areaPrefix(home);
-        if (next.startsWith(prefix)) {
+        const allowed = authUser.customAccess
+          ? canCustomUserAccessPath(authUser.customAccess, next)
+          : next.startsWith(areaPrefix(home));
+        if (allowed) {
           router.replace(next);
           return;
         }
@@ -115,7 +134,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       saveEnvironment(env);
       saveAuth(user, env);
       setEnvironment(env);
-      router.replace(homePathForEnvironment(env, user.role));
+      const dest = user.customAccess
+        ? firstAllowedPath(user.customAccess, env)
+        : homePathForEnvironment(env, user.role);
+      if (!dest) {
+        throw new Error(`No modules are enabled for ${env.toUpperCase()}`);
+      }
+      router.replace(dest);
     },
     [router, user],
   );

@@ -276,9 +276,10 @@ function InventoryItemDetail() {
       ) : (
         <div className="space-y-4">
           <Card>
-            <h2 className="mb-1 text-sm font-semibold text-ink">Product image</h2>
+            <h2 className="mb-1 text-sm font-semibold text-ink">Product images</h2>
             <p className="mb-4 text-sm text-slate-500">
-              Upload a finished image here, or generate one from Catalog.
+              Upload up to 5 images. Image 1 is the thumbnail. You can also
+              generate a thumbnail from Catalog.
             </p>
             <ProductImageField
               itemName={product.itemName || ""}
@@ -349,33 +350,47 @@ function InventoryItemDetail() {
 
           <Card>
             <h2 className="mb-4 text-sm font-semibold text-ink">
-              Store pricing
+              Store visibility
             </h2>
-            {profiles.length === 0 ? (
-              <p className="text-sm text-slate-500">No store prices assigned.</p>
+            {profiles.filter((row) => row.isDisplayed !== false).length === 0 ? (
+              <p className="text-sm text-slate-500">
+                Not visible in any store.
+              </p>
             ) : (
               <ul className="divide-y divide-line">
-                {profiles.map((row, index) => (
-                  <li
-                    key={`${storeIdOf(row.store)}-${index}`}
-                    className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                  >
-                    <div>
-                      <p className="font-medium text-ink">
-                        {storeNameOf(row.store) ||
-                          storeIdOf(row.store) ||
-                          "Store"}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        Item code: {row.storeItemCode || "—"}
-                        {row.isDisplayed === false ? " · Hidden" : ""}
-                      </p>
-                    </div>
-                    <p className="font-medium text-ink">
-                      {salesMoney(Number(row.storePrice) || 0)}
-                    </p>
-                  </li>
-                ))}
+                {profiles
+                  .filter((row) => row.isDisplayed !== false)
+                  .map((row, index) => {
+                    const price = Number(row.storePrice);
+                    const base = Number(product.sellingPrice) || 0;
+                    const usesBase =
+                      !Number.isFinite(price) || price === base;
+                    return (
+                      <li
+                        key={`${storeIdOf(row.store)}-${index}`}
+                        className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                      >
+                        <div>
+                          <p className="font-medium text-ink">
+                            {storeNameOf(row.store) ||
+                              storeIdOf(row.store) ||
+                              "Store"}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            Item code: {row.storeItemCode || "—"}
+                          </p>
+                        </div>
+                        <p className="text-right font-medium text-ink">
+                          {salesMoney(usesBase ? base : price)}
+                          {usesBase ? (
+                            <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                              Base selling price
+                            </span>
+                          ) : null}
+                        </p>
+                      </li>
+                    );
+                  })}
               </ul>
             )}
           </Card>

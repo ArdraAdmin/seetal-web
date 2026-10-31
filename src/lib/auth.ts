@@ -48,6 +48,9 @@ export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): v
       isSuperAdmin: isSuperAdmin(normalized),
       environment: env || undefined,
       environments: normalized.environments,
+      ...(normalized.customAccess
+        ? { customAccess: normalized.customAccess }
+        : {}),
     }),
   );
   document.cookie = `${AUTH_COOKIE}=${payload}; path=/; max-age=${maxAge}; SameSite=Lax`;

@@ -1,3 +1,5 @@
+import type { CustomAccess } from "./custom-users";
+
 export type UserRole = "Admin" | "Sales" | "Warehouse" | "Supervisor" | string;
 
 export type AppEnvironment = "stl" | "shmp";
@@ -19,6 +21,8 @@ export interface AuthUser {
   isSuperAdmin?: boolean;
   environments?: AppEnvironment[];
   hrCompanyAccess?: HrCompanyAccess[];
+  /** Set for accounts created in User management. */
+  customAccess?: CustomAccess;
 }
 
 export interface Driver {
@@ -112,7 +116,8 @@ export interface Product {
   categoryId?: string;
   subCategoryId?: string;
   masterCategoryId?: string;
-  imagePath?: string;
+  imagePath?: string | string[];
+  imageCount?: number;
   company?: string | { _id?: string; name?: string; prefix?: string };
   [key: string]: unknown;
 }

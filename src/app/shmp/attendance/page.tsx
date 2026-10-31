@@ -19,7 +19,10 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
-import { isShmpHrPortalRole } from "@/lib/hr-scope";
+import {
+  isShmpHrPortalRole,
+  presentRowVisibleToCaller,
+} from "@/lib/hr-scope";
 import {
   shmpAccessUsers,
   shmpAttendance,
@@ -175,8 +178,8 @@ function AttendancePage() {
       ]);
       setAttendance(Array.isArray(att) ? att : []);
       setPresentToday(
-        (Array.isArray(present) ? present : []).filter(
-          (row) => row.kind === "worker" || isShmpHrPortalRole(row.role),
+        (Array.isArray(present) ? present : []).filter((row) =>
+          presentRowVisibleToCaller(row, supervisor),
         ),
       );
       if (!portalIds.length) {
@@ -566,7 +569,11 @@ function AttendancePage() {
     <div className="space-y-6 pb-20">
       <PageHeader
         title="Attendance"
-        subtitle="Sales, supervisor and factory worker check-in, leave and daily status."
+        subtitle={
+          supervisor
+            ? "Workers and supervisors check-in, leave and daily status."
+            : "Sales, supervisor and factory worker check-in, leave and daily status."
+        }
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void refresh()}>
             Refresh
@@ -658,7 +665,10 @@ function AttendancePage() {
                   {todayOnly ? "Today's attendance" : "Recent attendance"}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Workers via fingerprint; sales and supervisors via portal check-in.
+                  Workers via fingerprint;{" "}
+                  {supervisor
+                    ? "supervisors via portal check-in."
+                    : "sales and supervisors via portal check-in."}
                 </p>
               </div>
               <p className="text-sm font-semibold text-ink">
@@ -875,8 +885,9 @@ function AttendancePage() {
                   Mark attendance / leave
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Record present, absent, or annual/sick leave for a worker, sales
-                  user or supervisor.
+                  {supervisor
+                    ? "Record present, absent, or annual/sick leave for a worker or supervisor."
+                    : "Record present, absent, or annual/sick leave for a worker, sales user or supervisor."}
                 </p>
               </div>
               <button

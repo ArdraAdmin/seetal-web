@@ -728,7 +728,7 @@ export interface CompanyProduct {
   itemName?: string;
   itemRef?: string;
   company?: string;
-  imagePath?: string;
+  imagePath?: string | string[];
 }
 
 export interface CompanyProductsPage {
@@ -755,7 +755,11 @@ function asCompanyProduct(item: unknown): CompanyProduct | null {
     itemName: o.itemName ? String(o.itemName) : undefined,
     itemRef: o.itemRef ? String(o.itemRef) : undefined,
     company: company || undefined,
-    imagePath: typeof o.imagePath === "string" ? o.imagePath : undefined,
+    imagePath: Array.isArray(o.imagePath)
+      ? o.imagePath.map((entry) => String(entry)).filter(Boolean)
+      : typeof o.imagePath === "string"
+        ? o.imagePath
+        : undefined,
   };
 }
 
@@ -1059,19 +1063,46 @@ export async function previewCatalogImage(productId: string, file: File) {
   return res.blob();
 }
 
+export type ProductImageUploadResult = {
+  imagePath: string | string[];
+  imageCount: number;
+};
+
 export async function uploadProductImage(
   productId: string,
   file: Blob,
   filename = "product.jpg",
+  options?: { slot?: number },
 ) {
   const body = new FormData();
   body.append("productId", productId);
+  if (options?.slot !== undefined) {
+    body.append("slot", String(options.slot));
+  }
   const named = file instanceof File ? file : new File([file], filename, { type: "image/jpeg" });
   body.append("image", named, named.name);
-  return request<{ imagePath: string; imageCount: number }>(
+  return request<ProductImageUploadResult>(
     "/admin/product/image",
     { method: "POST", body },
   );
+}
+
+export function reorderProductImages(
+  productId: string,
+  fromIndex: number,
+  toIndex: number,
+) {
+  return request<ProductImageUploadResult>("/admin/product/image/reorder", {
+    method: "POST",
+    body: JSON.stringify({ productId, fromIndex, toIndex }),
+  });
+}
+
+export function deleteProductImage(productId: string, index: number) {
+  return request<ProductImageUploadResult>("/admin/product/image/delete", {
+    method: "POST",
+    body: JSON.stringify({ productId, index }),
+  });
 }
 
 export function createdProductId(data: unknown): string {
@@ -2397,12 +2428,12 @@ async function ensureShmpStoreInventory(
   if (cached) return cached;
   let pending = shmpStoreInventoryInflight.get(key);
   if (!pending) {
-    pending = siteRequest<{ products?: Product[] }>("/api/sales/shmp-inventory", {
+    pending = request<unknown>("/sales/shmpInventory", {
       method: "POST",
       body: JSON.stringify({ storeId, userId, companyId }),
     })
       .then((data) => {
-        const products = Array.isArray(data.products) ? data.products : [];
+        const products = asProductList(data);
         shmpStoreInventoryCache.set(key, products);
         return products;
       })

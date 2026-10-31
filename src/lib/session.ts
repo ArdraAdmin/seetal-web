@@ -1,3 +1,5 @@
+import type { CustomAccess } from "./custom-users";
+
 export const AUTH_COOKIE = "stl_session";
 
 export function parseAuthCookie(value: string | undefined): {
@@ -9,6 +11,7 @@ export function parseAuthCookie(value: string | undefined): {
   isSuperAdmin?: boolean;
   environment?: string;
   environments?: string[];
+  customAccess?: CustomAccess;
 } | null {
   if (!value) return null;
   try {

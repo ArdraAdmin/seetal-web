@@ -13,46 +13,63 @@ import {
   LogOut,
   Menu,
   Package,
+  PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
   Store,
   Truck,
   UserSquare,
+  UserPlus,
   X,
   ArrowLeftRight,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { isSupervisor } from "@/lib/auth";
-import { SUPERVISOR_SHMP_PREFIXES } from "@/lib/roles";
+import { shmpModuleVisible } from "@/lib/custom-users";
+import { canSupervisorAccessShmpPath } from "@/lib/supervisor-shmp-access";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
-type NavItem = { href: string; label: string; icon: NavIcon; match?: string[] };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: NavIcon;
+  match?: string[];
+  moduleId?: string;
+  fullAdminOnly?: boolean;
+};
 
 const NAV: NavItem[] = [
-  { href: "/shmp", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/shmp/hr", label: "HR", icon: UserSquare },
-  { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays },
-  { href: "/shmp/stores", label: "Stores", icon: Store },
-  { href: "/shmp/inventory", label: "Inventory", icon: Package },
-  { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon },
-  { href: "/shmp/production", label: "Production", icon: Factory },
-  { href: "/shmp/rm", label: "RM Store", icon: Boxes },
-  { href: "/shmp/orders", label: "Orders & Deliveries", icon: ClipboardList },
+  { href: "/shmp", label: "Dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
+  { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
+  { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
+  { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" },
+  { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
+  { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
+  { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" },
+  { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" },
+  { href: "/shmp/orders", label: "Orders", icon: ClipboardList, moduleId: "orders" },
+  { href: "/shmp/delivery", label: "Delivery", icon: PackageCheck, moduleId: "delivery" },
   {
     href: "/shmp/drivers-vehicles",
     label: "Drivers & vehicles",
     icon: Truck,
+    moduleId: "drivers-vehicles",
     match: ["/shmp/drivers-vehicles", "/shmp/drivers", "/shmp/vehicles"],
   },
-  { href: "/shmp/costing", label: "Product Costing", icon: Package },
-  { href: "/shmp/reports", label: "Reports", icon: CalendarDays },
-  { href: "/shmp/settings", label: "Settings", icon: Settings },
+  { href: "/shmp/costing", label: "Product Costing", icon: Package, moduleId: "costing" },
+  { href: "/shmp/reports", label: "Reports", icon: CalendarDays, moduleId: "reports" },
+  {
+    href: "/shmp/users",
+    label: "User management",
+    icon: UserPlus,
+    match: ["/shmp/users"],
+    fullAdminOnly: true,
+  },
+  { href: "/shmp/settings", label: "Settings", icon: Settings, moduleId: "settings" },
 ];
-
-const SUPERVISOR_HREFS = new Set<string>(SUPERVISOR_SHMP_PREFIXES);
 
 const COLLAPSE_KEY = "shmp_sidebar_collapsed";
 
@@ -85,9 +102,18 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
     .join("");
 
   const supervisor = isSupervisor(user);
-  const navItems = supervisor
-    ? NAV.filter((item) => SUPERVISOR_HREFS.has(item.href))
-    : NAV;
+  const navItems = NAV.filter((item) => {
+    if (item.fullAdminOnly) {
+      return user?.role === "Admin" && !user.customAccess;
+    }
+    if (supervisor) return canSupervisorAccessShmpPath(item.href);
+    if (user?.customAccess) {
+      return Boolean(
+        item.moduleId && shmpModuleVisible(user.customAccess, item.moduleId),
+      );
+    }
+    return true;
+  });
   const canSwitchEnvironment = (user?.environments?.length ?? 0) > 1;
 
   return (

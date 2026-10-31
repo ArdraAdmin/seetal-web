@@ -24,6 +24,47 @@ export function formatPackedCartonsValue(value: number) {
   return `AED ${formatted}`;
 }
 
+export type ProductionSummaryCard = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+export function productionSummaryCards(input: {
+  todayCartons?: number;
+  monthCartons?: number;
+  todayValue?: number;
+  monthValue?: number;
+  showValue: boolean;
+}): ProductionSummaryCard[] {
+  const cards: ProductionSummaryCard[] = [
+    {
+      key: "today-cartons",
+      label: "Cartons packed today",
+      value: String(Number(input.todayCartons) || 0),
+    },
+    {
+      key: "month-cartons",
+      label: "Cartons packed this month",
+      value: String(Number(input.monthCartons) || 0),
+    },
+  ];
+  if (!input.showValue) return cards;
+  return [
+    ...cards,
+    {
+      key: "today-value",
+      label: "Packed cartons value today",
+      value: formatPackedCartonsValue(Number(input.todayValue) || 0),
+    },
+    {
+      key: "month-value",
+      label: "Packed cartons value this month",
+      value: formatPackedCartonsValue(Number(input.monthValue) || 0),
+    },
+  ];
+}
+
 export function formatProductionLogDate(value?: string | Date | null) {
   if (!value) return "";
   const parsed = value instanceof Date ? value : new Date(value);

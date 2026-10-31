@@ -197,6 +197,7 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
         selected.id,
         preview,
         `${selected.ref || selected.id}.jpg`,
+        { slot: 0 },
       );
       setItems((current) =>
         current.map((item) =>

@@ -7,12 +7,14 @@ import {
   getCompanies,
   type CompanyRecord,
 } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 import {
   EmptyState,
   ErrorState,
   LoadingState,
   PageHeader,
 } from "@/components/ui";
+import { filterCompaniesForModule } from "@/lib/custom-users";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -22,6 +24,7 @@ function initials(name: string) {
 }
 
 export default function StockTransferPage() {
+  const { user } = useAuth();
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,12 @@ export default function StockTransferPage() {
     void load();
   }, [load]);
 
+  const visible = filterCompaniesForModule(
+    companies,
+    user?.customAccess,
+    "stock-transfer",
+  );
+
   return (
     <div>
       <PageHeader
@@ -54,11 +63,17 @@ export default function StockTransferPage() {
         <LoadingState label="Loading companies…" />
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
-      ) : companies.length === 0 ? (
-        <EmptyState title="No companies found" />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          title={
+            companies.length === 0
+              ? "No companies found"
+              : "No companies are enabled for stock transfer"
+          }
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {companies.map((company) => {
+          {visible.map((company) => {
             const name = companyLabel(company);
             const count = company.productCount ?? 0;
             return (

@@ -55,10 +55,12 @@ export function normalizeEnvironments(
   return ["stl"];
 }
 
+export const SUPERVISOR_SHMP_HOME = "/shmp/attendance";
+
 export function homePathForEnvironment(env: AppEnvironment, role?: string) {
   if (role === "Sales") return "/sales";
   if (env === "shmp") {
-    return role === "Supervisor" ? "/shmp/hr" : "/shmp";
+    return role === "Supervisor" ? SUPERVISOR_SHMP_HOME : "/shmp";
   }
   if (role === "Warehouse") return "/warehouse";
   return "/admin";

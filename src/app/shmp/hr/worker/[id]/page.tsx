@@ -9,7 +9,9 @@ import {
   useState,
 } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
+import { isSupervisor } from "@/lib/auth";
 import {
   shmpEmployee,
   shmpEmployees,
@@ -57,7 +59,11 @@ function WorkerDetail() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { user } = useAuth();
+  const supervisor = isSupervisor(user);
   const { toast } = useToast();
+  const backHref = supervisor ? "/shmp/attendance" : "/shmp/hr";
+  const backLabel = supervisor ? "Back to attendance" : "Back to HR";
   const id = String(params?.id || "");
   const [emp, setEmp] = useState<Emp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,8 +173,8 @@ function WorkerDetail() {
   if (error || !emp) {
     return (
       <div className="space-y-4">
-        <Link href="/shmp/hr" className="text-sm text-slate-600 underline">
-          Back to HR
+        <Link href={backHref} className="text-sm text-slate-600 underline">
+          {backLabel}
         </Link>
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error || "Worker not found"}
@@ -183,8 +189,8 @@ function WorkerDetail() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link href="/shmp/hr" className="text-sm text-slate-600 underline">
-            Back to HR
+          <Link href={backHref} className="text-sm text-slate-600 underline">
+            {backLabel}
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-ink">{emp.name}</h1>
           <p className="mt-1 text-sm text-slate-600">

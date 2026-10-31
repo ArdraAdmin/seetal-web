@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ShmpShell } from "@/components/ShmpShell";
+import { CustomAccessGuard } from "@/components/CustomAccessGuard";
 import { StaffCheckInGate } from "@/components/StaffCheckInGate";
 import { canAccessEnvironment, isSupervisor } from "@/lib/auth";
 import {
@@ -59,10 +60,16 @@ export default function ShmpLayout({
         title="Check in to open SHMP"
         subtitle="Record your attendance for today, then continue to the portal."
       >
-        <ShmpShell>{children}</ShmpShell>
+        <ShmpShell>
+          <CustomAccessGuard>{children}</CustomAccessGuard>
+        </ShmpShell>
       </StaffCheckInGate>
     );
   }
 
-  return <ShmpShell>{children}</ShmpShell>;
+  return (
+    <ShmpShell>
+      <CustomAccessGuard>{children}</CustomAccessGuard>
+    </ShmpShell>
+  );
 }

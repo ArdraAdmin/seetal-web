@@ -16,6 +16,7 @@ import {
   getModuleAccessUsers,
   updateModuleAccess,
 } from "@/lib/stl-features-api";
+import { listCustomUsers } from "@/lib/custom-users-api";
 
 type Data = Awaited<ReturnType<typeof getModuleAccessUsers>>;
 
@@ -35,6 +36,7 @@ export default function AdminPermissionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [customIds, setCustomIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     if (!user?.id || !isLav) return;
@@ -51,11 +53,18 @@ export default function AdminPermissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, isLav]);
+  }, [user, isLav]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isLav) return;
+    void listCustomUsers()
+      .then((data) => setCustomIds(new Set(data.users.map((row) => row.id))))
+      .catch(() => setCustomIds(new Set()));
+  }, [isLav]);
 
   function effective(id: string, fallback: string[]) {
     return drafts[id] ?? fallback;
@@ -112,7 +121,7 @@ export default function AdminPermissionsPage() {
         <ErrorState message={error} onRetry={() => void load()} />
       ) : data && data.users.length > 0 ? (
         <div className="space-y-3">
-          {data.users.map((u) => {
+          {data.users.filter((row) => !customIds.has(row.id)).map((u) => {
             const current = effective(u.id, u.effectiveModules);
             const dirty = norm(drafts[u.id] ?? null) !== norm(u.moduleAccess);
             return (

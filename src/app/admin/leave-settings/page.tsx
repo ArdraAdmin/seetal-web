@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { SelectField } from "@/components/StlFeatureUi";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui";
 import { getCompanies, type CompanyRecord } from "@/lib/api";
 import { getLeaveSettings, saveLeaveSettings } from "@/lib/stl-features-api";
+import { filterCompaniesForModule } from "@/lib/custom-users";
 
 export default function AdminLeaveSettingsPage() {
   const { user } = useAuth();
@@ -36,12 +37,20 @@ export default function AdminLeaveSettingsPage() {
       .catch(() => setCompanies([]));
   }, []);
 
+  const options = useMemo(
+    () =>
+      filterCompaniesForModule(companies, user?.customAccess, "leave-settings"),
+    [companies, user],
+  );
+  const scopeId =
+    user?.customAccess && !companyId ? (options[0]?._id ?? "") : companyId;
+
   const load = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await getLeaveSettings(user.id, companyId || undefined);
+      const data = await getLeaveSettings(user.id, scopeId || undefined);
       setAnnual(String(data.resolved.annualLeaveDays));
       setSick(String(data.resolved.sickLeaveDays));
       setDefaults(data.defaults);
@@ -50,7 +59,7 @@ export default function AdminLeaveSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, companyId]);
+  }, [user, scopeId]);
 
   useEffect(() => {
     void load();
@@ -76,7 +85,7 @@ export default function AdminLeaveSettingsPage() {
         userId: user.id,
         annualLeaveDays,
         sickLeaveDays,
-        companyId: companyId || null,
+        companyId: scopeId || null,
       });
       toast("Leave settings saved", "success");
       await load();
@@ -102,11 +111,13 @@ export default function AdminLeaveSettingsPage() {
           <form className="space-y-3" onSubmit={onSubmit}>
             <SelectField
               label="Scope"
-              value={companyId}
+              value={scopeId}
               onChange={(e) => setCompanyId(e.target.value)}
             >
-              <option value="">Global default (all companies)</option>
-              {companies.map((c) => (
+              {user?.customAccess ? null : (
+                <option value="">Global default (all companies)</option>
+              )}
+              {options.map((c) => (
                 <option key={c._id} value={c._id}>
                   {c.name}
                 </option>

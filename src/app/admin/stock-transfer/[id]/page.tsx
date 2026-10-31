@@ -12,6 +12,8 @@ import {
   type CompanyRecord,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/components/AuthProvider";
+import { filterCompaniesForModule } from "@/lib/custom-users";
 import {
   EmptyState,
   ErrorState,
@@ -28,6 +30,7 @@ export default function StockTransferProductsPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const { user } = useAuth();
   const sourceId = params.id;
   const named = searchParams.get("name") || "";
 
@@ -43,9 +46,14 @@ export default function StockTransferProductsPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmTo, setConfirmTo] = useState<CompanyRecord | null>(null);
 
+  const allowed = filterCompaniesForModule(
+    companies,
+    user?.customAccess,
+    "stock-transfer",
+  );
   const source = companies.find((company) => company._id === sourceId);
   const sourceName = named || (source ? companyLabel(source) : "Company");
-  const destinations = companies.filter((company) => company._id !== sourceId);
+  const destinations = allowed.filter((company) => company._id !== sourceId);
 
   const load = useCallback(async () => {
     if (!sourceId) return;
@@ -57,6 +65,19 @@ export default function StockTransferProductsPage() {
     try {
       const list = await getCompanies();
       setCompanies(list);
+      const allowedNow = filterCompaniesForModule(
+        list,
+        user?.customAccess,
+        "stock-transfer",
+      );
+      if (
+        user?.customAccess &&
+        !allowedNow.some((company) => company._id === sourceId)
+      ) {
+        setError("This company is not enabled for your account");
+        setLoading(false);
+        return;
+      }
       await getAllCompanyProducts(sourceId, (soFar, count) => {
         setProducts(soFar);
         setLoading(false);
@@ -68,7 +89,7 @@ export default function StockTransferProductsPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [sourceId]);
+  }, [sourceId, user]);
 
   useEffect(() => {
     void load();

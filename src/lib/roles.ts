@@ -1,23 +1,18 @@
 import type { AppEnvironment, AuthUser } from "./types";
-import { normalizeEnvironments, homePathForEnvironment } from "./environment";
+import { firstAllowedPath } from "./custom-users";
+import {
+  normalizeEnvironments,
+  homePathForEnvironment,
+  SUPERVISOR_SHMP_HOME,
+} from "./environment";
 
-/** SHMP routes Supervisors may open (prefix match). All other /shmp paths are Admin-only. */
-export const SUPERVISOR_SHMP_PREFIXES = [
-  "/shmp/hr",
-  "/shmp/attendance",
-  "/shmp/production",
-  "/shmp/orders",
-  "/shmp/settings",
-] as const;
+export {
+  SUPERVISOR_SHMP_PREFIXES,
+  canSupervisorAccessShmpPath,
+} from "./supervisor-shmp-access";
 
 export function supervisorShmpHome() {
-  return "/shmp/hr";
-}
-
-export function canSupervisorAccessShmpPath(pathname: string) {
-  return SUPERVISOR_SHMP_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  return SUPERVISOR_SHMP_HOME;
 }
 
 export function homePathForRole(role?: string) {
@@ -39,6 +34,10 @@ export function postLoginPath(user: AuthUser): string {
     user.role,
     user.isSuperAdmin,
   );
+  if (user.customAccess) {
+    if (envs.length > 1) return "/select-environment";
+    return firstAllowedPath(user.customAccess, envs[0] ?? "stl") ?? "/no-access";
+  }
   if (envs.length > 1) return "/select-environment";
   if (envs.length === 1) {
     return homePathForEnvironment(envs[0] as AppEnvironment, user.role);

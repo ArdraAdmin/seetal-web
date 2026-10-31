@@ -29,6 +29,7 @@ async function shmpRequest<T>(
   }
   const res = await fetch(`${API_BASE}/shmp${path}`, {
     ...init,
+    cache: init.cache ?? "no-store",
     headers,
   });
   const text = await res.text();
@@ -346,6 +347,8 @@ export type ShmpProductionDashboard = {
   pendingOrders?: unknown[];
   todayCartons?: number;
   todayValue?: number;
+  monthCartons?: number;
+  monthValue?: number;
   byWorker?: ShmpProductionLog[];
 };
 
@@ -355,6 +358,8 @@ export const shmpProductionLogs = (params?: Record<string, string>) => {
     date?: string;
     todayCartons?: number;
     todayValue?: number;
+    monthCartons?: number;
+    monthValue?: number;
     logs?: ShmpProductionLog[];
   }>(`/production/logs?${q}`);
 };
@@ -363,8 +368,23 @@ export const shmpDeliveries = (params?: Record<string, string>) => {
   return shmpRequest(`/deliveries?${q}`);
 };
 
-export const shmpCreateDelivery = (body: Record<string, unknown>) =>
-  shmpRequest("/deliveries", { method: "POST", body: JSON.stringify(body) });
+export type ShmpDeliveryVehicle = { _id: string; value?: number | string };
+
+export const shmpDeliveryVehicles = () =>
+  shmpRequest<ShmpDeliveryVehicle[]>("/deliveries/vehicles");
+
+export const shmpCreateDelivery = (body: {
+  companyId: string;
+  tempOrderId: string;
+  vehicleId: string;
+  lines: Array<{ productId: string; qty: number }>;
+  deliveryDate?: string;
+  remarks?: string;
+}) =>
+  shmpRequest<{
+    _id?: string;
+    dispatch?: { section?: "pending" | "ready" | "delivered" };
+  }>("/deliveries", { method: "POST", body: JSON.stringify(body) });
 
 export const shmpDailyDeliveryReport = (params?: Record<string, string>) => {
   const q = new URLSearchParams(params || {});
@@ -653,7 +673,8 @@ export type ShmpInventoryProduct = {
   masterCategoryId?: string;
   category?: string | { _id?: string; subCategory?: string };
   company?: string | { _id?: string; name?: string; prefix?: string };
-  imagePath?: string;
+  imagePath?: string | string[];
+  imageCount?: number;
   inQty?: { amountInCartons?: number; amountInUnits?: number };
   storeProfileList?: ShmpStoreProfile[];
   source?: string;
@@ -728,11 +749,15 @@ export type ShmpStoreProfileInput = {
   isDisplayed?: boolean;
 };
 
-export const shmpInventory = (params?: Record<string, string>) => {
+export const shmpInventory = (
+  params?: Record<string, string>,
+  signal?: AbortSignal,
+) => {
   const q = new URLSearchParams(params || {});
   const qs = q.toString();
   return shmpRequest<ShmpInventoryProduct[]>(
     `/inventory${qs ? `?${qs}` : ""}`,
+    signal ? { signal } : {},
   );
 };
 

@@ -5,6 +5,7 @@ import {
   formatProductionLogDate,
   productionLogMatchesQuery,
   productionLogStoreName,
+  productionSummaryCards,
   type ShmpProductionLog,
 } from "./shmp-production.ts";
 
@@ -54,5 +55,39 @@ describe("formatPackedCartonsValue", () => {
   it("formats AED values", () => {
     assert.equal(formatPackedCartonsValue(240), "AED 240.00");
     assert.equal(formatPackedCartonsValue(Number.NaN), "AED 0.00");
+  });
+});
+
+describe("productionSummaryCards", () => {
+  const totals = {
+    todayCartons: 12,
+    monthCartons: 80,
+    todayValue: 240,
+    monthValue: 1600,
+  };
+
+  it("hides packed carton values from supervisors", () => {
+    const cards = productionSummaryCards({ ...totals, showValue: false });
+    assert.deepEqual(
+      cards.map((card) => card.label),
+      ["Cartons packed today", "Cartons packed this month"],
+    );
+    assert.equal(
+      cards.some((card) => card.label.toLowerCase().includes("value")),
+      false,
+    );
+  });
+
+  it("shows carton counts and values for admins", () => {
+    const cards = productionSummaryCards({ ...totals, showValue: true });
+    assert.deepEqual(
+      cards.map((card) => ({ label: card.label, value: card.value })),
+      [
+        { label: "Cartons packed today", value: "12" },
+        { label: "Cartons packed this month", value: "80" },
+        { label: "Packed cartons value today", value: "AED 240.00" },
+        { label: "Packed cartons value this month", value: "AED 1,600.00" },
+      ],
+    );
   });
 });

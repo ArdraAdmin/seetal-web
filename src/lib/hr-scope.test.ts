@@ -4,6 +4,8 @@ import {
   attendanceRecordUserId,
   isShmpHrPortalRole,
   isStlHrRole,
+  presentRowVisibleToCaller,
+  presentRowVisibleToSupervisor,
   warehouseStaffLabel,
 } from "./hr-scope.ts";
 
@@ -22,6 +24,29 @@ describe("HR people filters", () => {
     assert.equal(isShmpHrPortalRole("Admin"), false);
     assert.equal(isShmpHrPortalRole("Warehouse"), false);
     assert.equal(isShmpHrPortalRole("Worker"), false);
+  });
+
+  it("lets supervisors see workers and supervisors only", () => {
+    assert.equal(
+      presentRowVisibleToSupervisor({ kind: "worker", role: "Worker" }),
+      true,
+    );
+    assert.equal(
+      presentRowVisibleToSupervisor({ kind: "portal", role: "Supervisor" }),
+      true,
+    );
+    assert.equal(
+      presentRowVisibleToSupervisor({ kind: "portal", role: "Sales" }),
+      false,
+    );
+    assert.equal(
+      presentRowVisibleToCaller({ kind: "portal", role: "Sales" }, false),
+      true,
+    );
+    assert.equal(
+      presentRowVisibleToCaller({ kind: "portal", role: "Sales" }, true),
+      false,
+    );
   });
 
   it("labels warehouse managers separately from warehouse users", () => {

@@ -20,6 +20,8 @@ import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useToast } from "@/components/Toast";
 import { ProductImageField } from "@/components/ProductImage";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
+import { useAuth } from "@/components/AuthProvider";
+import { filterCompaniesForModule } from "@/lib/custom-users";
 
 const COMPANY_ORDER = ["SH Lakshmi", "SHMP", "Sarvah", "STL"] as const;
 
@@ -221,6 +223,7 @@ export function ProductForm({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
   const editing = Boolean(product?._id);
   const [saving, setSaving] = useState(false);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
@@ -229,7 +232,7 @@ export function ProductForm({
   const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [existsError, setExistsError] = useState<string | null>(null);
-  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [imagePath, setImagePath] = useState<unknown>(product?.imagePath);
 
   useEffect(() => {
@@ -297,6 +300,11 @@ export function ProductForm({
         String(a.subCategory || "").localeCompare(String(b.subCategory || "")),
       ),
     [selectedGroup],
+  );
+
+  const companyOptions = useMemo(
+    () => filterCompaniesForModule(companies, user?.customAccess, "inventory"),
+    [companies, user?.customAccess],
   );
 
   function onMasterChange(value: string) {
@@ -368,9 +376,11 @@ export function ProductForm({
       }
       const created = await addProductManual(payload);
       const createdId = createdProductId(created);
-      if (pendingImage && createdId) {
+      if (pendingImages.length > 0 && createdId) {
         try {
-          await uploadProductImage(createdId, pendingImage);
+          for (const file of pendingImages) {
+            await uploadProductImage(createdId, file);
+          }
         } catch (imageError) {
           toast(
             imageError instanceof Error
@@ -492,10 +502,11 @@ export function ProductForm({
             {loadingCompanies ? "Loading companies…" : "Select company"}
           </option>
           {form.company &&
+          !user?.customAccess &&
           !companies.some((company) => company._id === form.company) ? (
             <option value={form.company}>Current company</option>
           ) : null}
-          {companies.map((company) => (
+          {companyOptions.map((company) => (
             <option key={company._id} value={company._id}>
               {displayCompanyName(company)}
             </option>
@@ -543,7 +554,7 @@ export function ProductForm({
           imagePath={imagePath}
           productId={editing ? product?._id : undefined}
           onUploaded={setImagePath}
-          onPendingFile={setPendingImage}
+          onPendingFiles={setPendingImages}
         />
         <div className="flex items-end gap-2 sm:col-span-2">
           <PrimaryButton type="submit" disabled={saving}>

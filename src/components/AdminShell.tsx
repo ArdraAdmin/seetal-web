@@ -31,12 +31,14 @@ import {
   UserSquare,
   Users,
   UserCog,
+  UserPlus,
   Warehouse,
   X,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
+import { sellingModuleVisible } from "@/lib/custom-users";
 import {
   isSettingsNavHref,
   isTrackingUnlocked,
@@ -51,34 +53,54 @@ type NavItem = {
   label: string;
   icon: NavIcon;
   match?: string[];
+  moduleId?: string;
   superAdminOnly?: boolean;
   /** Tracking — lav@shrseetal.com only, after 5 Settings clicks. */
   trackingOnly?: boolean;
   /** Only lav@shrseetal.com (module permissions owner). */
   lavOnly?: boolean;
+  /** Hidden from custom users. Full admins only. */
+  fullAdminOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
-  { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard },
+  { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
   {
     href: "/admin/drivers-vehicles",
     label: "Drivers & vehicles",
     icon: Truck,
+    moduleId: "drivers-vehicles",
     match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
   },
-  { href: "/admin/stores", label: "Stores", icon: Store },
-  { href: "/admin/profiles/sales", label: "Sales profiles", icon: Users },
+  { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" },
+  {
+    href: "/admin/profiles/sales",
+    label: "Sales profiles",
+    icon: Users,
+    moduleId: "sales-profiles",
+  },
   {
     href: "/admin/profiles/warehouse",
     label: "Warehouse profiles",
     icon: UserCog,
+    moduleId: "warehouse-profiles",
   },
-  { href: "/admin/inventory", label: "Inventory", icon: Package },
-  { href: "/admin/catalog", label: "Catalog", icon: ImageIcon },
-  { href: "/admin/stock-transfer", label: "Stock transfer", icon: ArrowLeftRight },
-  { href: "/admin/pending-orders", label: "Pending orders", icon: ClipboardList },
-  { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/admin/leave", label: "Leave", icon: CalendarDays },
+  { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
+  { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
+  {
+    href: "/admin/stock-transfer",
+    label: "Stock transfer",
+    icon: ArrowLeftRight,
+    moduleId: "stock-transfer",
+  },
+  {
+    href: "/admin/pending-orders",
+    label: "Pending orders",
+    icon: ClipboardList,
+    moduleId: "pending-orders",
+  },
+  { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck, moduleId: "approvals" },
+  { href: "/admin/leave", label: "Leave", icon: CalendarDays, moduleId: "leave" },
   {
     href: "/admin/tracking",
     label: "Tracking",
@@ -89,39 +111,55 @@ const NAV: NavItem[] = [
     href: "/admin/attendance",
     label: "Attendance",
     icon: CalendarDays,
+    moduleId: "attendance",
     superAdminOnly: true,
   },
   {
     href: "/admin/attendance-reports",
     label: "Attendance reports",
     icon: FileBarChart,
+    moduleId: "attendance-reports",
   },
   {
     href: "/admin/attendance-override",
     label: "Attendance override",
     icon: CalendarX,
+    moduleId: "attendance-override",
     superAdminOnly: true,
   },
-  { href: "/admin/leave-settings", label: "Leave settings", icon: CalendarClock },
-  { href: "/admin/hr", label: "HR", icon: UserSquare },
+  {
+    href: "/admin/leave-settings",
+    label: "Leave settings",
+    icon: CalendarClock,
+    moduleId: "leave-settings",
+  },
+  { href: "/admin/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/admin/driver-deliveries",
     label: "Driver deliveries",
     icon: Truck,
+    moduleId: "driver-deliveries",
   },
-  { href: "/admin/sales-lost", label: "Sales lost", icon: PackageX },
+  { href: "/admin/sales-lost", label: "Sales lost", icon: PackageX, moduleId: "sales-lost" },
   {
     href: "/admin/permissions",
     label: "Permissions",
     icon: KeyRound,
     lavOnly: true,
   },
-  { href: "/admin/targets", label: "Sales targets", icon: Target },
-  { href: "/admin/grv", label: "GRV management", icon: RotateCcw },
-  { href: "/admin/categories", label: "Categories", icon: Folders },
-  { href: "/admin/payments", label: "Payments", icon: Banknote },
-  { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+  {
+    href: "/admin/users",
+    label: "User management",
+    icon: UserPlus,
+    match: ["/admin/users"],
+    fullAdminOnly: true,
+  },
+  { href: "/admin/targets", label: "Sales targets", icon: Target, moduleId: "targets" },
+  { href: "/admin/grv", label: "GRV management", icon: RotateCcw, moduleId: "grv" },
+  { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" },
+  { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" },
+  { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse, moduleId: "warehouse" },
+  { href: "/admin/settings", label: "Settings", icon: Settings, moduleId: "settings" },
 ];
 
 const COLLAPSE_KEY = "stl_sidebar_collapsed";
@@ -171,11 +209,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     String(user?.email || "").trim().toLowerCase() === "lav@shrseetal.com";
   const canSeeTracking = isTrackingAdmin(user) && trackingUnlocked;
   const navItems = NAV.filter((item) => {
+    if (user?.customAccess) {
+      return Boolean(
+        item.moduleId && sellingModuleVisible(user.customAccess, item.moduleId),
+      );
+    }
     if (item.trackingOnly) return canSeeTracking;
     if (item.superAdminOnly) return isSuperAdmin(user);
     if (item.lavOnly) return isLav;
     return true;
   });
+  const showSettings =
+    !user?.customAccess || sellingModuleVisible(user.customAccess, "settings");
 
   function onSettingsNavClick() {
     if (isTrackingAdmin(user)) {
@@ -265,6 +310,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             collapsed ? "px-2 py-3" : "px-3 py-4"
           }`}
         >
+          {showSettings ? (
           <Link
             href="/admin/settings"
             title="Settings"
@@ -287,6 +333,23 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <p className="truncate text-xs text-black/80">{user?.email}</p>
             </div>
           </Link>
+          ) : (
+            <div
+              className={`flex items-center gap-2.5 rounded-xl px-2 py-1 ${
+                collapsed ? "lg:justify-center" : ""
+              }`}
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-black">
+                {initials || "A"}
+              </span>
+              <div className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
+                <p className="truncate text-sm font-semibold text-black">
+                  {user?.name || "Administrator"}
+                </p>
+                <p className="truncate text-xs text-black/80">{user?.email}</p>
+              </div>
+            </div>
+          )}
           {canAccessEnvironment(user, "shmp") ? (
             <button
               type="button"

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
+import { CustomAccessGuard } from "@/components/CustomAccessGuard";
 import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
 
@@ -28,5 +29,9 @@ export default function AdminLayout({
     );
   }
 
-  return <AdminShell>{children}</AdminShell>;
+  return (
+    <AdminShell>
+      <CustomAccessGuard>{children}</CustomAccessGuard>
+    </AdminShell>
+  );
 }

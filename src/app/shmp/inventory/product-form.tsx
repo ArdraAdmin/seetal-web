@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { companyLabel, type CompanyRecord } from "@/lib/api";
 import type { CategoryGroup } from "@/lib/categories";
 import {
@@ -9,16 +9,16 @@ import {
   SHMP_OWN_SOURCE,
   type ShmpInventoryProduct,
   type ShmpStore,
-  type ShmpStoreProfileInput,
 } from "@/lib/shmp-api";
-import { FieldLabel, SecondaryButton, TextField } from "@/components/ui";
+import { FieldLabel, TextField } from "@/components/ui";
+import {
+  newStoreVisibilityRow,
+  pricingRowsFromProfiles,
+  storeProfilesFromRows,
+  type StoreVisibilityRow,
+} from "./store-visibility";
 
-export type PricingRow = {
-  key: string;
-  storeId: string;
-  storePrice: string;
-  storeItemCode: string;
-};
+export type PricingRow = StoreVisibilityRow;
 
 export type ProductFormState = {
   itemRef: string;
@@ -60,15 +60,6 @@ export const EMPTY_FORM: ProductFormState = {
 
 export function blankForm(company = ""): ProductFormState {
   return { ...EMPTY_FORM, company, pricing: [] };
-}
-
-function newPricingRow(): PricingRow {
-  return {
-    key: `p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    storeId: "",
-    storePrice: "",
-    storeItemCode: "",
-  };
 }
 
 export function companyIdOf(product: ShmpInventoryProduct) {
@@ -196,12 +187,10 @@ export function formFromProduct(
       product.weight != null && Number.isFinite(Number(product.weight))
         ? String(product.weight)
         : "",
-    pricing: (product.storeProfileList || []).map((row, index) => ({
-      key: `existing-${storeIdOf(row.store) || index}`,
-      storeId: storeIdOf(row.store),
-      storePrice: String(row.storePrice ?? product.sellingPrice ?? 0),
-      storeItemCode: String(row.storeItemCode ?? ""),
-    })),
+    pricing: pricingRowsFromProfiles(
+      product.storeProfileList,
+      product.sellingPrice,
+    ),
   };
 }
 
@@ -236,7 +225,11 @@ function SelectField({
   );
 }
 
-function PricingEditor({
+function storeLabel(store: { storeName?: string; uid?: string; _id: string }) {
+  return store.storeName || store.uid || store._id;
+}
+
+function StoreVisibilityEditor({
   pricing,
   stores,
   onChange,
@@ -245,99 +238,161 @@ function PricingEditor({
   stores: ShmpStore[];
   onChange: (rows: PricingRow[]) => void;
 }) {
-  const used = new Set(pricing.map((row) => row.storeId).filter(Boolean));
+  const [filter, setFilter] = useState("");
+  const knownIds = new Set(stores.map((store) => store._id));
+  const selectedIds = new Set(
+    pricing.map((row) => row.storeId).filter(Boolean),
+  );
+  const needle = filter.trim().toLowerCase();
+  const listed = stores.filter((store) => {
+    if (!needle) return true;
+    const hay = `${store.storeName || ""} ${store.uid || ""} ${store.city || ""}`
+      .toLowerCase();
+    return hay.includes(needle);
+  });
+  const orphans = pricing.filter((row) => {
+    if (!row.storeId || knownIds.has(row.storeId)) return false;
+    if (!needle) return true;
+    return `${row.storeName} ${row.storeId}`.toLowerCase().includes(needle);
+  });
 
-  function updateRow(key: string, patch: Partial<PricingRow>) {
+  function updateRow(storeId: string, patch: Partial<PricingRow>) {
     onChange(
-      pricing.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+      pricing.map((row) =>
+        row.storeId === storeId ? { ...row, ...patch } : row,
+      ),
+    );
+  }
+
+  function setVisible(
+    storeId: string,
+    storeName: string,
+    visible: boolean,
+  ) {
+    if (visible) {
+      if (selectedIds.has(storeId)) return;
+      onChange([...pricing, newStoreVisibilityRow(storeId, storeName)]);
+      return;
+    }
+    onChange(pricing.filter((row) => row.storeId !== storeId));
+  }
+
+  function priceFields(row: PricingRow) {
+    return (
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <TextField
+          label="Store price"
+          optional
+          type="number"
+          min={0}
+          step="0.01"
+          value={row.storePrice}
+          onChange={(e) =>
+            updateRow(row.storeId, { storePrice: e.target.value })
+          }
+          placeholder="Uses base selling price"
+        />
+        <TextField
+          label="Store item code"
+          optional
+          value={row.storeItemCode}
+          onChange={(e) =>
+            updateRow(row.storeId, { storeItemCode: e.target.value })
+          }
+          placeholder="Optional"
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-[13px] font-medium text-slate-700">
-            Store pricing
-          </p>
-          <p className="text-xs text-slate-500">
-            Add one or more store-specific prices. Base selling price is used
-            when a store price is blank.
-          </p>
-        </div>
-        <SecondaryButton
-          type="button"
-          onClick={() => onChange([...pricing, newPricingRow()])}
-        >
-          Add pricing
-        </SecondaryButton>
+      <div>
+        <p className="text-[13px] font-medium text-slate-700">
+          Store visibility
+        </p>
+        <p className="text-xs text-slate-500">
+          Select the stores where this product is visible. Store price is
+          optional. The base selling price is used when a store price is left
+          blank.
+        </p>
       </div>
 
-      {pricing.length === 0 ? (
+      {stores.length === 0 && orphans.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line px-3 py-4 text-sm text-slate-500">
-          No store prices yet. Click Add pricing to assign this product to
-          stores.
+          No SHMP stores yet. Add a store before choosing where this product
+          is visible.
         </p>
       ) : (
         <div className="space-y-3">
-          {pricing.map((row) => (
+          <p className="text-xs text-slate-500">
+            Visible in {selectedIds.size}{" "}
+            {selectedIds.size === 1 ? "store" : "stores"}
+          </p>
+          {stores.length > 5 ? (
+            <TextField
+              label="Find a store"
+              optional
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Store name or code"
+            />
+          ) : null}
+          {listed.length === 0 && orphans.length === 0 ? (
+            <p className="text-sm text-slate-500">No stores match that search.</p>
+          ) : null}
+          {listed.map((store) => {
+            const row = pricing.find((item) => item.storeId === store._id);
+            const selected = Boolean(row);
+            const name = storeLabel(store);
+            return (
+              <div
+                key={store._id}
+                className="rounded-lg border border-line bg-[#f7f5f0]/40 p-3"
+              >
+                <label className="flex items-start gap-2 text-sm font-medium text-ink">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={selected}
+                    onChange={(e) =>
+                      setVisible(store._id, name, e.target.checked)
+                    }
+                  />
+                  <span>
+                    {name}
+                    {store.city ? (
+                      <span className="ml-2 font-normal text-slate-500">
+                        {store.city}
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+                {selected && row ? priceFields(row) : null}
+              </div>
+            );
+          })}
+          {orphans.map((row) => (
             <div
               key={row.key}
-              className="grid gap-3 rounded-lg border border-line bg-[#f7f5f0]/40 p-3 sm:grid-cols-[1.4fr_1fr_1fr_auto]"
+              className="rounded-lg border border-line bg-[#f7f5f0]/40 p-3"
             >
-              <SelectField
-                label="Store"
-                required
-                value={row.storeId}
-                onChange={(value) => updateRow(row.key, { storeId: value })}
-              >
-                <option value="">Select store</option>
-                {stores.map((store) => {
-                  const taken =
-                    used.has(store._id) && store._id !== row.storeId;
-                  return (
-                    <option
-                      key={store._id}
-                      value={store._id}
-                      disabled={taken}
-                    >
-                      {store.storeName || store.uid || store._id}
-                      {taken ? " (already added)" : ""}
-                    </option>
-                  );
-                })}
-              </SelectField>
-              <TextField
-                label="Store price"
-                type="number"
-                min={0}
-                step="0.01"
-                value={row.storePrice}
-                onChange={(e) =>
-                  updateRow(row.key, { storePrice: e.target.value })
-                }
-                placeholder="0.00"
-              />
-              <TextField
-                label="Store item code"
-                optional
-                value={row.storeItemCode}
-                onChange={(e) =>
-                  updateRow(row.key, { storeItemCode: e.target.value })
-                }
-                placeholder="Optional"
-              />
-              <div className="flex items-end">
-                <SecondaryButton
-                  type="button"
-                  className="border-red-200 text-red-700"
-                  onClick={() =>
-                    onChange(pricing.filter((item) => item.key !== row.key))
+              <label className="flex items-start gap-2 text-sm font-medium text-ink">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked
+                  onChange={(e) =>
+                    setVisible(
+                      row.storeId,
+                      row.storeName || row.storeId,
+                      e.target.checked,
+                    )
                   }
-                >
-                  Remove
-                </SecondaryButton>
-              </div>
+                />
+                <span>{row.storeName || row.storeId}</span>
+              </label>
+              {priceFields(row)}
             </div>
           ))}
         </div>
@@ -366,30 +421,9 @@ export function buildPayload(
   if (!form.itemRef.trim()) return { ok: false, error: "Item ref is required" };
   if (!form.itemName.trim()) return { ok: false, error: "Item name is required" };
 
-  const storeProfiles: ShmpStoreProfileInput[] = [];
-  const seen = new Set<string>();
-  for (const row of form.pricing) {
-    if (!row.storeId) {
-      return { ok: false, error: "Each pricing row needs a store" };
-    }
-    if (seen.has(row.storeId)) {
-      return { ok: false, error: "Duplicate store in pricing rows" };
-    }
-    seen.add(row.storeId);
-    const price =
-      row.storePrice.trim() === ""
-        ? undefined
-        : Number(row.storePrice);
-    if (price != null && (!Number.isFinite(price) || price < 0)) {
-      return { ok: false, error: "Store prices must be valid non-negative numbers" };
-    }
-    storeProfiles.push({
-      storeId: row.storeId,
-      storePrice: price,
-      storeItemCode: row.storeItemCode.trim() || undefined,
-      isDisplayed: true,
-    });
-  }
+  const profiles = storeProfilesFromRows(form.pricing);
+  if (!profiles.ok) return profiles;
+  const storeProfiles = profiles.profiles;
 
   const baseItemCode = form.baseItemCode.trim();
 
@@ -636,7 +670,7 @@ export function ProductFields({
       </label>
 
       <div className="sm:col-span-2 lg:col-span-3">
-        <PricingEditor
+        <StoreVisibilityEditor
           pricing={form.pricing}
           stores={stores}
           onChange={(pricing) => setForm((prev) => ({ ...prev, pricing }))}

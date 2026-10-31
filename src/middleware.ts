@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { AUTH_COOKIE, parseAuthCookie } from "@/lib/session";
 import {
+  canCustomUserAccessPath,
+  customHomePath,
+  firstAllowedPath,
+  readCustomAccess,
+  type AppSide,
+} from "@/lib/custom-users";
+import {
   canSupervisorAccessShmpPath,
   homePathForRole,
   supervisorShmpHome,
@@ -23,6 +30,10 @@ export function middleware(request: NextRequest) {
     session?.isSuperAdmin === true,
   );
   const environment = String(session?.environment || "").toLowerCase();
+  const customAccess =
+    session && Object.prototype.hasOwnProperty.call(session, "customAccess")
+      ? readCustomAccess(session.customAccess)
+      : null;
 
   if (pathname.startsWith("/admin")) {
     if (!authed || role !== "Admin") {
@@ -35,6 +46,10 @@ export function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/select-environment";
       return NextResponse.redirect(url);
+    }
+    if (customAccess) {
+      const blocked = redirectCustom(request, customAccess, pathname);
+      if (blocked) return blocked;
     }
   }
 
@@ -83,6 +98,10 @@ export function middleware(request: NextRequest) {
       url.pathname = supervisorShmpHome();
       return NextResponse.redirect(url);
     }
+    if (customAccess) {
+      const blocked = redirectCustom(request, customAccess, pathname);
+      if (blocked) return blocked;
+    }
   }
 
   if (pathname === "/select-environment") {
@@ -95,7 +114,17 @@ export function middleware(request: NextRequest) {
 
   if (pathname === "/login" && authed) {
     const url = request.nextUrl.clone();
-    if (environments.length > 1 && !environment) {
+    if (customAccess) {
+      const selected: AppSide | null =
+        environment === "stl" || environment === "shmp" ? environment : null;
+      url.pathname = customHomePath(
+        customAccess,
+        environments.filter(
+          (env): env is AppSide => env === "stl" || env === "shmp",
+        ),
+        selected,
+      );
+    } else if (environments.length > 1 && !environment) {
       url.pathname = "/select-environment";
     } else if (environment === "shmp") {
       url.pathname = homePathForEnvironment("shmp", role);
@@ -106,6 +135,24 @@ export function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
+}
+
+function redirectCustom(
+  request: NextRequest,
+  access: NonNullable<ReturnType<typeof readCustomAccess>>,
+  pathname: string,
+) {
+  if (canCustomUserAccessPath(access, pathname)) return null;
+  const preferred: AppSide = pathname.startsWith("/shmp") ? "shmp" : "stl";
+  const dest =
+    firstAllowedPath(access, preferred) ||
+    firstAllowedPath(access, preferred === "stl" ? "shmp" : "stl") ||
+    "/no-access";
+  if (dest === pathname) return null;
+  const url = request.nextUrl.clone();
+  url.pathname = dest;
+  url.search = "";
+  return NextResponse.redirect(url);
 }
 
 export const config = {

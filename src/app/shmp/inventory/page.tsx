@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   getCategories,
   getCompanies,
@@ -35,6 +42,10 @@ import {
   TextField,
 } from "@/components/ui";
 import {
+  catalogueRequestIsCurrent,
+  shmpCatalogueParams,
+} from "./catalogue-load";
+import {
   ProductFields,
   blankForm,
   buildPayload,
@@ -52,13 +63,16 @@ export default function ShmpInventoryPage() {
   const [loading, setLoading] = useState(true);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingCompanies, setLoadingCompanies] = useState(true);
+  const [companiesLoaded, setCompaniesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const catalogueRequest = useRef<AbortController | null>(null);
+  const catalogueRequestId = useRef(0);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [addForm, setAddForm] = useState<ProductFormState>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
 
   const loadMeta = useCallback(async () => {
     setLoadingCategories(true);
@@ -75,6 +89,7 @@ export default function ShmpInventoryPage() {
     } finally {
       setLoadingCategories(false);
       setLoadingCompanies(false);
+      setCompaniesLoaded(true);
     }
   }, []);
 
@@ -85,21 +100,49 @@ export default function ShmpInventoryPage() {
   );
 
   const load = useCallback(async (search = query) => {
+    if (!shmpCompanyId) return;
+    catalogueRequest.current?.abort();
+    const controller = new AbortController();
+    catalogueRequest.current = controller;
+    const requestId = ++catalogueRequestId.current;
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, string> = {
-        ownOnly: "1",
-        excludeStl: "1",
-      };
-      if (search.trim()) params.q = search.trim();
-      if (shmpCompanyId) params.companyId = shmpCompanyId;
-      const list = await shmpInventory(params);
+      const list = await shmpInventory(
+        shmpCatalogueParams(search, shmpCompanyId),
+        controller.signal,
+      );
+      if (
+        !catalogueRequestIsCurrent(
+          requestId,
+          catalogueRequestId.current,
+          controller.signal.aborted,
+        )
+      ) {
+        return;
+      }
       setProducts(Array.isArray(list) ? list : []);
     } catch (e) {
+      if (
+        !catalogueRequestIsCurrent(
+          requestId,
+          catalogueRequestId.current,
+          controller.signal.aborted,
+        )
+      ) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load inventory");
     } finally {
-      setLoading(false);
+      if (
+        catalogueRequestIsCurrent(
+          requestId,
+          catalogueRequestId.current,
+          controller.signal.aborted,
+        )
+      ) {
+        setLoading(false);
+      }
     }
   }, [query, shmpCompanyId]);
 
@@ -108,10 +151,20 @@ export default function ShmpInventoryPage() {
   }, [loadMeta]);
 
   useEffect(() => {
+    if (!companiesLoaded) return;
+    if (!shmpCompanyId) {
+      setLoading(false);
+      setProducts([]);
+      setError("SHMP company was not found.");
+      return;
+    }
     void load("");
+    return () => {
+      catalogueRequest.current?.abort();
+    };
     // Initial catalogue fetch only; later searches use load() directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shmpCompanyId]);
+  }, [companiesLoaded, shmpCompanyId]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -124,10 +177,14 @@ export default function ShmpInventoryPage() {
     try {
       const created = await shmpCreateInventory(payload.data);
       if (created?._id) rememberOwnShmpInventoryId(created._id);
-      if (pendingImage && created?._id) {
+      if (pendingImages.length > 0 && created?._id) {
         try {
-          const saved = await uploadProductImage(created._id, pendingImage);
-          created.imagePath = saved.imagePath;
+          let savedPath: string | string[] | undefined;
+          for (const file of pendingImages) {
+            const saved = await uploadProductImage(created._id, file);
+            savedPath = saved.imagePath;
+          }
+          if (savedPath !== undefined) created.imagePath = savedPath;
         } catch (imageError) {
           toast(
             imageError instanceof Error
@@ -138,7 +195,7 @@ export default function ShmpInventoryPage() {
         }
       }
       toast("Product created", "success");
-      setPendingImage(null);
+      setPendingImages([]);
       setAddForm(blankForm(shmpCompanyId));
       setAdding(false);
       await load();
@@ -176,7 +233,7 @@ export default function ShmpInventoryPage() {
     <div>
       <PageHeader
         title="Inventory"
-        subtitle="Blank SHMP catalogue. Add production products with base item code and store prices."
+        subtitle="Blank SHMP catalogue. Add production products, then choose which stores they are visible in."
         actions={
           <div className="flex flex-wrap gap-2">
             <SecondaryButton
@@ -192,7 +249,7 @@ export default function ShmpInventoryPage() {
             </SecondaryButton>
             <SecondaryButton
               type="button"
-              disabled={loading}
+              disabled={loading || !companiesLoaded}
               onClick={() => void load()}
             >
               Refresh
@@ -216,7 +273,7 @@ export default function ShmpInventoryPage() {
             />
             <ProductImageField
               itemName={addForm.itemName}
-              onPendingFile={setPendingImage}
+              onPendingFiles={setPendingImages}
             />
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="submit" disabled={creating}>
@@ -227,6 +284,7 @@ export default function ShmpInventoryPage() {
                 disabled={creating}
                 onClick={() => {
                   setAddForm(blankForm(shmpCompanyId));
+                  setPendingImages([]);
                   setAdding(false);
                 }}
               >
@@ -250,16 +308,32 @@ export default function ShmpInventoryPage() {
               }}
             />
           </div>
-          <PrimaryButton type="button" onClick={() => void load()}>
+          <PrimaryButton
+            type="button"
+            disabled={!companiesLoaded}
+            onClick={() => void load()}
+          >
             Search
           </PrimaryButton>
         </div>
       </Card>
 
-      {loading ? (
+      {!companiesLoaded || loading ? (
         <LoadingState />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load()} />
+        <ErrorState
+          message={error}
+          onRetry={() => {
+            if (!shmpCompanyId) {
+              setLoading(true);
+              setError(null);
+              setCompaniesLoaded(false);
+              void loadMeta();
+              return;
+            }
+            void load();
+          }}
+        />
       ) : visibleProducts.length === 0 ? (
         <EmptyState
           title="No products yet"
@@ -269,6 +343,9 @@ export default function ShmpInventoryPage() {
         <div className="space-y-3">
           {visibleProducts.map((product) => {
             const profiles = product.storeProfileList || [];
+            const visibleStoreCount = profiles.filter(
+              (row) => row.isDisplayed !== false,
+            ).length;
             const baseCode = baseItemCodeOf(product);
             return (
               <Card
@@ -297,9 +374,9 @@ export default function ShmpInventoryPage() {
                     Qty: {product.inQty?.amountInCartons ?? 0} CTN /{" "}
                     {product.inQty?.amountInUnits ?? 0} units
                     {product.isDisplay === false ? " · Hidden" : ""}
-                    {profiles.length
-                      ? ` · ${profiles.length} store price${profiles.length === 1 ? "" : "s"}`
-                      : " · No store prices"}
+                    {visibleStoreCount
+                      ? ` · Visible in ${visibleStoreCount} store${visibleStoreCount === 1 ? "" : "s"}`
+                      : " · Not visible in any store"}
                   </p>
                 </div>
                 </div>
