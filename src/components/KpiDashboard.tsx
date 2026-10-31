@@ -5,10 +5,13 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Car,
+  FileText,
   IdCard,
+  Landmark,
   Package,
   PackageX,
   RefreshCw,
+  Shield,
   ShieldCheck,
   Store,
   TrendingUp,
@@ -24,7 +27,13 @@ import { ErrorState, SecondaryButton } from "@/components/ui";
 import type { DashboardStats } from "@/lib/api";
 import { monthlySalesHref, salesmanBreakdownHref } from "@/lib/admin-kpi";
 import {
+  EID_ALERT_DAYS,
   EXPIRY_ALERT_DAYS,
+  INSURANCE_ALERT_DAYS,
+  PASSPORT_ALERT_MONTHS,
+  SHARJAH_ALERT_DAYS,
+  VISA_ALERT_DAYS,
+  documentAlertsFromDashboard,
   visaAlertsFromDashboard,
   type ExpiryAlertRow,
 } from "@/lib/expiry-window";
@@ -96,9 +105,27 @@ export function KpiDashboard({
   mulkyaAlerts: ExpiryAlertRow[];
   mulkyaLoading: boolean;
 }) {
-  const [openAlert, setOpenAlert] = useState<"mulkya" | "visa" | null>(null);
+  const [openAlert, setOpenAlert] = useState<
+    "mulkya" | "visa" | "passport" | "eid" | "insurance" | "sharjah" | null
+  >(null);
   const visaAlerts = useMemo(
     () => visaAlertsFromDashboard(kpi?.visaExpiry),
+    [kpi],
+  );
+  const passportAlerts = useMemo(
+    () => documentAlertsFromDashboard(kpi?.passportExpiry, { months: PASSPORT_ALERT_MONTHS }),
+    [kpi],
+  );
+  const eidAlerts = useMemo(
+    () => documentAlertsFromDashboard(kpi?.eidExpiry, { days: EID_ALERT_DAYS }),
+    [kpi],
+  );
+  const insuranceAlerts = useMemo(
+    () => documentAlertsFromDashboard(kpi?.insuranceExpiry, { days: INSURANCE_ALERT_DAYS }),
+    [kpi],
+  );
+  const sharjahAlerts = useMemo(
+    () => documentAlertsFromDashboard(kpi?.sharjahPermitExpiry, { days: SHARJAH_ALERT_DAYS }),
     [kpi],
   );
   const month = kpi?.monthlySales;
@@ -256,6 +283,30 @@ export function KpiDashboard({
             onOpen={() => setOpenAlert("visa")}
           />
           <AttentionCard
+            label="Passport expiring"
+            icon={FileText}
+            value={kpi ? passportAlerts.length : undefined}
+            onOpen={() => setOpenAlert("passport")}
+          />
+          <AttentionCard
+            label="EID expiring"
+            icon={Shield}
+            value={kpi ? eidAlerts.length : undefined}
+            onOpen={() => setOpenAlert("eid")}
+          />
+          <AttentionCard
+            label="Insurance expiring"
+            icon={ShieldCheck}
+            value={kpi ? insuranceAlerts.length : undefined}
+            onOpen={() => setOpenAlert("insurance")}
+          />
+          <AttentionCard
+            label="Sharjah permit expiring"
+            icon={Landmark}
+            value={kpi ? sharjahAlerts.length : undefined}
+            onOpen={() => setOpenAlert("sharjah")}
+          />
+          <AttentionCard
             label="Expired trade licenses"
             icon={AlertTriangle}
             value={stats.expiredTradeLicenses}
@@ -282,9 +333,41 @@ export function KpiDashboard({
         open={openAlert === "visa"}
         onClose={() => setOpenAlert(null)}
         title="Visa expiring"
-        subtitle={`People with visa expiry in ${EXPIRY_ALERT_DAYS} days or less, including already expired.`}
-        empty={`No visas are expiring in the next ${EXPIRY_ALERT_DAYS} days.`}
+        subtitle={`People with visa expiry in ${VISA_ALERT_DAYS} days or less, including already expired.`}
+        empty={`No visas are expiring in the next ${VISA_ALERT_DAYS} days.`}
         rows={visaAlerts}
+      />
+      <ExpiryAlertDialog
+        open={openAlert === "passport"}
+        onClose={() => setOpenAlert(null)}
+        title="Passport expiring"
+        subtitle={`People with passport expiry in ${PASSPORT_ALERT_MONTHS} months or less, including already expired.`}
+        empty={`No passports are expiring in the next ${PASSPORT_ALERT_MONTHS} months.`}
+        rows={passportAlerts}
+      />
+      <ExpiryAlertDialog
+        open={openAlert === "eid"}
+        onClose={() => setOpenAlert(null)}
+        title="EID expiring"
+        subtitle={`People with Emirates ID expiry in ${EID_ALERT_DAYS} days or less, including already expired. Employment contracts use this same date.`}
+        empty={`No Emirates IDs are expiring in the next ${EID_ALERT_DAYS} days.`}
+        rows={eidAlerts}
+      />
+      <ExpiryAlertDialog
+        open={openAlert === "insurance"}
+        onClose={() => setOpenAlert(null)}
+        title="Insurance expiring"
+        subtitle={`People with insurance expiry in ${INSURANCE_ALERT_DAYS} days or less, including already expired.`}
+        empty={`No insurance is expiring in the next ${INSURANCE_ALERT_DAYS} days.`}
+        rows={insuranceAlerts}
+      />
+      <ExpiryAlertDialog
+        open={openAlert === "sharjah"}
+        onClose={() => setOpenAlert(null)}
+        title="Sharjah permit expiring"
+        subtitle={`Permits with an expiry date in ${SHARJAH_ALERT_DAYS} days or less, including already expired.`}
+        empty={`No Sharjah permits are expiring in the next ${SHARJAH_ALERT_DAYS} days.`}
+        rows={sharjahAlerts}
       />
 
       {statsError ? (

@@ -25,6 +25,7 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import { HrUserDocuments } from "@/components/HrStaffEditor";
 import {
   AttendanceHistory,
   trackedAccessRole,
@@ -279,6 +280,8 @@ function UserDetail() {
           Admin logins are not tracked for attendance.
         </p>
       )}
+
+      {!supervisor ? <HrUserDocuments personId={id} /> : null}
     </div>
   );
 }

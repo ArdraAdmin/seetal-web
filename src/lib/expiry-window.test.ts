@@ -9,6 +9,10 @@ import {
   mulkyaAlertsFromVehicles,
   visaAlertHref,
   visaAlertsFromDashboard,
+  documentAlertsFromDashboard,
+  isExpiringWithinMonths,
+  PASSPORT_ALERT_MONTHS,
+  VISA_ALERT_DAYS,
 } from "./expiry-window.ts";
 
 /** Tuesday 27 Oct 2026, 12:00 Dubai (08:00 UTC). */
@@ -64,6 +68,14 @@ describe("expiry window", () => {
       visaAlertHref({ id: "u1", source: "user", role: "Warehouse" }),
       "/admin/hr/u1",
     );
+    assert.equal(
+      visaAlertHref({ id: "st1", source: "staff", scope: "stl" }),
+      "/admin/hr/staff/st1",
+    );
+    assert.equal(
+      visaAlertHref({ id: "st2", source: "staff", scope: "shmp" }),
+      "/shmp/hr/staff/st2",
+    );
   });
 
   it("builds mulkiya alerts sorted by soonest expiry", () => {
@@ -110,7 +122,7 @@ describe("expiry window", () => {
             name: "Too far",
             source: "user",
             role: "Warehouse",
-            expiryDate: "2026-12-01",
+            expiryDate: "2027-02-01",
           },
         ],
       },
@@ -120,5 +132,32 @@ describe("expiry window", () => {
     assert.equal(rows[0].title, "Warehouse Sara");
     assert.equal(rows[0].href, "/admin/hr/u1");
     assert.equal(rows[1].href, "/shmp/hr/worker/e1");
+  });
+
+  it("warns for visas inside 60 days and passports inside 6 months", () => {
+    assert.equal(VISA_ALERT_DAYS, 60);
+    assert.equal(isExpiringWithinDays("2026-12-01", VISA_ALERT_DAYS, NOW), true);
+    assert.equal(isExpiringWithinDays("2026-12-27", VISA_ALERT_DAYS, NOW), false);
+    assert.equal(PASSPORT_ALERT_MONTHS, 6);
+    assert.equal(isExpiringWithinMonths("2027-04-27", PASSPORT_ALERT_MONTHS, NOW), true);
+    assert.equal(isExpiringWithinMonths("2027-04-28", PASSPORT_ALERT_MONTHS, NOW), false);
+    assert.equal(isExpiringWithinMonths("2026-10-01", PASSPORT_ALERT_MONTHS, NOW), true);
+    const passports = documentAlertsFromDashboard(
+      {
+        staff: [
+          {
+            id: "p1",
+            name: "No login",
+            source: "staff",
+            scope: "stl",
+            expiryDate: "2027-04-01",
+          },
+        ],
+      },
+      { months: PASSPORT_ALERT_MONTHS },
+      NOW,
+    );
+    assert.equal(passports[0].href, "/admin/hr/staff/p1");
+    assert.equal(passports[0].title, "No login");
   });
 });

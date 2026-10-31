@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getCompanies, getSalesProfiles } from "@/lib/api";
 import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
@@ -9,7 +10,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { isSupervisor } from "@/lib/auth";
-import { isExpiringWithinDays } from "@/lib/expiry-window";
+import { SHARJAH_ALERT_DAYS, VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { isShmpHrPortalRole } from "@/lib/hr-scope";
 import { salesMoney } from "@/lib/sales";
 import {
@@ -45,18 +46,24 @@ type DialogMode = "Worker" | ShmpAccessRole;
 
 type HrRow = {
   id: string;
-  kind: "user" | "worker";
+  kind: "user" | "worker" | "staff";
   name: string;
   email?: string;
   role: string;
   joiningDate?: string | null;
   yearsOfService?: number | null;
   visaExpiry?: string;
+  sharjahPermitExpiry?: string;
   basicSalary?: number;
+  totalSalary?: number;
 };
 
 function visaSoon(expiry?: string) {
-  return isExpiringWithinDays(expiry);
+  return isExpiringWithinDays(expiry, VISA_ALERT_DAYS);
+}
+
+function sharjahSoon(expiry?: string) {
+  return isExpiringWithinDays(expiry, SHARJAH_ALERT_DAYS);
 }
 
 function workerYears(emp: Emp) {
@@ -65,6 +72,7 @@ function workerYears(emp: Emp) {
 }
 
 export default function ShmpHrPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
@@ -96,7 +104,7 @@ export default function ShmpHrPage() {
         shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
         supervisor ? Promise.resolve([]) : getSalesProfiles().catch(() => []),
         user?.id && !supervisor
-          ? getHrStaff(user.id).catch(() => ({ staff: [] as HrStaff[] }))
+          ? getHrStaff(user.id, { scope: "shmp" }).catch(() => ({ staff: [] as HrStaff[] }))
           : Promise.resolve({ staff: [] as HrStaff[] }),
       ]);
       const workers = Array.isArray(list) ? list : [];
@@ -106,32 +114,59 @@ export default function ShmpHrPage() {
           ? usersVisibleToSupervisor(accessUsers)
           : mergeAccessAndSales(accessUsers, salesProfiles)
       ).filter((row) => isShmpHrPortalRole(row.role));
-      const hrById = new Map((hr.staff || []).map((row) => [row.id, row]));
+      const hrRows = hr.staff || [];
+      const linkedUserIds = new Set(
+        hrRows
+          .filter((row) => row.kind === "staff" && row.linkedUserId)
+          .map((row) => String(row.linkedUserId)),
+      );
+      const hrById = new Map(hrRows.map((row) => [row.id, row]));
       const rows: HrRow[] = [
-        ...portal.map((row) => {
+        ...portal
+          .filter((row) => !linkedUserIds.has(row._id))
+          .map((row) => {
           const profile = hrById.get(row._id);
           return {
             id: row._id,
             kind: "user" as const,
-            name: row.name || profile?.name || "Unnamed",
+            name: profile?.hrProfile?.visaName || row.name || profile?.name || "Unnamed",
             email: row.email || profile?.email,
             role: row.role || profile?.role || "User",
             joiningDate: profile?.joiningDate,
             yearsOfService: profile?.yearsOfService,
             visaExpiry: profile?.hrProfile?.visaExpiry,
+            sharjahPermitExpiry: profile?.hrProfile?.sharjahPermitExpiry,
             basicSalary: profile?.hrProfile?.basicSalary,
+            totalSalary: profile?.hrProfile?.totalSalary,
           };
         }),
         ...workers.map((emp) => ({
           id: emp._id,
           kind: "worker" as const,
-          name: emp.name,
+          name: emp.hrProfile?.visaName || emp.name,
           email: emp.email,
           role: emp.designation ? `Worker · ${emp.designation}` : "Worker",
           yearsOfService: workerYears(emp),
-          visaExpiry: emp.visa?.expiry,
-          basicSalary: emp.salary?.basic,
+          visaExpiry: emp.hrProfile?.visaExpiry || emp.visa?.expiry,
+          sharjahPermitExpiry: emp.hrProfile?.sharjahPermitExpiry,
+          basicSalary: emp.salary?.basic ?? emp.hrProfile?.basicSalary,
+          totalSalary: emp.hrProfile?.totalSalary,
         })),
+        ...hrRows
+          .filter((row) => row.kind === "staff")
+          .map((row) => ({
+            id: row.id,
+            kind: "staff" as const,
+            name: row.name,
+            email: row.email,
+            role: row.linkedUserId ? row.role : "Staff",
+            joiningDate: row.joiningDate,
+            yearsOfService: row.yearsOfService,
+            visaExpiry: row.hrProfile?.visaExpiry,
+            sharjahPermitExpiry: row.hrProfile?.sharjahPermitExpiry,
+            basicSalary: row.hrProfile?.basicSalary,
+            totalSalary: row.hrProfile?.totalSalary,
+          })),
       ].sort((a, b) => a.name.localeCompare(b.name));
       setStaff(rows);
     } catch (e) {
@@ -287,6 +322,11 @@ export default function ShmpHrPage() {
                 Add user
               </PrimaryButton>
             ) : null}
+            {!supervisor ? (
+              <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/staff/new")}>
+                Add staff
+              </SecondaryButton>
+            ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
               Refresh
             </SecondaryButton>
@@ -317,7 +357,9 @@ export default function ShmpHrPage() {
                 <th className="px-4 py-2">Joined</th>
                 <th className="px-4 py-2 text-right">Years</th>
                 <th className="px-4 py-2">Visa expiry</th>
+                <th className="px-4 py-2">Sharjah permit</th>
                 <th className="px-4 py-2 text-right">Basic salary</th>
+                <th className="px-4 py-2 text-right">Total salary</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -336,8 +378,16 @@ export default function ShmpHrPage() {
                   >
                     {fmtDateOnly(s.visaExpiry)}
                   </td>
+                  <td
+                    className={`px-4 py-2 ${sharjahSoon(s.sharjahPermitExpiry) ? "font-medium text-red-700" : ""}`}
+                  >
+                    {fmtDateOnly(s.sharjahPermitExpiry)}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     {s.basicSalary != null ? salesMoney(s.basicSalary) : "-"}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    {s.totalSalary != null ? salesMoney(s.totalSalary) : "-"}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-3">

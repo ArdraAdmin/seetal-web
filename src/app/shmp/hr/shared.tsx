@@ -34,6 +34,13 @@ export type Emp = {
   sickLeaveEntitlement?: number;
   defaultShift?: ShmpWorkerShift;
   visa?: { number?: string; expiry?: string; yearsWorked?: number };
+  hrProfile?: {
+    visaExpiry?: string;
+    basicSalary?: number;
+    totalSalary?: number;
+    sharjahPermitExpiry?: string;
+    visaName?: string;
+  };
   leave?: LeaveBalance;
   mobileNumber?: string;
   email?: string;
@@ -487,10 +494,11 @@ export async function loadWorkerLeave(id: string): Promise<LeaveBalance> {
 }
 
 export function personHref(
-  kind: "user" | "worker",
+  kind: "user" | "worker" | "staff",
   id: string,
   edit = false,
 ) {
+  if (kind === "staff") return `/shmp/hr/staff/${id}`;
   const path = kind === "user" ? `/shmp/hr/user/${id}` : `/shmp/hr/worker/${id}`;
   return edit ? `${path}?edit=1` : path;
 }

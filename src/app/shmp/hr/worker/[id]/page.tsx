@@ -25,6 +25,7 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import { HrEmployeeDocuments } from "@/components/HrStaffEditor";
 import {
   AttendanceHistory,
   DESIGNATIONS,
@@ -301,6 +302,7 @@ function WorkerDetail() {
       )}
 
       <AttendanceHistory kind="worker" personId={id} />
+      {!supervisor ? <HrEmployeeDocuments personId={id} /> : null}
     </div>
   );
 }

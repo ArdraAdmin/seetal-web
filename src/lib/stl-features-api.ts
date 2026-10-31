@@ -18,7 +18,9 @@ class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body) {
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
@@ -102,8 +104,16 @@ export type VisaExpiryPerson = {
   name?: string;
   email?: string;
   role?: string;
-  source?: "employee" | "user" | string;
+  source?: "employee" | "user" | "staff" | string;
+  scope?: "stl" | "shmp" | string;
   expiryDate?: string;
+};
+
+export type ExpiryAlertBucket = {
+  count: number;
+  employees: VisaExpiryPerson[];
+  users: VisaExpiryPerson[];
+  staff?: VisaExpiryPerson[];
 };
 
 export type AdminKpiDashboard = {
@@ -153,11 +163,11 @@ export type AdminKpiDashboard = {
     year: number;
     month: number;
   };
-  visaExpiry: {
-    count: number;
-    employees: VisaExpiryPerson[];
-    users: VisaExpiryPerson[];
-  };
+  visaExpiry: ExpiryAlertBucket;
+  passportExpiry?: ExpiryAlertBucket;
+  eidExpiry?: ExpiryAlertBucket;
+  insuranceExpiry?: ExpiryAlertBucket;
+  sharjahPermitExpiry?: ExpiryAlertBucket;
   counts?: {
     stores: number;
     expiredTradeLicenses: number;
@@ -392,35 +402,66 @@ export async function getSalesAttendanceReport(
 
 export async function getHrStaff(
   userId: string,
-  opts?: { companyId?: string; role?: string },
+  opts?: { companyId?: string; role?: string; scope?: "stl" | "shmp" },
 ) {
   const qs = new URLSearchParams({ userId });
   if (opts?.companyId) qs.set("companyId", opts.companyId);
   if (opts?.role) qs.set("role", opts.role);
+  if (opts?.scope) qs.set("scope", opts.scope);
   return request<{ staff: HrStaff[] }>(`/admin/hr?${qs}`);
 }
 
+export type HrFileRef = {
+  key: string;
+  fileName: string;
+  contentType?: string;
+  url?: string;
+};
+
 export type HrStaff = {
   id: string;
+  kind?: "user" | "staff" | "employee";
+  scope?: "stl" | "shmp";
   name: string;
   email: string;
   role: string;
+  linkedUserId?: string | null;
+  mobileNumber?: string;
   yearsOfService?: number | null;
   joiningDate?: string | null;
-  hrProfile?: {
-    visaApplicationYear?: number;
-    visaCost?: number;
-    visaNumber?: string;
-    visaDetails?: string;
-    visaExpiry?: string;
-    basicSalary?: number;
-    salaryIncrements?: Array<{
-      effectiveDate: string;
-      amount: number;
-      notes?: string;
-    }>;
-    company?: string;
-  };
+  hrProfile?: HrProfile;
+};
+
+export type HrProfile = {
+  visaApplicationYear?: number;
+  visaCost?: number;
+  visaNumber?: string;
+  visaDetails?: string;
+  visaExpiry?: string;
+  visaDesignation?: string;
+  visaName?: string;
+  basicSalary?: number;
+  totalSalary?: number;
+  salaryIncrements?: Array<{
+    effectiveDate: string;
+    amount: number;
+    notes?: string;
+  }>;
+  company?: string;
+  passportNumber?: string;
+  passportExpiry?: string;
+  passportCopy?: HrFileRef | null;
+  eidNumber?: string;
+  eidExpiry?: string;
+  eidCopy?: HrFileRef | null;
+  visaCopy?: HrFileRef | null;
+  photo?: HrFileRef | null;
+  insuranceExpiry?: string;
+  insuranceCopy?: HrFileRef | null;
+  employmentContractCopy?: HrFileRef | null;
+  offerLetter?: HrFileRef | null;
+  sharjahPermitExpiry?: string;
+  sharjahPermitCopy?: HrFileRef | null;
 };
 
 export async function getHrStaffMember(userId: string, id: string) {
@@ -433,10 +474,96 @@ export async function updateHrStaff(
   adminUserId: string,
   id: string,
   hrProfile: Record<string, unknown>,
+  options?: { enforceDocuments?: boolean },
 ) {
   return request<HrStaff>(`/admin/hr/${id}`, {
     method: "PUT",
-    body: JSON.stringify({ userId: adminUserId, hrProfile }),
+    body: JSON.stringify({
+      userId: adminUserId,
+      hrProfile,
+      enforceDocuments: options?.enforceDocuments === true,
+    }),
+  });
+}
+
+export async function uploadHrFile(adminUserId: string, file: File) {
+  const body = new FormData();
+  body.set("userId", adminUserId);
+  body.set("file", file);
+  return request<HrFileRef>("/admin/hr/files", { method: "POST", body });
+}
+
+export async function createHrStaff(
+  adminUserId: string,
+  payload: {
+    scope: "stl" | "shmp";
+    email?: string;
+    mobileNumber?: string;
+    joiningDate?: string;
+    hrProfile: Record<string, unknown>;
+    linkedUserId?: string;
+  },
+) {
+  return request<HrStaff>("/admin/hr/staff", {
+    method: "POST",
+    body: JSON.stringify({ userId: adminUserId, ...payload }),
+  });
+}
+
+export async function getHrStaffRecord(adminUserId: string, id: string) {
+  return request<HrStaff>(
+    `/admin/hr/staff/${id}?userId=${encodeURIComponent(adminUserId)}`,
+  );
+}
+
+export async function updateHrStaffRecord(
+  adminUserId: string,
+  id: string,
+  payload: {
+    hrProfile: Record<string, unknown>;
+    email?: string;
+    mobileNumber?: string;
+    joiningDate?: string;
+    linkedUserId?: string | null;
+    enforceDocuments?: boolean;
+  },
+) {
+  return request<HrStaff>(`/admin/hr/staff/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ userId: adminUserId, ...payload }),
+  });
+}
+
+export async function getHrLinkCandidates(
+  adminUserId: string,
+  scope: "stl" | "shmp",
+  except?: string,
+) {
+  const qs = new URLSearchParams({ userId: adminUserId, scope });
+  if (except) qs.set("except", except);
+  return request<{
+    users: Array<{ id: string; name: string; email: string; role: string }>;
+  }>(`/admin/hr/link-candidates?${qs}`);
+}
+
+export async function getEmployeeHr(adminUserId: string, id: string) {
+  return request<HrStaff>(
+    `/admin/hr/employees/${id}?userId=${encodeURIComponent(adminUserId)}`,
+  );
+}
+
+export async function updateEmployeeHr(
+  adminUserId: string,
+  id: string,
+  hrProfile: Record<string, unknown>,
+) {
+  return request<HrStaff>(`/admin/hr/employees/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      userId: adminUserId,
+      hrProfile,
+      enforceDocuments: true,
+    }),
   });
 }
 
@@ -451,6 +578,22 @@ export async function addHrIncrement(
   },
 ) {
   return request<HrStaff>(`/admin/hr/${id}/increments`, {
+    method: "POST",
+    body: JSON.stringify({ userId: adminUserId, ...payload }),
+  });
+}
+
+export async function addHrStaffIncrement(
+  adminUserId: string,
+  id: string,
+  payload: {
+    amount: number;
+    effectiveDate?: string;
+    notes?: string;
+    setAsBasic?: boolean;
+  },
+) {
+  return request<HrStaff>(`/admin/hr/staff/${id}/increments`, {
     method: "POST",
     body: JSON.stringify({ userId: adminUserId, ...payload }),
   });
