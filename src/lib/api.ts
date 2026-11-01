@@ -1,5 +1,6 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
+import { readCustomAccess } from "./custom-users";
 import { mulkyaAlertsFromVehicles } from "./expiry-window";
 import type {
   Driver,
@@ -272,6 +273,10 @@ function authUserFromPayload(
     hrCompanyAccess: Array.isArray(data.hrCompanyAccess)
       ? (data.hrCompanyAccess as AuthUser["hrCompanyAccess"])
       : undefined,
+    customAccess:
+      data.customAccess == null
+        ? undefined
+        : (readCustomAccess(data.customAccess) ?? undefined),
   };
 }
 

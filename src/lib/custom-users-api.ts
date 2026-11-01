@@ -1,3 +1,4 @@
+import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 import type { CustomAccess, CustomUserRecord } from "./custom-users";
 
@@ -9,7 +10,15 @@ export type CustomUserInput = {
   modules: CustomAccess["modules"];
 };
 
-async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+const REMOTE_API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
+).replace(/\/$/, "");
+
+function apiBase(): string {
+  return typeof window === "undefined" ? REMOTE_API_BASE : "/stl-api";
+}
+
+async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
@@ -19,7 +28,7 @@ async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> 
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
   }
-  const res = await fetch(path, {
+  const res = await fetch(`${apiBase()}${path}`, {
     ...options,
     cache: "no-store",
     headers,
@@ -34,51 +43,47 @@ async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> 
     }
   }
   if (!res.ok) {
-    let message = `Request failed (${res.status})`;
-    if (typeof body === "string" && body.trim()) message = body;
-    if (body && typeof body === "object" && "error" in body) {
-      const error = (body as { error?: unknown }).error;
-      if (typeof error === "string" && error.trim()) message = error;
-    }
-    throw new Error(message);
+    throw new Error(
+      describeApiError(body, text || res.statusText || `Request failed (${res.status})`),
+    );
   }
   return body as T;
 }
 
 export function listCustomUsers() {
-  return siteJson<{ users: CustomUserRecord[] }>("/api/admin/custom-users");
+  return apiJson<{ users: CustomUserRecord[] }>("/admin/custom-users");
 }
 
 export function getCustomUser(id: string) {
-  return siteJson<{ user: CustomUserRecord }>(
-    `/api/admin/custom-users/${encodeURIComponent(id)}`,
+  return apiJson<{ user: CustomUserRecord }>(
+    `/admin/custom-users/${encodeURIComponent(id)}`,
   );
 }
 
 export function createCustomUser(input: CustomUserInput) {
-  return siteJson<{ user: CustomUserRecord }>("/api/admin/custom-users", {
+  return apiJson<{ user: CustomUserRecord }>("/admin/custom-users", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export function updateCustomUser(id: string, input: CustomUserInput) {
-  return siteJson<{ user: CustomUserRecord }>(
-    `/api/admin/custom-users/${encodeURIComponent(id)}`,
+  return apiJson<{ user: CustomUserRecord }>(
+    `/admin/custom-users/${encodeURIComponent(id)}`,
     { method: "PUT", body: JSON.stringify(input) },
   );
 }
 
 export function deleteCustomUser(id: string) {
-  return siteJson<{ ok: boolean }>(
-    `/api/admin/custom-users/${encodeURIComponent(id)}`,
+  return apiJson<{ ok: boolean }>(
+    `/admin/custom-users/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
 }
 
 export async function getMyCustomAccess(): Promise<CustomAccess | null> {
-  const data = await siteJson<{ access: CustomAccess | null }>(
-    "/api/admin/custom-users/me",
+  const data = await apiJson<{ access: CustomAccess | null }>(
+    "/admin/custom-users/me",
   );
   return data.access;
 }
