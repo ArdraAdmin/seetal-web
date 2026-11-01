@@ -25,7 +25,7 @@ export function SearchableSelect({
   options: SearchableSelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
-  emptyOption?: { id: string; label: string };
+  emptyOption?: SearchableSelectOption;
   optional?: boolean;
   disabled?: boolean;
 }) {
