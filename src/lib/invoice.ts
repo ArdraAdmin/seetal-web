@@ -191,15 +191,41 @@ export function receivedAmount(payments: PaymentRecord[]) {
   );
 }
 
-export function collectableAmount(order: { totalCost?: unknown; totalAmount?: unknown; productDetails?: GrvLine[] }) {
-  return roundMoney(Math.max(0, invoiceTotal(order) - orderGrvAmount(order)));
+export function grvAmountFromNote(note?: string) {
+  const text = String(note || "");
+  if (!text.startsWith(GRV_NOTE_PREFIX)) return 0;
+  const match = text.match(/(\d[\d,]*(?:\.\d+)?)/);
+  if (!match) return 0;
+  return roundMoney(Number(match[1].replace(/,/g, "")) || 0);
+}
+
+export function paymentGrvAmount(payments: PaymentRecord[]) {
+  const remark = payments.find(isGrvPayment);
+  return grvAmountFromNote(remark?.note);
+}
+
+/** Returned-goods value. Line quantities win; the payment remark covers list payloads that omit lines. */
+export function recordedGrvAmount(
+  order: { productDetails?: GrvLine[] },
+  payments: PaymentRecord[] = [],
+) {
+  const fromLines = orderGrvAmount(order);
+  if (fromLines > 0) return fromLines;
+  return paymentGrvAmount(payments);
+}
+
+export function collectableAmount(
+  order: { totalCost?: unknown; totalAmount?: unknown; productDetails?: GrvLine[] },
+  payments: PaymentRecord[] = [],
+) {
+  return roundMoney(Math.max(0, invoiceTotal(order) - recordedGrvAmount(order, payments)));
 }
 
 export function remainingAmount(
   order: { totalCost?: unknown; totalAmount?: unknown; productDetails?: GrvLine[] },
   payments: PaymentRecord[],
 ) {
-  return roundMoney(Math.max(0, collectableAmount(order) - receivedAmount(payments)));
+  return roundMoney(Math.max(0, collectableAmount(order, payments) - receivedAmount(payments)));
 }
 
 export function latestPdc(pdcs: PdcRecord[]) {
@@ -218,16 +244,30 @@ export function pdcChequeDay(pdc: PdcRecord | null) {
   return startOfLocalDay(date);
 }
 
-export function isPdcPending(pdc: PdcRecord | null) {
+export function isPdcPending(pdc: PdcRecord | null, today = new Date()) {
   const cheque = pdcChequeDay(pdc);
   if (!cheque) return false;
-  return cheque > startOfLocalDay(new Date());
+  return cheque > startOfLocalDay(today);
 }
 
-export function isPdcDue(pdc: PdcRecord | null) {
+export function isPdcDue(pdc: PdcRecord | null, today = new Date()) {
   const cheque = pdcChequeDay(pdc);
   if (!cheque) return false;
-  return cheque <= startOfLocalDay(new Date());
+  return cheque <= startOfLocalDay(today);
+}
+
+/** Mark completed stays available until a PDC is saved. Clear payment appears on the cheque date. */
+export function paymentActions(args: {
+  remaining: number;
+  pdc: PdcRecord | null;
+  today?: Date;
+}) {
+  const today = args.today ?? new Date();
+  const hasPdc = Boolean(args.pdc);
+  return {
+    canComplete: args.remaining > 0.009 && !hasPdc,
+    canClear: Boolean(args.pdc) && isPdcDue(args.pdc, today) && args.remaining > 0.009,
+  };
 }
 
 export function grvRemarkNote(amount: number) {

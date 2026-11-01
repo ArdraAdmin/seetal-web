@@ -2,7 +2,7 @@
 
 import { useState, type ChangeEvent } from "react";
 import { FieldLabel, TextField } from "@/components/ui";
-import type { HrProfileFormState } from "@/lib/hr-profile";
+import { stlTotalSalary, type HrProfileFormState, type HrSalaryScope } from "@/lib/hr-profile";
 import type { HrFileRef } from "@/lib/stl-features-api";
 
 function FileField({
@@ -83,12 +83,14 @@ export function HrProfileFields({
   disabled,
   onUpload,
   showCompany = false,
+  scope,
 }: {
   form: HrProfileFormState;
   onChange: (form: HrProfileFormState) => void;
   disabled?: boolean;
   onUpload: (file: File) => Promise<HrFileRef>;
   showCompany?: boolean;
+  scope: HrSalaryScope;
 }) {
   function set<K extends keyof HrProfileFormState>(key: K, value: HrProfileFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -98,15 +100,87 @@ export function HrProfileFields({
     return (event: ChangeEvent<HTMLInputElement>) => set(key, event.target.value);
   }
 
+  function setSalary(
+    key: "basicSalary" | "overtimeSalary" | "otherBenefits" | "totalSalary",
+    value: string,
+  ) {
+    const next = { ...form, [key]: value };
+    if (scope === "stl" && key !== "totalSalary") {
+      next.totalSalary = stlTotalSalary(next);
+    }
+    onChange(next);
+  }
+
+  function salary(key: "basicSalary" | "overtimeSalary" | "otherBenefits" | "totalSalary") {
+    return (event: ChangeEvent<HTMLInputElement>) => setSalary(key, event.target.value);
+  }
+
   return (
     <div className="space-y-6">
       <section className="grid gap-3 sm:grid-cols-2">
         <TextField label="Name as per visa" required value={form.visaName} disabled={disabled} onChange={text("visaName")} />
         <TextField label="Designation as per visa" required value={form.visaDesignation} disabled={disabled} onChange={text("visaDesignation")} />
-        <TextField label="Basic salary (AED)" type="number" min={0} step="0.01" optional value={form.basicSalary} disabled={disabled} onChange={text("basicSalary")} />
+        <TextField
+          label="Basic salary (AED)"
+          type="number"
+          min={0}
+          step="0.01"
+          required
+          value={form.basicSalary}
+          disabled={disabled}
+          onChange={salary("basicSalary")}
+        />
         <div>
-          <TextField label="Total salary (AED)" type="number" min={0} step="0.01" optional value={form.totalSalary} disabled={disabled} onChange={text("totalSalary")} />
-          <p className="mt-1 text-xs text-slate-500">Entered for now. This amount will be calculated later.</p>
+          <TextField
+            label="Overtime (AED)"
+            type="number"
+            min={0}
+            step="0.01"
+            required={scope === "shmp"}
+            optional={scope === "stl"}
+            value={form.overtimeSalary}
+            disabled={disabled}
+            onChange={salary("overtimeSalary")}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Contractual monthly overtime. Actual overtime on the salary slip is calculated from attendance.
+          </p>
+        </div>
+        {scope === "stl" ? (
+          <TextField
+            label="Other benefits (AED)"
+            type="number"
+            min={0}
+            step="0.01"
+            required
+            value={form.otherBenefits}
+            disabled={disabled}
+            onChange={salary("otherBenefits")}
+          />
+        ) : null}
+        <div>
+          <TextField
+            label="Total salary (AED)"
+            type="number"
+            min={0}
+            step="0.01"
+            required
+            readOnly={scope === "stl"}
+            value={form.totalSalary}
+            disabled={disabled}
+            onChange={salary("totalSalary")}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            {scope === "stl"
+              ? "Automatically calculated as basic salary + overtime + other benefits."
+              : "Predefined monthly salary. Statutory overtime is calculated from attendance at month end."}
+          </p>
+        </div>
+        <div className="sm:col-span-2">
+          <TextField label="Sunday allowance (AED per Sunday)" type="number" min={0} step="0.01" optional value={form.sundayAllowance} disabled={disabled} onChange={text("sundayAllowance")} />
+          <p className="mt-1 text-xs text-slate-500">
+            Company payment for each Sunday worked, separate from statutory Sunday overtime. Leave blank to use the payroll default, usually AED 80 or AED 100.
+          </p>
         </div>
       </section>
 

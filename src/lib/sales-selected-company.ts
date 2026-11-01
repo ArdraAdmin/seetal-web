@@ -1,7 +1,7 @@
 import type { SalesCompanyAccess } from "./sales-company";
 
 export type SalesCompanyKey = "stl" | "sarvah" | "shmp" | "shlaxmi";
-export type SalesInventoryKey = "stl" | "sarvah" | "shmp";
+export type SalesInventoryKey = "stl" | "sarvah" | "shmp" | "shlaxmi";
 
 export type SelectedSalesCompany = {
   id: string;
@@ -19,13 +19,14 @@ export const SELECTABLE_SALES_COMPANY_KEYS: SalesCompanyKey[] = [
   "stl",
   "sarvah",
   "shmp",
+  "shlaxmi",
 ];
 
 export const SALES_COMPANY_LABELS: Record<SalesCompanyKey, string> = {
   stl: "STL",
   sarvah: "Sarvah",
   shmp: "SHMP",
-  shlaxmi: "SH Laxmi",
+  shlaxmi: "SH Lakshmi",
 };
 
 const COMPANY_ALIASES: Record<SalesCompanyKey, string[]> = {
@@ -67,7 +68,12 @@ export function isSelectableSalesCompanyKey(
 }
 
 export function isSalesInventoryKey(value: string): value is SalesInventoryKey {
-  return value === "stl" || value === "sarvah" || value === "shmp";
+  return (
+    value === "stl" ||
+    value === "sarvah" ||
+    value === "shmp" ||
+    value === "shlaxmi"
+  );
 }
 
 export function onSelectedSalesCompanyChange(callback: () => void) {
@@ -157,9 +163,9 @@ export function salesWorkspaceDisplayName() {
 }
 
 export function salesCompanyStoreMode(
-  key?: SalesCompanyKey | null,
+  _key?: SalesCompanyKey | null,
 ): "all" | "assigned" {
-  return key === "shmp" ? "assigned" : "all";
+  return "assigned";
 }
 
 function companyTokens(company: { name?: string; prefix?: string }) {
@@ -189,15 +195,11 @@ function matchesCompanyKey(
   });
 }
 
-/**
- * Resolve a sales card to the company catalog it should order from.
- * Sarvah still sells the SHMP-labeled catalog, not a separate Sarvah company list.
- */
-export function sellingCatalogKey(
-  key: SalesCompanyKey,
-): Exclude<SalesInventoryKey, "sarvah"> | null {
-  if (key === "stl") return "stl";
-  if (key === "sarvah" || key === "shmp") return "shmp";
+/** Each sales card orders from that company's own catalogue. */
+export function sellingCatalogKey(key: SalesCompanyKey): SalesInventoryKey | null {
+  if (key === "stl" || key === "sarvah" || key === "shmp" || key === "shlaxmi") {
+    return key;
+  }
   return null;
 }
 

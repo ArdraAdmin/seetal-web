@@ -1,4 +1,5 @@
 import type { Product, SalesCartLine, StoreProfile } from "./types";
+import { personId, storeAssignedToSalesman as assignedToSalesman } from "./store-access";
 
 export function salesMoney(value: number) {
   const amount = Number.isFinite(value) ? value : 0;
@@ -176,24 +177,12 @@ export function productMatchesQuery(product: Product, query: string) {
   return haystack.includes(tag);
 }
 
-function personId(value: unknown) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    return String((value as { _id?: string })._id || "");
-  }
-  return "";
-}
-
 export function storeSalesmanId(store: StoreProfile) {
   return personId(store.salesPerson ?? store.salesman);
 }
 
 export function storeAssignedToSalesman(store: StoreProfile, userId: string) {
-  if (!userId) return false;
-  if (storeSalesmanId(store) === userId) return true;
-  const persons = store.salesPersons;
-  if (!Array.isArray(persons)) return false;
-  return persons.some((person) => personId(person) === userId);
+  return assignedToSalesman(store, userId);
 }
 
 export function isTempStoreRecord(store: StoreProfile) {

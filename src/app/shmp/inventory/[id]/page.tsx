@@ -16,7 +16,7 @@ import {
   getCompanies,
   type CompanyRecord,
 } from "@/lib/api";
-import { ProductImageField } from "@/components/ProductImage";
+import { ProductImageField, ProductImageGallery } from "@/components/ProductImage";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { salesMoney } from "@/lib/sales";
 import {
@@ -278,18 +278,12 @@ function InventoryItemDetail() {
           <Card>
             <h2 className="mb-1 text-sm font-semibold text-ink">Product images</h2>
             <p className="mb-4 text-sm text-slate-500">
-              Upload up to 5 images. Image 1 is the thumbnail. You can also
-              generate a thumbnail from Catalog.
+              All images for this product. Image 1 is the thumbnail. Open Edit
+              to add, reorder, or remove images.
             </p>
-            <ProductImageField
-              itemName={product.itemName || ""}
+            <ProductImageGallery
+              name={product.itemName || "Product"}
               imagePath={product.imagePath}
-              productId={product._id}
-              onUploaded={(url) =>
-                setProduct((current) =>
-                  current ? { ...current, imagePath: url } : current,
-                )
-              }
             />
           </Card>
           <Card>

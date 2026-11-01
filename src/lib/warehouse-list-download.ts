@@ -50,19 +50,25 @@ function companyIdOf(order: PendingOrder) {
 
 function legalName(
   company: { prefix?: string; name?: string } | undefined,
+  invoiceNo?: unknown,
 ) {
+  if (text(invoiceNo).startsWith("shmp/")) return "Sarvah Homes";
   if (!company) return "";
-  const prefix = text(company?.prefix).toLowerCase();
-  const name = text(company?.name);
-  const lower = name.toLowerCase();
-  if (prefix === "shmp" || lower === "shmp" || lower === "sarvah") {
-    return "Sarvah Homes";
+  const token = `${text(company.prefix)} ${text(company.name)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const name = text(company.name);
+  if (token.includes("shlakshmi") || token.includes("shlaxmi")) {
+    return "SH Lakshmi";
   }
+  if (token.includes("sarvah")) return "Sarvah Homes";
+  if (token.includes("shmp")) return name || "SHMP";
   if (
     !name ||
-    lower === "stl" ||
-    lower.includes("general trading") ||
-    lower === "shr seetal"
+    token === "stl" ||
+    token.startsWith("stl") ||
+    token.includes("generaltrading") ||
+    token.includes("shrseetal")
   ) {
     return "STL General Trading LLC";
   }
@@ -117,7 +123,7 @@ export async function downloadLoadingListOffline(userId: string) {
       addressLines(store),
       text(store.country),
       text(store.city),
-      legalName(company),
+      legalName(company, order.tempOrderInvoiceNo || order.invoiceNumber),
     ]);
   }
   rows.push([]);

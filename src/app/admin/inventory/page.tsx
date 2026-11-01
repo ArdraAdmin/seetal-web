@@ -219,6 +219,12 @@ export default function InventoryPage() {
               </div>
               <div className="flex gap-2">
                 <Link
+                  href={`/admin/inventory/${p._id}`}
+                  className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
+                >
+                  View
+                </Link>
+                <Link
                   href={`/admin/inventory/${p._id}/edit`}
                   className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
                 >

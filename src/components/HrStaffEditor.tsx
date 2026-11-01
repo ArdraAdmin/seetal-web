@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { HrProfileFields } from "@/components/HrProfileFields";
+import { SearchableSelect } from "@/components/SearchableSelect";
+import { SalarySlipCard } from "@/components/SalarySlipCard";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
@@ -65,7 +67,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
     try {
       const record = await getHrStaffRecord(user.id, id);
       setStaff(record);
-      setForm(hrProfileToForm(record.hrProfile, record.name));
+      setForm(hrProfileToForm(record.hrProfile, record.name, scope));
       setEmail(record.email || "");
       setMobile(record.mobileNumber || "");
       setJoiningDate(toDateInput(record.joiningDate));
@@ -75,7 +77,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
     } finally {
       setLoading(false);
     }
-  }, [user, creating, id]);
+  }, [user, creating, id, scope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,14 +112,14 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   async function onSave(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form);
+    const problem = validateHrProfileForm(form, scope);
     if (problem) {
       toast(problem, "info");
       return;
     }
     setBusy(true);
     try {
-      const hrProfile = hrProfilePayload(form);
+      const hrProfile = hrProfilePayload(form, scope);
       if (creating) {
         const created = await createHrStaff(user.id, {
           scope,
@@ -180,21 +182,19 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               <TextField label="Email" type="email" optional value={email} onChange={(event) => setEmail(event.target.value)} />
               <TextField label="Mobile" optional value={mobile} onChange={(event) => setMobile(event.target.value)} />
               <TextField label="Joined" type="date" optional value={joiningDate} onChange={(event) => setJoiningDate(event.target.value)} />
-              <label className="block space-y-1.5">
-                <span className="text-[13px] font-medium text-slate-700">Linked login</span>
-                <select
-                  className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-                  value={linkedUserId}
-                  onChange={(event) => setLinkedUserId(event.target.value)}
-                >
-                  <option value="">No login linked</option>
-                  {linkOptions.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.name} · {row.email} · {row.role}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SearchableSelect
+                label="Linked login"
+                optional
+                value={linkedUserId}
+                onChange={setLinkedUserId}
+                placeholder="Search scoped users"
+                emptyOption={{ id: "", label: "No login linked" }}
+                options={linkOptions.map((row) => ({
+                  id: row.id,
+                  label: [row.name, row.email, row.role].filter(Boolean).join(" · "),
+                  searchText: `${row.name} ${row.email} ${row.role}`,
+                }))}
+              />
             </div>
             <HrProfileFields
               form={form}
@@ -202,6 +202,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               disabled={busy}
               onUpload={onUpload}
               showCompany={scope === "stl"}
+              scope={scope}
             />
             <div className="mt-4">
               <PrimaryButton type="submit" disabled={busy}>
@@ -215,9 +216,10 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
         <IncrementCard
           staff={staff}
           onAdded={load}
-          add={(payload) => addHrStaffIncrement(user.id, id, payload)}
+          add={(payload) => addHrStaffIncrement(user.id, id, { ...payload, scope })}
         />
       ) : null}
+      {!creating && staff ? <SalarySlipCard kind="staff" personId={id} /> : null}
     </div>
   );
 }
@@ -225,17 +227,20 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
 export function HrUserDocuments({
   personId,
   showCompany = false,
+  scope,
 }: {
   personId: string;
   showCompany?: boolean;
+  scope: "stl" | "shmp";
 }) {
   return (
     <RecordDocuments
       personId={personId}
       showCompany={showCompany}
+      scope={scope}
       loadRecord={getHrStaffMember}
       saveRecord={(adminId, recordId, hrProfile) =>
-        updateHrStaff(adminId, recordId, hrProfile, { enforceDocuments: true })
+        updateHrStaff(adminId, recordId, hrProfile, { enforceDocuments: true, scope })
       }
     />
   );
@@ -245,6 +250,7 @@ export function HrEmployeeDocuments({ personId }: { personId: string }) {
   return (
     <RecordDocuments
       personId={personId}
+      scope="shmp"
       loadRecord={getEmployeeHr}
       saveRecord={updateEmployeeHr}
     />
@@ -254,11 +260,13 @@ export function HrEmployeeDocuments({ personId }: { personId: string }) {
 function RecordDocuments({
   personId,
   showCompany = false,
+  scope,
   loadRecord,
   saveRecord,
 }: {
   personId: string;
   showCompany?: boolean;
+  scope: "stl" | "shmp";
   loadRecord: (adminId: string, id: string) => Promise<HrStaff>;
   saveRecord: (
     adminId: string,
@@ -279,13 +287,13 @@ function RecordDocuments({
     setError(null);
     try {
       const record = await loadRecord(user.id, personId);
-      setForm(hrProfileToForm(record.hrProfile, record.name));
+      setForm(hrProfileToForm(record.hrProfile, record.name, scope));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load HR record");
     } finally {
       setLoading(false);
     }
-  }, [user, personId, loadRecord]);
+  }, [user, personId, loadRecord, scope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,15 +308,15 @@ function RecordDocuments({
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form);
+    const problem = validateHrProfileForm(form, scope);
     if (problem) {
       toast(problem, "info");
       return;
     }
     setBusy(true);
     try {
-      const saved = await saveRecord(user.id, personId, hrProfilePayload(form));
-      setForm(hrProfileToForm(saved.hrProfile, saved.name));
+      const saved = await saveRecord(user.id, personId, hrProfilePayload(form, scope));
+      setForm(hrProfileToForm(saved.hrProfile, saved.name, scope));
       toast("HR record saved", "success");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
@@ -328,6 +336,7 @@ function RecordDocuments({
         onChange={setForm}
         disabled={busy}
         showCompany={showCompany}
+        scope={scope}
         onUpload={(file) => {
           if (!user?.id) return Promise.reject(new Error("Sign in again"));
           return uploadHrFile(user.id, file);

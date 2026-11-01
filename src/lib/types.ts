@@ -31,12 +31,22 @@ export interface Driver {
   phoneNo: string;
 }
 
+export interface VehicleDocument {
+  _id: string;
+  name: string;
+  fileName: string;
+  contentType?: string;
+  fileId: string;
+  uploadedAt?: string;
+}
+
 export interface VehicleExtras {
   purchaseYear?: number | null;
   price?: number | null;
   purchaseFrom?: string | null;
   mulkyaExpiry?: string | null;
   insurancePremium?: number | null;
+  documents?: VehicleDocument[];
 }
 
 export interface Vehicle extends VehicleExtras {
@@ -52,6 +62,8 @@ export interface VehicleMaintenance {
   description: string;
   date: string;
   createdAt?: string;
+  invoiceFileId?: string;
+  invoiceFileName?: string;
 }
 
 export interface StoreProfile {
@@ -67,6 +79,7 @@ export interface StoreProfile {
   salesman?: string | { name?: string; _id?: string };
   salesPerson?: string | { name?: string; _id?: string };
   salesPersons?: Array<string | { name?: string; _id?: string }>;
+  orderBlocked?: boolean;
   isTemp?: boolean;
   isTempStore?: boolean;
   marks?: string;
@@ -78,6 +91,8 @@ export interface StoreProfile {
   tradeLicenseExpiry?: string | Date | null;
   trnDocumentUrl?: string;
   tradeLicenseDocumentUrl?: string;
+  eidNumber?: string;
+  eidDocumentFileName?: string;
   copyCount?: number;
   [key: string]: unknown;
 }
@@ -163,6 +178,7 @@ export interface PendingOrder {
   doubleCheck?: boolean;
   loadCheck?: boolean;
   unloaded?: boolean;
+  invoiceGenerated?: boolean;
   totalPkg?: number;
   isGRV?: boolean;
   isDraft?: boolean;

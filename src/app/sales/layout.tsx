@@ -40,7 +40,7 @@ export default function SalesLayout({
   const [hasInventory, setHasInventory] = useState(false);
   const [attendanceReady, setAttendanceReady] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
-  const bindingSarvah = useRef(false);
+  const boundWorkspace = useRef<string | null>(null);
 
   const refreshAttendance = useCallback(async () => {
     if (!user?.id || user.role !== "Sales") return;
@@ -123,24 +123,31 @@ export default function SalesLayout({
   useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !companyReady) return;
     if (!checkedIn) return;
-    if (hasInventory) bindingSarvah.current = false;
     if (!hasWorkspace && needsWorkspace) {
       const next = `${pathname}${window.location.search}`;
       router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
       return;
     }
+    const workspace = loadSalesWorkspace();
+    if (
+      workspace === "sarvah" ||
+      workspace === "shmp" ||
+      workspace === "shlaxmi"
+    ) {
+      if (boundWorkspace.current !== workspace) {
+        boundWorkspace.current = workspace;
+        void selectSalesCompany(user.id, workspace).catch(() => {
+          boundWorkspace.current = null;
+          if (needsInventory && !hasInventory) {
+            const next = `${pathname}${window.location.search}`;
+            router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
+          }
+        });
+      }
+      if (needsInventory && !hasInventory) return;
+    }
     if (needsInventory && !hasInventory) {
       const next = `${pathname}${window.location.search}`;
-      if (loadSalesWorkspace() === "sarvah") {
-        if (!bindingSarvah.current) {
-          bindingSarvah.current = true;
-          void selectSalesCompany(user.id, "sarvah").catch(() => {
-            bindingSarvah.current = false;
-            router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
-          });
-        }
-        return;
-      }
       router.replace(`/sales/company?next=${encodeURIComponent(next)}`);
     }
   }, [

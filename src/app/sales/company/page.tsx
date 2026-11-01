@@ -47,9 +47,8 @@ const WORKSPACE_COMPANIES: Array<{
   {
     key: "shlaxmi",
     title: SALES_COMPANY_LABELS.shlaxmi,
-    subtitle: "Coming soon",
+    subtitle: "Current stores and SH Lakshmi inventory",
     icon: Sparkles,
-    comingSoon: true,
   },
 ];
 

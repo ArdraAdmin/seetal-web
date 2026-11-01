@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { decideApproval, getApprovalQueue } from "@/lib/api";
+import { notifyApprovalsChanged } from "@/lib/approval";
 import type { ApprovalOrder } from "@/lib/types";
 import { ApprovalDetails } from "@/components/ApprovalViews";
 import { useToast } from "@/components/Toast";
@@ -56,6 +57,7 @@ export default function AdminApprovalDetailsPage() {
     setBusy(true);
     try {
       await decideApproval(order._id, true);
+      notifyApprovalsChanged();
       toast("Order approved", "success");
       router.push("/admin/approvals");
     } catch (e) {
@@ -75,6 +77,7 @@ export default function AdminApprovalDetailsPage() {
     setBusy(true);
     try {
       await decideApproval(order._id, false, note);
+      notifyApprovalsChanged();
       toast("Order rejected", "success");
       router.push("/admin/approvals");
     } catch (e) {

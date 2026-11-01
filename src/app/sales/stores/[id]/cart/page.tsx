@@ -20,11 +20,12 @@ import {
 import type { SalesCartLine } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { EmptyState, PrimaryButton, TextField } from "@/components/ui";
+import { Card, EmptyState, PrimaryButton, TextField } from "@/components/ui";
 import {
   ensureLocationForOrders,
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
+import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 
 export default function SalesCartPage() {
   const params = useParams<{ id: string }>();
@@ -33,6 +34,7 @@ export default function SalesCartPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const storeId = params.id;
+  const access = useSalesStoreAccess(storeId);
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
   const tempStore = searchParams.get("temp") === "1";
@@ -93,6 +95,11 @@ export default function SalesCartPage() {
 
   async function onPlace() {
     if (!user?.id) return;
+    if (access.status === "blocked") {
+      toast(access.message, "info");
+      return;
+    }
+    if (access.status !== "open") return;
     const ok = await ensureLocationForOrders();
     if (!ok) {
       toast(await locationOrderBlockMessage(), "info");
@@ -145,6 +152,28 @@ export default function SalesCartPage() {
 
   const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
   const productsHref = `/sales/stores/${storeId}?name=${encodeURIComponent(storeName)}&marks=${encodeURIComponent(marks)}${tempStore ? "&temp=1" : ""}`;
+
+  if (access.status === "loading") {
+    return (
+      <div className="mx-auto max-w-3xl py-10 text-center text-sm text-slate-500">
+        Checking store…
+      </div>
+    );
+  }
+
+  if (access.status !== "open") {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <Link href="/sales" className="text-sm font-medium text-ink hover:underline">
+          ← Stores
+        </Link>
+        <h1 className="mt-2 text-xl font-bold text-slate-900">{storeName}</h1>
+        <Card className="mt-4">
+          <p className="text-sm font-semibold text-ink">{access.message}</p>
+        </Card>
+      </div>
+    );
+  }
 
   if (!locationReady) {
     return (

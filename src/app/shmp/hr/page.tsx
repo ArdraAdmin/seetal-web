@@ -327,6 +327,11 @@ export default function ShmpHrPage() {
                 Add staff
               </SecondaryButton>
             ) : null}
+            {!supervisor ? (
+              <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/payroll")}>
+                Payroll settings
+              </SecondaryButton>
+            ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
               Refresh
             </SecondaryButton>

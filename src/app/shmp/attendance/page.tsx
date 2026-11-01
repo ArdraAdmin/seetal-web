@@ -7,7 +7,8 @@ import { Plus, X } from "lucide-react";
 import {
   applySalesLeave,
   decideAdminLeave,
-  getSalesProfiles,
+  getAdminAttendance,
+  type AttendanceRecord,
 } from "@/lib/api";
 import {
   getPortalLeaveEntitlements,
@@ -20,7 +21,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
 import {
-  isShmpHrPortalRole,
+  attendanceRecordUserId,
+  isShmpAttendancePortalRole,
   presentRowVisibleToCaller,
 } from "@/lib/hr-scope";
 import {
@@ -54,7 +56,6 @@ import {
   companyOf,
   leaveLabel,
   matchesQuery,
-  mergeAccessAndSales,
   personHref,
   presentHref,
   trackedAccessRole,
@@ -152,31 +153,59 @@ function AttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [list, accessUsers, salesProfiles] = await Promise.all([
+      const [list, accessUsers] = await Promise.all([
         shmpEmployees() as Promise<Emp[]>,
         shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
-        supervisor ? Promise.resolve([]) : getSalesProfiles().catch(() => []),
       ]);
       const workers = Array.isArray(list) ? list : [];
       const portal = (
-        supervisor
-          ? usersVisibleToSupervisor(accessUsers)
-          : mergeAccessAndSales(accessUsers, salesProfiles)
-      ).filter((row) => isShmpHrPortalRole(row.role));
+        supervisor ? usersVisibleToSupervisor(accessUsers) : accessUsers
+      ).filter((row) => isShmpAttendancePortalRole(row.role));
       setEmployees(workers);
       setUsers(portal);
       setLoading(false);
       const range = rangeFor(todayOnly);
       const portalIds = portal.map((row) => row._id);
-      const [att, present] = await Promise.all([
+      const supervisorIds = new Set(portalIds);
+      const [att, present, portalAtt] = await Promise.all([
         shmpAttendance({
           mine: "0",
           from: range.from,
           to: range.to,
         }).catch(() => [] as ShmpAttendanceRow[]),
         shmpPresentToday().catch(() => [] as ShmpPresentTodayRow[]),
+        user?.id
+          ? getAdminAttendance({
+              userId: user.id,
+              from: range.from.slice(0, 10),
+              to: range.to.slice(0, 10),
+            }).catch(() => ({ attendance: [] as AttendanceRecord[] }))
+          : Promise.resolve({ attendance: [] as AttendanceRecord[] }),
       ]);
-      setAttendance(Array.isArray(att) ? att : []);
+      const workerRows = Array.isArray(att) ? att : [];
+      const supervisorRows: ShmpAttendanceRow[] = (portalAtt.attendance || [])
+        .filter((row) => supervisorIds.has(attendanceRecordUserId(row.sales)))
+        .map((row) => {
+          const sales = row.sales && typeof row.sales === "object" ? row.sales : null;
+          return {
+            _id: row._id,
+            status: row.checkOutAt ? "checked_out" : "present",
+            date: row.date,
+            checkInAt: row.checkInAt,
+            checkOutAt: row.checkOutAt,
+            source: "checkin",
+            user: {
+              _id: attendanceRecordUserId(row.sales),
+              name: sales?.name || sales?.email || "Supervisor",
+              role: "Supervisor",
+            },
+          };
+        });
+      const seen = new Set(workerRows.map((row) => row._id).filter(Boolean));
+      setAttendance([
+        ...workerRows,
+        ...supervisorRows.filter((row) => !row._id || !seen.has(row._id)),
+      ]);
       setPresentToday(
         (Array.isArray(present) ? present : []).filter((row) =>
           presentRowVisibleToCaller(row, supervisor),
@@ -193,7 +222,7 @@ function AttendancePage() {
       setError(e instanceof Error ? e.message : "Failed to load attendance");
       setLoading(false);
     }
-  }, [supervisor, todayOnly]);
+  }, [supervisor, todayOnly, user]);
 
   useEffect(() => {
     void refresh();
@@ -284,25 +313,53 @@ function AttendancePage() {
     [presentToday, term],
   );
 
+  const absentRoster = useMemo(() => {
+    const people: Array<{
+      id: string;
+      href: string;
+      name: string;
+      meta?: string;
+    }> = [];
+    for (const emp of employees) {
+      const status = attendanceByEmployeeId.get(emp._id);
+      if (status === "leave" || presentWorkerIds.has(emp._id)) continue;
+      if (status !== "absent" && status) continue;
+      people.push({
+        id: emp._id,
+        href: personHref("worker", emp._id),
+        name: emp.name,
+        meta: emp.designation || "Worker",
+      });
+    }
+    const presentPortalIds = new Set(
+      presentToday
+        .filter((row) => row.kind === "portal")
+        .map((row) => row._id),
+    );
+    for (const accessUser of users) {
+      if (presentPortalIds.has(accessUser._id)) continue;
+      people.push({
+        id: accessUser._id,
+        href: personHref("user", accessUser._id),
+        name: accessUser.name || accessUser.email || "Supervisor",
+        meta: accessUser.role || "Supervisor",
+      });
+    }
+    return people;
+  }, [attendanceByEmployeeId, employees, presentToday, presentWorkerIds, users]);
+
   const absentPeople = useMemo(
     () =>
-      filteredEmployees.filter((emp) => {
-        const status = attendanceByEmployeeId.get(emp._id);
-        if (status === "leave") return false;
-        if (presentWorkerIds.has(emp._id)) return false;
-        return status === "absent" || !status;
-      }),
-    [filteredEmployees, attendanceByEmployeeId, presentWorkerIds],
+      absentRoster.filter((person) =>
+        matchesQuery(term, [person.name, person.meta]),
+      ),
+    [absentRoster, term],
   );
 
   const daySummary = {
     total: employees.length + users.length,
     present: presentToday.length,
-    absent: employees.filter((emp) => {
-      const status = attendanceByEmployeeId.get(emp._id);
-      if (status === "leave" || presentWorkerIds.has(emp._id)) return false;
-      return status === "absent" || !status;
-    }).length,
+    absent: absentRoster.length,
   };
 
   const leaveCount = useMemo(() => {
@@ -569,11 +626,7 @@ function AttendancePage() {
     <div className="space-y-6 pb-20">
       <PageHeader
         title="Attendance"
-        subtitle={
-          supervisor
-            ? "Workers and supervisors check-in, leave and daily status."
-            : "Sales, supervisor and factory worker check-in, leave and daily status."
-        }
+        subtitle="Workers and supervisors check-in, leave and daily status."
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void refresh()}>
             Refresh
@@ -665,10 +718,7 @@ function AttendancePage() {
                   {todayOnly ? "Today's attendance" : "Recent attendance"}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Workers via fingerprint;{" "}
-                  {supervisor
-                    ? "supervisors via portal check-in."
-                    : "sales and supervisors via portal check-in."}
+                  Workers via fingerprint; supervisors via portal check-in.
                 </p>
               </div>
               <p className="text-sm font-semibold text-ink">
@@ -744,8 +794,8 @@ function AttendancePage() {
             >
               <h2 className="font-semibold text-ink">Leave entitlements</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Select sales users, supervisors and workers, then set annual and sick
-                leave days for everyone selected.
+                Select supervisors and workers, then set annual and sick leave days
+                for everyone selected.
               </p>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <label className="inline-flex items-center gap-2 text-sm font-medium text-ink">
@@ -885,9 +935,8 @@ function AttendancePage() {
                   Mark attendance / leave
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  {supervisor
-                    ? "Record present, absent, or annual/sick leave for a worker or supervisor."
-                    : "Record present, absent, or annual/sick leave for a worker, sales user or supervisor."}
+                  Record present, absent, or annual/sick leave for a worker or
+                  supervisor.
                 </p>
               </div>
               <button
@@ -1005,7 +1054,12 @@ function FilteredRoster({
   filter: DayFilter;
   workers: Emp[];
   present: ShmpPresentTodayRow[];
-  absent: Emp[];
+  absent: Array<{
+    id: string;
+    href: string;
+    name: string;
+    meta?: string;
+  }>;
   leave: Array<{
     id: string;
     href: string;
@@ -1096,17 +1150,15 @@ function FilteredRoster({
           <p className="mt-3 text-sm text-slate-500">No absences today.</p>
         ) : (
           <ul className="mt-3 divide-y divide-line/60">
-            {absent.map((emp) => (
-              <li key={emp._id}>
+            {absent.map((person) => (
+              <li key={person.id}>
                 <Link
-                  href={personHref("worker", emp._id)}
+                  href={person.href}
                   className="flex items-center justify-between gap-3 py-2.5 hover:underline"
                 >
                   <div>
-                    <p className="font-medium text-ink">{emp.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {emp.designation || "Worker"}
-                    </p>
+                    <p className="font-medium text-ink">{person.name}</p>
+                    <p className="text-xs text-slate-500">{person.meta || "Staff"}</p>
                   </div>
                   <StatusBadge status="absent" />
                 </Link>

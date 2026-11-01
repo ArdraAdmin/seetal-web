@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  getAllConfirmedInvoices,
-  searchInvoiceNumbers,
+  getGrvOrders,
 } from "@/lib/api";
 import type { GrvOrder } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -39,14 +38,14 @@ export default function AdminGrvPage() {
     setLoading(true);
     setError(null);
     try {
-      setOrders(await getAllConfirmedInvoices(user.id));
+      setOrders(await getGrvOrders());
       setSearchHits(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load invoices");
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user]);
 
   useEffect(() => {
     void load();
@@ -68,24 +67,10 @@ export default function AdminGrvPage() {
       setSearchHits(null);
       return;
     }
-    const local = orders.filter((order) =>
-      invoiceNumberOf(order).toLowerCase().includes(tag.toLowerCase()),
-    );
-    if (local.length > 0) {
-      setSearchHits(local);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const remote = await searchInvoiceNumbers(tag);
-      const byId = new Map(orders.map((order) => [order._id, order]));
-      setSearchHits(
-        remote.map((item) => byId.get(item._id) || {
-          _id: item._id,
-          invoiceNumber: item.invoiceNumber,
-        }),
-      );
+      setSearchHits(await getGrvOrders(tag));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Search failed");
     } finally {
@@ -148,7 +133,7 @@ export default function AdminGrvPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((order, index) => {
-            const grv = orderGrvAmount(order);
+            const grv = Number(order.grvAmount) || orderGrvAmount(order);
             return (
               <Link
                 key={order._id || `${invoiceNumberOf(order)}-${index}`}
@@ -168,7 +153,7 @@ export default function AdminGrvPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-semibold text-ink">
-                      {salesMoney(invoiceTotal(order))}
+                      {salesMoney(Number(order.collectableAmount) || invoiceTotal(order))}
                     </p>
                     {grv > 0 ? (
                       <p className="mt-1 text-xs text-slate-500">

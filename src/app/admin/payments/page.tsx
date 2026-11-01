@@ -5,31 +5,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   exportPayments,
   exportPendingPayments,
-  getAllConfirmedInvoices,
-  getPayments,
-  getPdcs,
+  getPaymentInvoices,
+  type PaymentInvoice,
 } from "@/lib/api";
-import type { GrvOrder, PaymentRecord, PdcRecord } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
-  collectableAmount,
   exportRangeBounds,
   formatInvoiceDate,
-  invoiceDateOf,
-  invoiceNumberOf,
-  invoiceStoreName,
-  invoiceTotal,
   isPdcPending,
-  isWithinDays,
-  latestPdc,
-  orderGrvAmount,
-  paymentOrderId,
-  pdcOrderId,
-  receivedAmount,
-  remainingAmount,
 } from "@/lib/invoice";
-import { salesMoney } from "@/lib/sales";
+import { roundMoney, salesMoney } from "@/lib/sales";
 import {
   EmptyState,
   ErrorState,
@@ -37,6 +23,7 @@ import {
   PageHeader,
   SecondaryButton,
 } from "@/components/ui";
+import type { PdcRecord } from "@/lib/types";
 
 type PaymentsTab = "receivable" | "received";
 type RangeKey = 7 | 15 | 30 | null;
@@ -48,12 +35,21 @@ const RANGES: { id: RangeKey; label: string }[] = [
   { id: null, label: "All" },
 ];
 
+function chequeRecord(invoice: PaymentInvoice): PdcRecord | null {
+  if (invoice.paymentStatus !== "pdc" || !invoice.chequeDate) return null;
+  return {
+    _id: invoice.pdcId || invoice.id,
+    chequeDate: invoice.chequeDate,
+    amount: invoice.collectableAmount,
+  };
+}
+
 export default function AdminPaymentsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [orders, setOrders] = useState<GrvOrder[]>([]);
-  const [payments, setPayments] = useState<PaymentRecord[]>([]);
-  const [pdcs, setPdcs] = useState<PdcRecord[]>([]);
+  const [invoices, setInvoices] = useState<PaymentInvoice[]>([]);
+  const [receivableTotal, setReceivableTotal] = useState(0);
+  const [receivedTotal, setReceivedTotal] = useState(0);
   const [tab, setTab] = useState<PaymentsTab>("receivable");
   const [range, setRange] = useState<RangeKey>(7);
   const [loading, setLoading] = useState(true);
@@ -65,76 +61,33 @@ export default function AdminPaymentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [invoiceList, paymentList, pdcList] = await Promise.all([
-        getAllConfirmedInvoices(user.id),
-        getPayments(user.id),
-        getPdcs(user.id),
-      ]);
-      setOrders(invoiceList);
-      setPayments(paymentList);
-      setPdcs(pdcList);
+      const data = await getPaymentInvoices(user.id, range);
+      setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+      setReceivableTotal(Number(data.receivables) || 0);
+      setReceivedTotal(Number(data.received) || 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load payments");
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [range, user]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const paymentsByOrder = useMemo(() => {
-    const map = new Map<string, PaymentRecord[]>();
-    for (const payment of payments) {
-      const id = paymentOrderId(payment);
-      if (!id) continue;
-      const list = map.get(id) || [];
-      list.push(payment);
-      map.set(id, list);
-    }
-    return map;
-  }, [payments]);
-
-  const pdcsByOrder = useMemo(() => {
-    const map = new Map<string, PdcRecord[]>();
-    for (const pdc of pdcs) {
-      const id = pdcOrderId(pdc);
-      if (!id) continue;
-      const list = map.get(id) || [];
-      list.push(pdc);
-      map.set(id, list);
-    }
-    return map;
-  }, [pdcs]);
-
-  const inRange = useMemo(
-    () => orders.filter((order) => isWithinDays(invoiceDateOf(order), range)),
-    [orders, range],
-  );
-
   const rows = useMemo(() => {
-    return inRange.map((order) => {
-      const orderPayments = paymentsByOrder.get(order._id) || [];
-      const remaining = remainingAmount(order, orderPayments);
-      return {
-        order,
-        payments: orderPayments,
-        pdc: latestPdc(pdcsByOrder.get(order._id) || []),
-        remaining,
-        received: receivedAmount(orderPayments),
-        collectable: collectableAmount(order),
-        grv: orderGrvAmount(order),
-      };
-    });
-  }, [inRange, paymentsByOrder, pdcsByOrder]);
+    return invoices.map((invoice) => ({
+      invoice,
+      remaining: roundMoney(
+        Math.max(0, (Number(invoice.collectableAmount) || 0) - (Number(invoice.amountPaid) || 0)),
+      ),
+    }));
+  }, [invoices]);
 
-  const receivableRows = rows.filter((row) => row.remaining > 0.009);
-  const receivedRows = rows.filter((row) => row.remaining <= 0.009);
+  const receivableRows = rows.filter((row) => row.invoice.paymentStatus !== "cleared");
+  const receivedRows = rows.filter((row) => row.invoice.paymentStatus === "cleared");
   const visible = tab === "receivable" ? receivableRows : receivedRows;
-
-  const receivableTotal = roundSum(receivableRows.map((row) => row.remaining));
-  const receivedTotal = roundSum(receivedRows.map((row) => row.received));
   const rangeLabel = RANGES.find((item) => item.id === range)?.label || "All";
 
   async function onExport() {
@@ -248,32 +201,34 @@ export default function AdminPaymentsPage() {
         />
       ) : (
         <div className="space-y-2">
-          {visible.map((row, index) => (
+          {visible.map((row) => (
             <Link
-              key={row.order._id || `${invoiceNumberOf(row.order)}-${index}`}
-              href={`/admin/payments/${row.order._id}`}
+              key={row.invoice.id}
+              href={`/admin/payments/${row.invoice.id}`}
               className="block rounded-xl border border-line bg-white p-4 hover:border-brand/60"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-black">{invoiceNumberOf(row.order)}</p>
+                  <p className="font-semibold text-black">{row.invoice.invoiceNumber || "Invoice"}</p>
                   <p className="mt-0.5 text-sm text-slate-600">
-                    {invoiceStoreName(row.order)}
+                    {row.invoice.storeName || "Store"}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {formatInvoiceDate(invoiceDateOf(row.order))}
-                    {isPdcPending(row.pdc) ? " · PDC pending" : ""}
-                    {row.grv > 0 ? ` · GRV ${salesMoney(row.grv)}` : ""}
+                    {formatInvoiceDate(row.invoice.date)}
+                    {isPdcPending(chequeRecord(row.invoice)) ? " · PDC pending" : ""}
+                    {row.invoice.grvAmount > 0 ? ` · GRV ${salesMoney(row.invoice.grvAmount)}` : ""}
                   </p>
                 </div>
                 <div className="text-right text-sm">
-                  <p className="font-semibold text-ink">{salesMoney(invoiceTotal(row.order))}</p>
+                  <p className="font-semibold text-ink">
+                    {salesMoney(tab === "receivable" ? row.remaining : row.invoice.amountPaid)}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Received {salesMoney(row.received)}
+                    Invoice {salesMoney(row.invoice.totalCost)}
                   </p>
                   <p className="text-xs text-slate-500">
                     {tab === "receivable"
-                      ? `Due ${salesMoney(row.remaining)}`
+                      ? `Received ${salesMoney(row.invoice.amountPaid)}`
                       : "Completed"}
                   </p>
                 </div>
@@ -284,8 +239,4 @@ export default function AdminPaymentsPage() {
       )}
     </div>
   );
-}
-
-function roundSum(values: number[]) {
-  return Number(values.reduce((sum, value) => sum + value, 0).toFixed(2));
 }

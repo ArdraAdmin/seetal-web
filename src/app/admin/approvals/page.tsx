@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { decideApproval, getApprovalQueue } from "@/lib/api";
+import { notifyApprovalsChanged, pendingApprovalCount } from "@/lib/approval";
 import type { ApprovalOrder } from "@/lib/types";
 import { ApprovalSummary } from "@/components/ApprovalViews";
 import { useToast } from "@/components/Toast";
@@ -29,7 +30,9 @@ export default function AdminApprovalsPage() {
     setLoading(true);
     setError(null);
     try {
-      setOrders(await getApprovalQueue());
+      const next = await getApprovalQueue();
+      setOrders(next);
+      notifyApprovalsChanged(pendingApprovalCount(next));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load approvals");
     } finally {

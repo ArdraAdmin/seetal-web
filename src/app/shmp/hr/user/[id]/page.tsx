@@ -26,6 +26,7 @@ import {
   TextField,
 } from "@/components/ui";
 import { HrUserDocuments } from "@/components/HrStaffEditor";
+import { SalarySlipCard } from "@/components/SalarySlipCard";
 import {
   AttendanceHistory,
   trackedAccessRole,
@@ -281,7 +282,8 @@ function UserDetail() {
         </p>
       )}
 
-      {!supervisor ? <HrUserDocuments personId={id} /> : null}
+      {!supervisor ? <HrUserDocuments personId={id} scope="shmp" /> : null}
+      {!supervisor ? <SalarySlipCard kind="user" personId={id} /> : null}
     </div>
   );
 }

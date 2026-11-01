@@ -4,27 +4,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  createPayment,
-  editPayment,
-  getConfirmedInvoice,
-  getInvoiceLines,
-  getInvoiceStoreDetails,
-  getPayments,
-  getProduct,
+  getGrvOrder,
   saveGrvEdit,
-  toggleGrvDamaged,
-  updateInventoryQuantities,
 } from "@/lib/api";
 import type { GrvDisposition, GrvLine, GrvOrder } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
   formatInvoiceDate,
-  grvRemarkNote,
   invoiceNumberOf,
   invoiceStoreName,
   invoiceTotal,
-  isGrvPayment,
   lineAmount,
   lineGrvQty,
   lineGrvUnit,
@@ -35,10 +25,6 @@ import {
   lineProductName,
   lineRatio,
   lineUnit,
-  PAYMENT_CURRENCY,
-  paymentOrderId,
-  productPieces,
-  toPieces,
 } from "@/lib/invoice";
 import { roundMoney, salesMoney } from "@/lib/sales";
 import {
@@ -118,27 +104,18 @@ export default function AdminGrvInvoicePage() {
     setLoading(true);
     setError(null);
     try {
-      let invoice = await getConfirmedInvoice(user.id, params.id);
-      if (!invoice) {
-        const details = await getInvoiceStoreDetails(user.id, params.id);
-        invoice = {
-          _id: params.id,
-          store: details.store,
-          sales: details.sales,
-        };
-      }
-      const { lines: invoiceLines } = await getInvoiceLines(user.id, invoice);
-      const editors = invoiceLines
+      const invoice = await getGrvOrder(params.id);
+      const editors = (invoice.productDetails || [])
         .map((line) => toEditorLine(line))
         .filter((line): line is EditorLine => Boolean(line));
-      setOrder({ ...invoice, productDetails: invoiceLines });
+      setOrder(invoice);
       setLines(editors);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load invoice");
     } finally {
       setLoading(false);
     }
-  }, [params.id, user?.id]);
+  }, [params.id, user]);
 
   useEffect(() => {
     void load();
@@ -153,6 +130,14 @@ export default function AdminGrvInvoicePage() {
   );
 
   const invoiceLabel = order ? invoiceNumberOf(order) : "";
+  const invoiceBase = (() => {
+    const collectable = Number(order?.collectableAmount);
+    const recorded = Number(order?.grvAmount) || 0;
+    if (order && Number.isFinite(collectable) && (collectable > 0 || recorded > 0)) {
+      return collectable + recorded;
+    }
+    return order ? invoiceTotal(order) : 0;
+  })();
 
   const grouped = useMemo(() => {
     const map = new Map<string, EditorLine[]>();
@@ -185,91 +170,24 @@ export default function AdminGrvInvoicePage() {
     }
     setSaving(true);
     try {
-      const byCategory = new Map<string, EditorLine[]>();
-      for (const line of selected) {
-        const cat = line.masterCategoryId || "uncategorised";
-        const list = byCategory.get(cat) || [];
-        list.push(line);
-        byCategory.set(cat, list);
-      }
-      const fallbackCategory =
-        order.categoryList?.find((item) => item.masterCategoryId)?.masterCategoryId ||
+      const categoryId =
+        selected.find((line) => line.masterCategoryId)?.masterCategoryId ||
         lines.find((line) => line.masterCategoryId)?.masterCategoryId ||
-        "";
-      for (const [masterCategoryId, group] of byCategory) {
-        const categoryId =
-          masterCategoryId === "uncategorised" ? fallbackCategory : masterCategoryId;
-        if (!categoryId) {
-          throw new Error("This invoice has no category to save GRV against");
-        }
-        await saveGrvEdit({
-          userId: user.id,
-          orderId: order._id,
-          masterCategoryId: categoryId,
-          productDetails: group.map((line) => ({
-            productId: line.productId,
-            isDamaged: line.disposition === "damaged",
-            grv: {
-              isGRV: true,
-              grvQty: line.qty,
-              grvUnit: line.grvUnit,
-            },
-          })),
-        });
-      }
-
-      for (const line of selected) {
-        await toggleGrvDamaged(
-          order._id,
-          line.productId,
-          line.disposition === "damaged",
-        );
-      }
-
-      const stockUpdates: { itemRef: string; closingQty: number }[] = [];
-      for (const line of selected) {
-        const prevReturnedPieces =
-          line.existingReturned && !line.existingDamaged
-            ? toPieces(line.existingQty, line.existingUnit, line.ratio)
-            : 0;
-        const nextReturnedPieces =
-          line.disposition === "inventory"
-            ? toPieces(line.qty, line.grvUnit, line.ratio)
-            : 0;
-        const delta = nextReturnedPieces - prevReturnedPieces;
-        if (delta === 0) continue;
-        const product = await getProduct(line.productId);
-        const itemRef = product.itemRef || line.itemRef;
-        if (!itemRef) continue;
-        stockUpdates.push({
-          itemRef,
-          closingQty: productPieces(product) + delta,
-        });
-      }
-      if (stockUpdates.length > 0) {
-        await updateInventoryQuantities(stockUpdates);
-      }
-
-      if (grvAmount > 0) {
-        const payments = await getPayments(user.id);
-        const existing = payments.find(
-          (payment) =>
-            paymentOrderId(payment) === order._id && isGrvPayment(payment),
-        );
-        const payload = {
-          paymentMode: "Cash",
-          date: new Date().toISOString(),
-          orderId: order._id,
-          currency: PAYMENT_CURRENCY,
-          note: grvRemarkNote(grvAmount),
-          amountPaid: 0,
-        };
-        if (existing) {
-          await editPayment({ paymentId: existing._id, ...payload });
-        } else {
-          await createPayment(payload);
-        }
-      }
+        "grv";
+      await saveGrvEdit({
+        userId: user.id,
+        orderId: order._id,
+        masterCategoryId: categoryId,
+        productDetails: selected.map((line) => ({
+          productId: line.productId,
+          isDamaged: line.disposition === "damaged",
+          grv: {
+            isGRV: true,
+            grvQty: line.qty,
+            grvUnit: line.grvUnit,
+          },
+        })),
+      });
 
       toast("GRV saved", "success");
       router.push("/admin/grv");
@@ -311,7 +229,7 @@ export default function AdminGrvInvoicePage() {
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
               <div>
                 <p className="text-slate-500">Invoice</p>
-                <p className="font-semibold text-ink">{salesMoney(invoiceTotal(order))}</p>
+                <p className="font-semibold text-ink">{salesMoney(invoiceBase)}</p>
               </div>
               <div>
                 <p className="text-slate-500">Selected GRV</p>
@@ -320,7 +238,7 @@ export default function AdminGrvInvoicePage() {
               <div>
                 <p className="text-slate-500">Collectable after GRV</p>
                 <p className="font-semibold text-ink">
-                  {salesMoney(Math.max(0, invoiceTotal(order) - grvAmount))}
+                  {salesMoney(Math.max(0, invoiceBase - grvAmount))}
                 </p>
               </div>
             </div>

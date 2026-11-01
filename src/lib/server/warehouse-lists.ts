@@ -30,27 +30,46 @@ function unitIsCartons(unit: unknown) {
   return text(unit).toUpperCase() === "CARTONS";
 }
 
-function companyLegalName(company: Document | null | undefined) {
-  const prefix = text(company?.prefix).toLowerCase();
+function companyToken(company: Document | null | undefined) {
+  return `${text(company?.prefix)} ${text(company?.name)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function companyLegalName(
+  company: Document | null | undefined,
+  invoiceNo?: unknown,
+) {
+  if (text(invoiceNo).startsWith("shmp/")) return "Sarvah Homes";
+  const token = companyToken(company);
   const name = text(company?.name);
-  const lower = name.toLowerCase();
-  if (prefix === "shmp" || lower === "shmp" || lower === "sarvah") {
-    return "Sarvah Homes";
+  if (token.includes("shlakshmi") || token.includes("shlaxmi")) {
+    return "SH Lakshmi";
   }
+  if (token.includes("sarvah")) return "Sarvah Homes";
+  if (token.includes("shmp")) return name || "SHMP";
   if (
     !name ||
-    lower === "stl" ||
-    lower.includes("general trading") ||
-    lower === "shr seetal"
+    token === "stl" ||
+    token.startsWith("stl") ||
+    token.includes("generaltrading") ||
+    token.includes("shrseetal")
   ) {
     return "STL General Trading LLC";
   }
   return name;
 }
 
-function customsCompanyLabel(company: Document | null | undefined) {
-  const prefix = text(company?.prefix || "STL").toUpperCase();
-  return prefix === "SHMP" ? "SHMP" : "STL";
+function customsCompanyLabel(
+  company: Document | null | undefined,
+  invoiceNo?: unknown,
+) {
+  if (text(invoiceNo).startsWith("shmp/")) return "Sarvah";
+  const token = companyToken(company);
+  if (token.includes("shlakshmi") || token.includes("shlaxmi")) return "SH Lakshmi";
+  if (token.includes("sarvah")) return "Sarvah";
+  if (token.includes("shmp")) return "SHMP";
+  return "STL";
 }
 
 function orderStatusLabel(order: Document) {
@@ -241,6 +260,7 @@ export async function buildWarehouseList(token: string | null, tag: string) {
       const cartons = cartonCount(order, productMap);
       totalCartons += cartons;
       const company = companyForOrder(order, productMap, companyMap);
+      const invoiceNo = order.tempOrderInvoiceNo || order.invoiceNumber;
       rows.push([
         text(store.storeName),
         text(store.marks),
@@ -250,7 +270,7 @@ export async function buildWarehouseList(token: string | null, tag: string) {
         addressLines(store),
         text(store.country),
         text(store.city),
-        companyLegalName(company),
+        companyLegalName(company, invoiceNo),
       ]);
     }
     rows.push([]);
@@ -362,7 +382,10 @@ export async function buildWarehouseList(token: string | null, tag: string) {
     if (!store) continue;
     totalPkg += cartonCount(order, productMap);
     const company = companyForOrder(order, productMap, companyMap);
-    const companyName = customsCompanyLabel(company);
+    const companyName = customsCompanyLabel(
+      company,
+      order.tempOrderInvoiceNo || order.invoiceNumber,
+    );
     const details = Array.isArray(order.productDetails) ? order.productDetails : [];
     const checked = Boolean(order.firstCheck);
     for (const detail of details) {

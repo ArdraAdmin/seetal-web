@@ -9,7 +9,6 @@ import {
   CalendarClock,
   CalendarDays,
   CalendarX,
-  ClipboardList,
   FileBarChart,
   Folders,
   KeyRound,
@@ -37,8 +36,14 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
+import { getApprovalQueue } from "@/lib/api";
+import {
+  APPROVALS_CHANGED_EVENT,
+  pendingApprovalCount,
+} from "@/lib/approval";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
 import { sellingModuleVisible } from "@/lib/custom-users";
+import { navItemActive } from "@/lib/nav-active";
 import {
   isSettingsNavHref,
   isTrackingUnlocked,
@@ -93,12 +98,6 @@ const NAV: NavItem[] = [
     icon: ArrowLeftRight,
     moduleId: "stock-transfer",
   },
-  {
-    href: "/admin/pending-orders",
-    label: "Pending orders",
-    icon: ClipboardList,
-    moduleId: "pending-orders",
-  },
   { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck, moduleId: "approvals" },
   { href: "/admin/leave", label: "Leave", icon: CalendarDays, moduleId: "leave" },
   {
@@ -134,6 +133,12 @@ const NAV: NavItem[] = [
     moduleId: "leave-settings",
   },
   { href: "/admin/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
+  {
+    href: "/admin/hr/payroll",
+    label: "Payroll settings",
+    icon: Banknote,
+    moduleId: "hr",
+  },
   {
     href: "/admin/driver-deliveries",
     label: "Driver deliveries",
@@ -171,6 +176,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
   const [trackingUnlocked, setTrackingUnlocked] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
@@ -219,8 +225,53 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     if (item.lavOnly) return isLav;
     return true;
   });
+  const showApprovals = navItems.some((item) => item.href === "/admin/approvals");
   const showSettings =
     !user?.customAccess || sellingModuleVisible(user.customAccess, "settings");
+
+  useEffect(() => {
+    if (!showApprovals) {
+      setPendingApprovals(0);
+      return;
+    }
+    let cancelled = false;
+
+    async function refresh() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const orders = await getApprovalQueue();
+        if (!cancelled) setPendingApprovals(pendingApprovalCount(orders));
+      } catch {
+        // Keep the last count so a failed refresh does not hide a known queue.
+      }
+    }
+
+    function onChanged(event: Event) {
+      const count = (event as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === "number") {
+        setPendingApprovals(count);
+        return;
+      }
+      void refresh();
+    }
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void refresh();
+    }
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    window.addEventListener(APPROVALS_CHANGED_EVENT, onChanged);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener(APPROVALS_CHANGED_EVENT, onChanged);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [showApprovals]);
 
   function onSettingsNavClick() {
     if (isTrackingAdmin(user)) {
@@ -264,21 +315,25 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
             {navItems.map((item) => {
-              const prefixes = item.match ?? [item.href];
-              const active =
-                item.href === "/admin"
-                  ? pathname === "/admin"
-                  : prefixes.some(
-                      (prefix) =>
-                        pathname === prefix ||
-                        pathname.startsWith(`${prefix}/`),
-                    );
+              const active = navItemActive(item, pathname, navItems, "/admin");
               const Icon = item.icon;
+              const waiting =
+                item.href === "/admin/approvals" ? pendingApprovals : 0;
+              const waitingLabel = waiting > 99 ? "99+" : String(waiting);
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    title={item.label}
+                    title={
+                      waiting > 0
+                        ? `${item.label}, ${waiting} waiting`
+                        : item.label
+                    }
+                    aria-label={
+                      waiting > 0
+                        ? `${item.label}, ${waiting} waiting`
+                        : undefined
+                    }
                     onClick={() => {
                       if (isSettingsNavHref(item.href)) {
                         onSettingsNavClick();
@@ -286,19 +341,35 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         setMobileOpen(false);
                       }
                     }}
-                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
+                    className={`relative flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
                       collapsed ? "lg:justify-center lg:px-2" : ""
                     } ${
                       active ? "bg-white shadow-sm" : "hover:bg-white/50"
                     }`}
                   >
-                    <Icon
-                      className="h-4 w-4 shrink-0 text-black"
-                      strokeWidth={1.75}
-                    />
+                    <span className="relative inline-flex shrink-0">
+                      <Icon
+                        className="h-4 w-4 shrink-0 text-black"
+                        strokeWidth={1.75}
+                      />
+                      {waiting > 0 && collapsed ? (
+                        <span className="absolute -top-2 -right-2.5 z-10 hidden h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-0.5 text-[10px] font-bold leading-none text-white lg:inline-flex">
+                          {waitingLabel}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className={collapsed ? "lg:hidden" : undefined}>
                       {item.label}
                     </span>
+                    {waiting > 0 ? (
+                      <span
+                        className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ${
+                          collapsed ? "lg:hidden" : ""
+                        }`}
+                      >
+                        {waitingLabel}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

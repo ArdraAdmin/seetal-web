@@ -58,6 +58,13 @@ export function approvalSalesName(order: ApprovalOrder) {
   return "";
 }
 
+export {
+  APPROVALS_CHANGED_EVENT,
+  isWaitingApproval,
+  notifyApprovalsChanged,
+  pendingApprovalCount,
+} from "./approval-count";
+
 export function approvalStatusLabel(status?: string) {
   switch (status) {
     case "approved":

@@ -93,6 +93,9 @@ export default function AdminHrPage() {
             <PrimaryButton type="button" onClick={() => router.push("/admin/hr/staff/new")}>
               Add staff
             </PrimaryButton>
+            <SecondaryButton type="button" onClick={() => router.push("/admin/hr/payroll")}>
+              Payroll settings
+            </SecondaryButton>
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
               Refresh
             </SecondaryButton>

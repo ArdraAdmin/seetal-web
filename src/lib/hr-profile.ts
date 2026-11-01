@@ -2,12 +2,17 @@ import type { HrFileRef, HrProfile } from "./stl-features-api";
 
 export type HrFileValue = HrFileRef | null;
 
+export type HrSalaryScope = "stl" | "shmp";
+
 export type HrProfileFormState = {
   visaName: string;
   visaDesignation: string;
   company: string;
   basicSalary: string;
+  overtimeSalary: string;
+  otherBenefits: string;
   totalSalary: string;
+  sundayAllowance: string;
   visaNumber: string;
   visaDetails: string;
   visaExpiry: string;
@@ -46,7 +51,10 @@ export function emptyHrProfileForm(): HrProfileFormState {
     visaDesignation: "",
     company: "",
     basicSalary: "",
+    overtimeSalary: "",
+    otherBenefits: "",
     totalSalary: "",
+    sundayAllowance: "",
     visaNumber: "",
     visaDetails: "",
     visaExpiry: "",
@@ -91,17 +99,53 @@ function fileFrom(value: unknown): HrFileValue {
   };
 }
 
+function formatMoney(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+export function stlTotalSalary(
+  form: Pick<HrProfileFormState, "basicSalary" | "overtimeSalary" | "otherBenefits">,
+): string {
+  const parts = [form.basicSalary, form.overtimeSalary, form.otherBenefits].map((value) => {
+    if (value.trim() === "") return 0;
+    return Number(value);
+  });
+  if (parts.some((amount) => !Number.isFinite(amount))) return "";
+  return formatMoney(parts[0] + parts[1] + parts[2]);
+}
+
+function moneyText(value?: number | null): string {
+  return value != null ? String(value) : "";
+}
+
 export function hrProfileToForm(
   profile?: HrProfile | null,
   fallbackName = "",
+  scope?: HrSalaryScope,
 ): HrProfileFormState {
   const form = emptyHrProfileForm();
   const source = profile || {};
   form.visaName = source.visaName || fallbackName;
   form.visaDesignation = source.visaDesignation || "";
   form.company = source.company ? String(source.company) : "";
-  form.basicSalary = source.basicSalary != null ? String(source.basicSalary) : "";
-  form.totalSalary = source.totalSalary != null ? String(source.totalSalary) : "";
+  form.basicSalary = moneyText(source.basicSalary);
+  form.overtimeSalary = moneyText(source.overtimeSalary);
+  form.otherBenefits = moneyText(source.otherBenefits);
+  form.totalSalary = moneyText(source.totalSalary);
+  if (scope === "stl") {
+    if (form.otherBenefits === "" && source.totalSalary != null) {
+      const derived =
+        Number(source.totalSalary) -
+        Number(source.basicSalary || 0) -
+        Number(source.overtimeSalary || 0);
+      if (Number.isFinite(derived)) {
+        form.otherBenefits = formatMoney(Math.max(0, derived));
+      }
+    }
+    form.totalSalary = stlTotalSalary(form);
+  }
+  form.sundayAllowance =
+    source.sundayAllowance != null ? String(source.sundayAllowance) : "";
   form.visaNumber = source.visaNumber || "";
   form.visaDetails = source.visaDetails || "";
   form.visaExpiry = toDateInput(source.visaExpiry);
@@ -122,13 +166,19 @@ function numberOrBlank(value: string) {
   return value.trim() === "" ? "" : Number(value);
 }
 
-export function hrProfilePayload(form: HrProfileFormState): Record<string, unknown> {
+export function hrProfilePayload(
+  form: HrProfileFormState,
+  scope?: HrSalaryScope,
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     visaName: form.visaName.trim(),
     visaDesignation: form.visaDesignation.trim(),
     company: form.company.trim(),
     basicSalary: numberOrBlank(form.basicSalary),
-    totalSalary: numberOrBlank(form.totalSalary),
+    overtimeSalary: numberOrBlank(form.overtimeSalary),
+    otherBenefits: numberOrBlank(form.otherBenefits),
+    totalSalary: scope === "stl" ? numberOrBlank(stlTotalSalary(form)) : numberOrBlank(form.totalSalary),
+    sundayAllowance: numberOrBlank(form.sundayAllowance),
     visaNumber: form.visaNumber.trim(),
     visaDetails: form.visaDetails.trim(),
     visaExpiry: form.visaExpiry,
@@ -150,7 +200,10 @@ export function hrProfilePayload(form: HrProfileFormState): Record<string, unkno
   return payload;
 }
 
-export function validateHrProfileForm(form: HrProfileFormState): string | null {
+export function validateHrProfileForm(
+  form: HrProfileFormState,
+  scope?: HrSalaryScope,
+): string | null {
   if (!form.visaName.trim()) return "Name as per visa is required";
   if (!form.visaDesignation.trim()) return "Designation as per visa is required";
   if (!form.passportNumber.trim()) return "Passport number is required";
@@ -163,9 +216,21 @@ export function validateHrProfileForm(form: HrProfileFormState): string | null {
   if (!form.insuranceExpiry) return "Insurance expiry is required";
   if (!form.insuranceCopy?.key) return "Insurance copy is required";
   if (!form.employmentContractCopy?.key) return "Employment contract copy is required";
+  if (scope === "shmp") {
+    if (form.basicSalary.trim() === "") return "Basic salary is required";
+    if (form.overtimeSalary.trim() === "") return "Overtime is required";
+    if (form.totalSalary.trim() === "") return "Total salary is required";
+  }
+  if (scope === "stl") {
+    if (form.basicSalary.trim() === "") return "Basic salary is required";
+    if (form.otherBenefits.trim() === "") return "Other benefits is required";
+  }
   const amounts = [
     ["Basic salary", form.basicSalary],
+    ["Overtime", form.overtimeSalary],
+    ["Other benefits", form.otherBenefits],
     ["Total salary", form.totalSalary],
+    ["Sunday allowance", form.sundayAllowance],
     ["Visa cost", form.visaCost],
   ] as const;
   for (const [label, value] of amounts) {

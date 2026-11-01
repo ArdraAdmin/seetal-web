@@ -6,12 +6,15 @@ import { City, Country } from "country-state-city";
 import {
   shmpCreateStore,
   shmpDeleteStore,
+  shmpSetStoreBlocked,
   shmpStoreSalesmen,
   shmpStores,
   shmpUpdateStore,
   type ShmpStore,
   type ShmpStorePerson,
 } from "@/lib/shmp-api";
+import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
+import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
 import { useToast } from "@/components/Toast";
 import {
@@ -25,7 +28,11 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
-import { storeDocumentError } from "@/lib/store-documents";
+import {
+  formatTradeLicenseDate,
+  storeDocumentError,
+  tradeLicenseDateInput,
+} from "@/lib/store-documents";
 
 type StoreForm = {
   storeName: string;
@@ -87,20 +94,9 @@ function salesIdsFromStore(store: ShmpStore): string[] {
   return primary ? [primary] : [];
 }
 
-function dateTimeLocalValue(value: unknown) {
-  if (!value) return "";
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function tradeLicensePayload(value: string) {
-  const raw = value.trim();
-  if (!raw) return undefined;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return undefined;
-  return date.toISOString();
+  const day = tradeLicenseDateInput(value);
+  return day || undefined;
 }
 
 function formFrom(store: ShmpStore): StoreForm {
@@ -115,7 +111,7 @@ function formFrom(store: ShmpStore): StoreForm {
     city: text(store.city),
     country: text(store.country),
     uid: text(store.uid),
-    tradeLicenseExpiry: dateTimeLocalValue(store.tradeLicenseExpiry),
+    tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
     salesPersonIds: salesIdsFromStore(store),
     trnDocument: null,
     tradeLicenseDocument: null,
@@ -362,7 +358,7 @@ function StoreFields({
       />
       <TextField
         label="Trade license expiry"
-        type="datetime-local"
+        type="date"
         required
         value={form.tradeLicenseExpiry}
         onChange={(e) => setField("tradeLicenseExpiry", e.target.value)}
@@ -624,6 +620,20 @@ export default function ShmpStoresPage() {
   );
 }
 
+function docLink(url?: string) {
+  if (!url) return "—";
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="font-medium text-brand-dark underline"
+    >
+      View
+    </a>
+  );
+}
+
 function StoreCard({
   store,
   salesPeople,
@@ -635,9 +645,12 @@ function StoreCard({
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [form, setForm] = useState<StoreForm>(() => formFrom(store));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [blocked, setBlocked] = useState(store.orderBlocked === true);
+  const [blocking, setBlocking] = useState(false);
   const title = text(store.storeName) || "Unnamed store";
   const assigned = salesIdsFromStore(store).map((id) => {
     const person = salesPeople.find((p) => p._id === id);
@@ -699,6 +712,20 @@ function StoreCard({
     }
   }
 
+  async function onBlock(next: boolean) {
+    const previous = blocked;
+    setBlocked(next);
+    setBlocking(true);
+    try {
+      await shmpSetStoreBlocked(store._id, next);
+    } catch (err) {
+      setBlocked(previous);
+      toast(err instanceof Error ? err.message : "Could not update store", "error");
+    } finally {
+      setBlocking(false);
+    }
+  }
+
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -745,32 +772,77 @@ function StoreCard({
             )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href={`/shmp/stores/${store._id}`}
-            className="inline-flex items-center justify-center rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-slate-50"
-          >
-            Inventory
-          </Link>
-          <SecondaryButton
-            type="button"
-            onClick={() => {
-              setForm(formFrom(store));
-              setEditing((open) => !open);
-            }}
-          >
-            {editing ? "Close" : "Edit"}
-          </SecondaryButton>
-          <SecondaryButton
-            type="button"
-            className="border-red-200 text-red-700"
-            disabled={deleting}
-            onClick={() => void onDelete()}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </SecondaryButton>
+        <div className="flex flex-col items-start gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/shmp/stores/${store._id}`}
+              className="inline-flex items-center justify-center rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-slate-50"
+            >
+              Inventory
+            </Link>
+            <SecondaryButton
+              type="button"
+              onClick={() => {
+                setViewing((open) => !open);
+                setEditing(false);
+              }}
+            >
+              {viewing ? "Close" : "View store"}
+            </SecondaryButton>
+            <SecondaryButton
+              type="button"
+              onClick={() => {
+                setForm(formFrom(store));
+                setEditing((open) => !open);
+                setViewing(false);
+              }}
+            >
+              {editing ? "Close" : "Edit"}
+            </SecondaryButton>
+            <SecondaryButton
+              type="button"
+              className="border-red-200 text-red-700"
+              disabled={deleting}
+              onClick={() => void onDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </SecondaryButton>
+          </div>
+          <BlockStoreSwitch
+            checked={blocked}
+            disabled={blocking}
+            onChange={(next) => void onBlock(next)}
+          />
         </div>
       </div>
+
+      {viewing ? (
+        <StoreDetailGrid
+          rows={[
+            { label: "Store name", value: title },
+            { label: "Marks", value: text(store.marks) || "—" },
+            { label: "Alias", value: text(store.alias) || "—" },
+            { label: "Phone", value: phone || "—" },
+            { label: "Address line 1", value: text(store.addressLine1) || "—" },
+            { label: "Address line 2", value: text(store.addressLine2) || "—" },
+            { label: "Address line 3", value: text(store.addressLine3) || "—" },
+            { label: "City", value: text(store.city) || "—" },
+            { label: "Country", value: text(store.country) || "—" },
+            { label: "Store code", value: text(store.uid) || "—" },
+            {
+              label: "Trade license expiry",
+              value: formatTradeLicenseDate(store.tradeLicenseExpiry) || "—",
+            },
+            { label: "TRN document", value: docLink(store.trnDocumentUrl) },
+            {
+              label: "Trade license document",
+              value: docLink(store.tradeLicenseDocumentUrl),
+            },
+            { label: "Sales people", value: assigned.join(", ") || "—" },
+            { label: "Orders", value: blocked ? "Blocked" : "Open" },
+          ]}
+        />
+      ) : null}
 
       {editing ? (
         <div className="grid gap-3 border-t border-line pt-3 sm:grid-cols-2">

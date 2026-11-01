@@ -1,9 +1,14 @@
 import { ObjectId, type Document, type UpdateFilter } from "mongodb";
+import { describeApiError } from "@/lib/api-error-message";
+import { salesPersonIdsFromStore } from "@/lib/store-access";
+import { parseTradeLicenseExpiryDate } from "@/lib/store-documents";
+import { isStoreObjectKey, storeEidNumberError } from "@/lib/store-eid";
 import { storeDisplayName, storeIdentity } from "@/lib/stores";
 import {
   getMongoClient,
   isDatabaseNotConfigured,
 } from "./mongo";
+import { deleteStoreFiles, readStoreFile, saveStoreFile } from "./store-files";
 import { userIdFromAuthHeader } from "./password";
 
 const REMOTE_API = (
@@ -24,9 +29,16 @@ type StoreDoc = {
   uid?: string;
   trnNo?: number | string;
   salesPerson?: ObjectId;
+  salesPersons?: Array<ObjectId | string>;
+  orderBlocked?: boolean;
+  environment?: string;
   tradeLicenseExpiry?: Date | string | null;
   trnDocumentUrl?: string;
   tradeLicenseDocumentUrl?: string;
+  eidNumber?: string;
+  eidDocumentKey?: string;
+  eidDocumentFileName?: string;
+  eidDocumentContentType?: string;
   isTemp: boolean;
 };
 
@@ -52,9 +64,13 @@ export type AdminStoreRow = {
   tradeLicenseExpiry: string;
   trnDocumentUrl?: string;
   tradeLicenseDocumentUrl?: string;
+  eidNumber: string;
+  eidDocumentFileName?: string;
   isTemp: boolean;
   isTempStore: boolean;
   salesPerson: string;
+  salesPersons?: Array<{ _id: string; name: string }>;
+  orderBlocked?: boolean;
   salesman?: { _id: string; name: string };
   copyCount: number;
 };
@@ -86,17 +102,84 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function salesIdList(input: Record<string, unknown>) {
+  const ids: string[] = [];
+  const add = (value: unknown) => {
+    const id =
+      value && typeof value === "object"
+        ? text((value as { _id?: unknown })._id)
+        : text(value);
+    if (id && !ids.includes(id)) ids.push(id);
+  };
+  const raw = input.salesPersons;
+  if (Array.isArray(raw)) {
+    for (const value of raw) add(value);
+  } else if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const value of parsed) add(value);
+      } else add(raw);
+    } catch {
+      for (const part of raw.split(",")) add(part);
+    }
+  }
+  add(input.salesPerson);
+  return ids;
+}
+
+async function resolveSalesUsers(
+  database: Awaited<ReturnType<typeof mongoDb>>,
+  ids: string[],
+  allowEmpty: boolean,
+) {
+  if (!ids.length) {
+    if (allowEmpty) return [] as ObjectId[];
+    throw new Error("Choose a sales person");
+  }
+  for (const id of ids) {
+    if (!ObjectId.isValid(id)) throw new Error("Choose a sales person");
+  }
+  const objectIds = ids.map((id) => new ObjectId(id));
+  const users = await database
+    .collection("users")
+    .find(
+      { _id: { $in: objectIds }, role: "Sales" },
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+  if (users.length !== objectIds.length) throw new Error("Choose a sales person");
+  return objectIds;
+}
+
+function assignedMongoOr(userId: string) {
+  const id = text(userId);
+  if (!id) return [{ _id: { $in: [] } }];
+  const or: Record<string, unknown>[] = [
+    { salesPerson: id },
+    { salesPersons: id },
+  ];
+  if (ObjectId.isValid(id)) {
+    const oid = new ObjectId(id);
+    or.push({ salesPerson: oid }, { salesPersons: oid });
+  }
+  return or;
+}
+
 function parseTradeLicenseExpiry(value: unknown): Date | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  const parsed = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  parsed.setHours(0, 0, 0, 0);
-  return parsed;
+  return parseTradeLicenseExpiryDate(value) ?? undefined;
 }
 
 function tradeLicenseExpiryIso(value: unknown) {
-  const parsed = parseTradeLicenseExpiry(value);
-  return parsed ? parsed.toISOString() : "";
+  if (value == null || value === "") return "";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+  }
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
 }
 
 function idVariants(ids: ObjectId[]) {
@@ -118,11 +201,17 @@ async function loadStores(): Promise<StoreDoc[]> {
     uid: 1,
     trnNo: 1,
     salesPerson: 1,
+    salesPersons: 1,
+    orderBlocked: 1,
     tradeLicenseExpiry: 1,
     trnDocumentKey: 1,
     tradeLicenseDocumentKey: 1,
     trnDocumentUrl: 1,
     tradeLicenseDocumentUrl: 1,
+    eidNumber: 1,
+    eidDocumentKey: 1,
+    eidDocumentFileName: 1,
+    eidDocumentContentType: 1,
   };
   // Keep SHMP (environment: shmp) stores out of the STL admin stores list.
   const [permanent, temporary] = await Promise.all([
@@ -275,8 +364,12 @@ function toRow(
   names: Map<string, string>,
   copyCount: number,
 ): AdminStoreRow {
-  const salesId = doc.salesPerson ? String(doc.salesPerson) : "";
-  const salesName = salesId ? names.get(salesId) : "";
+  const salesIds = salesPersonIdsFromStore({
+    salesPerson: doc.salesPerson ? String(doc.salesPerson) : "",
+    salesPersons: doc.salesPersons,
+  });
+  const salesId = salesIds[0] || "";
+  const salesName = salesId ? names.get(salesId) || "" : "";
   const phone = text(doc.contactNumber);
   return {
     _id: String(doc._id),
@@ -295,9 +388,16 @@ function toRow(
     tradeLicenseExpiry: tradeLicenseExpiryIso(doc.tradeLicenseExpiry),
     trnDocumentUrl: text(doc.trnDocumentUrl) || undefined,
     tradeLicenseDocumentUrl: text(doc.tradeLicenseDocumentUrl) || undefined,
+    eidNumber: text(doc.eidNumber),
+    eidDocumentFileName: text(doc.eidDocumentFileName) || undefined,
     isTemp: doc.isTemp,
     isTempStore: doc.isTemp,
     salesPerson: salesId,
+    salesPersons: salesIds.map((id) => ({
+      _id: id,
+      name: names.get(id) || "",
+    })),
+    orderBlocked: doc.orderBlocked === true,
     salesman: salesId && salesName ? { _id: salesId, name: salesName } : undefined,
     copyCount,
   };
@@ -310,9 +410,12 @@ export async function listAdminStores(
   const [docs, refs] = await Promise.all([loadStores(), referenceCounts()]);
   const salesIds = [
     ...new Set(
-      docs
-        .map((doc) => (doc.salesPerson ? String(doc.salesPerson) : ""))
-        .filter(Boolean),
+      docs.flatMap((doc) =>
+        salesPersonIdsFromStore({
+          salesPerson: doc.salesPerson ? String(doc.salesPerson) : "",
+          salesPersons: doc.salesPersons,
+        }),
+      ),
     ),
   ]
     .filter((id) => ObjectId.isValid(id))
@@ -384,20 +487,20 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
     if (!Number.isFinite(trnNo)) throw new Error("Enter a valid TRN");
   }
 
-  let salesPerson: ObjectId | null = null;
-  const salesId = text(input.salesPerson);
-  if (salesId) {
-    if (!ObjectId.isValid(salesId)) throw new Error("Choose a sales person");
-    const database = await mongoDb();
-    const user = await database.collection("users").findOne({
-      _id: new ObjectId(salesId),
-      role: "Sales",
-    });
-    if (!user) throw new Error("Choose a sales person");
-    salesPerson = user._id;
-  }
+  const databaseForSales = await mongoDb();
+  const salesPeople = await resolveSalesUsers(
+    databaseForSales,
+    salesIdList(input),
+    current.isTemp,
+  );
 
   const tradeLicenseExpiry = parseTradeLicenseExpiry(input.tradeLicenseExpiry);
+  const hasEidNumber = Object.prototype.hasOwnProperty.call(input, "eidNumber");
+  const eidNumber = hasEidNumber ? text(input.eidNumber) : "";
+  if (hasEidNumber) {
+    const eidNumberError = storeEidNumberError(eidNumber);
+    if (eidNumberError) throw new Error(eidNumberError);
+  }
 
   const $set: Record<string, unknown> = {
     storeName,
@@ -410,9 +513,11 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
     country,
     contactNumber: text(input.contactNumber),
   };
+  if (hasEidNumber && eidNumber) $set.eidNumber = eidNumber;
   if (uid) $set.uid = uid;
   if (trnNo !== undefined) $set.trnNo = trnNo;
-  if (salesPerson) $set.salesPerson = salesPerson;
+  $set.salesPersons = salesPeople;
+  if (salesPeople[0]) $set.salesPerson = salesPeople[0];
   if (tradeLicenseExpiry) {
     $set.tradeLicenseExpiry = tradeLicenseExpiry;
     const today = new Date();
@@ -424,14 +529,105 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
 
   const update: Record<string, unknown> = { $set };
   const $unset: Record<string, string> = {};
-  if (!salesPerson) $unset.salesPerson = "";
+  if (!salesPeople[0]) $unset.salesPerson = "";
   if (trnNo === undefined) $unset.trnNo = "";
   if (!tradeLicenseExpiry) $unset.tradeLicenseExpiry = "";
+  if (hasEidNumber && !eidNumber) $unset.eidNumber = "";
   if (Object.keys($unset).length) update.$unset = $unset;
 
   const database = await mongoDb();
   const collection = current.isTemp ? "tempstores" : "stores";
   await database.collection(collection).updateOne({ _id: id }, update);
+}
+
+export async function saveStoreEid(
+  token: string | null,
+  input: {
+    storeId: unknown;
+    eidNumber: unknown;
+    isTemp?: boolean;
+    file?: {
+      buffer: Buffer;
+      fileName: string;
+      contentType: string;
+    } | null;
+  },
+) {
+  await assertRole(token, ["Admin"]);
+  const id = asId(input.storeId, "Store not found");
+  const eidNumber = text(input.eidNumber);
+  const eidNumberError = storeEidNumberError(eidNumber);
+  if (eidNumberError) throw new Error(eidNumberError);
+
+  const database = await mongoDb();
+  const preferred = input.isTemp ? "tempstores" : "stores";
+  const alternate = input.isTemp ? "stores" : "tempstores";
+  const projection = { eidDocumentKey: 1 };
+  let collection = preferred;
+  let current = await database.collection(preferred).findOne({ _id: id }, { projection });
+  if (!current) {
+    current = await database.collection(alternate).findOne({ _id: id }, { projection });
+    collection = alternate;
+  }
+  if (!current) throw new Error("Store not found");
+
+  const $set: Record<string, unknown> = {};
+  const $unset: Record<string, string> = {};
+  if (eidNumber) $set.eidNumber = eidNumber;
+  else $unset.eidNumber = "";
+
+  let uploaded: string | null = null;
+  if (input.file) {
+    uploaded = await saveStoreFile({
+      storeId: String(id),
+      buffer: input.file.buffer,
+      fileName: input.file.fileName,
+      contentType: input.file.contentType,
+    });
+    $set.eidDocumentKey = uploaded;
+    $set.eidDocumentFileName = input.file.fileName;
+    $set.eidDocumentContentType = input.file.contentType;
+  }
+
+  const update: Record<string, unknown> = {};
+  if (Object.keys($set).length) update.$set = $set;
+  if (Object.keys($unset).length) update.$unset = $unset;
+
+  try {
+    await database.collection(collection).updateOne({ _id: id }, update);
+  } catch (error) {
+    if (uploaded) await deleteStoreFiles([uploaded]);
+    throw error;
+  }
+
+  const previous = text(current.eidDocumentKey);
+  if (uploaded && previous && previous !== uploaded && isStoreObjectKey(previous)) {
+    await deleteStoreFiles([previous]);
+  }
+}
+
+export async function readStoreEidFile(token: string | null, storeId: unknown) {
+  await assertRole(token, ["Admin"]);
+  const id = asId(storeId, "Store not found");
+  const database = await mongoDb();
+  const projection = {
+    eidDocumentKey: 1,
+    eidDocumentFileName: 1,
+    eidDocumentContentType: 1,
+  };
+  const doc =
+    (await database.collection("stores").findOne({ _id: id }, { projection })) ||
+    (await database.collection("tempstores").findOne({ _id: id }, { projection }));
+  if (!doc) throw new Error("Store not found");
+  const key = text(doc.eidDocumentKey);
+  if (!isStoreObjectKey(key)) throw new Error("File not found");
+  const bytes = await readStoreFile(key);
+  if (!bytes) throw new Error("File not found");
+  return {
+    bytes,
+    fileName: text(doc.eidDocumentFileName) || "eid-document",
+    contentType: text(doc.eidDocumentContentType) || "application/octet-stream",
+  };
 }
 
 export async function deleteStoreRecord(token: string | null, storeId: unknown) {
@@ -509,6 +705,190 @@ export async function changeOrderStore(
   };
 }
 
+async function actorRole(token: string | null) {
+  const actorId = userIdFromAuthHeader(token);
+  const database = await mongoDb();
+  const actor = await database.collection("users").findOne(
+    { _id: new ObjectId(actorId) },
+    { projection: { role: 1 } },
+  );
+  return String(actor?.role || "");
+}
+
+function salesStoreProjection() {
+  return {
+    storeName: 1,
+    name: 1,
+    alias: 1,
+    marks: 1,
+    city: 1,
+    country: 1,
+    uid: 1,
+    salesPerson: 1,
+    salesPersons: 1,
+    orderBlocked: 1,
+    environment: 1,
+  };
+}
+
+function toSalesStore(doc: Record<string, unknown>, isTemp: boolean) {
+  const salesIds = salesPersonIdsFromStore({
+    salesPerson: doc.salesPerson,
+    salesPersons: doc.salesPersons,
+  });
+  return {
+    _id: String(doc._id),
+    storeName: text(doc.storeName || doc.name),
+    name: text(doc.name || doc.storeName),
+    alias: text(doc.alias),
+    marks: text(doc.marks),
+    city: text(doc.city),
+    country: text(doc.country),
+    uid: text(doc.uid),
+    salesPerson: salesIds[0] || "",
+    salesPersons: salesIds,
+    orderBlocked: doc.orderBlocked === true,
+    isTemp,
+    isTempStore: isTemp,
+  };
+}
+
+export async function listAssignedStoresForSalesUser(
+  token: string | null,
+  userId: string,
+) {
+  const id = text(userId);
+  if (!id) throw new Error("Sales person is required");
+  const role = await actorRole(token);
+  const actorId = userIdFromAuthHeader(token);
+  if (actorId !== id && role !== "Admin" && role !== "Supervisor") {
+    throw new Error("Not allowed");
+  }
+  const database = await mongoDb();
+  const assigned = { $or: assignedMongoOr(id) };
+  const projection = salesStoreProjection();
+  const [permanent, temporary] = await Promise.all([
+    database
+      .collection("stores")
+      .find({ environment: { $ne: "shmp" }, ...assigned }, { projection })
+      .sort({ storeName: 1 })
+      .toArray(),
+    database
+      .collection("tempstores")
+      .find(assigned, { projection })
+      .sort({ storeName: 1 })
+      .toArray(),
+  ]);
+  return [
+    ...permanent.map((doc) => toSalesStore(doc, false)),
+    ...temporary.map((doc) => toSalesStore(doc, true)),
+  ];
+}
+
+export async function salesStoreAccess(
+  token: string | null,
+  userId: string,
+  storeId: string,
+) {
+  const id = text(userId);
+  if (!id) throw new Error("Sales person is required");
+  const role = await actorRole(token);
+  const actorId = userIdFromAuthHeader(token);
+  if (actorId !== id && role !== "Admin" && role !== "Supervisor") {
+    throw new Error("Not allowed");
+  }
+  const oid = asId(storeId, "Store not found");
+  const database = await mongoDb();
+  const projection = { orderBlocked: 1 };
+  const assigned = { _id: oid, $or: assignedMongoOr(id) };
+  let doc = await database.collection("stores").findOne(assigned, { projection });
+  if (!doc) {
+    const permanent = await database.collection("stores").findOne(
+      { _id: oid },
+      { projection: { _id: 1 } },
+    );
+    if (permanent) throw new Error("No access to this store");
+    doc = await database.collection("tempstores").findOne(assigned, { projection });
+    if (!doc) {
+      const temporary = await database.collection("tempstores").findOne(
+        { _id: oid },
+        { projection: { _id: 1 } },
+      );
+      if (!temporary) throw new Error("Store not found");
+      throw new Error("No access to this store");
+    }
+  }
+  return { assigned: true, orderBlocked: doc.orderBlocked === true };
+}
+
+export async function setStoreSalesPeople(
+  token: string | null,
+  input: Record<string, unknown>,
+) {
+  await assertRole(token, ["Admin"]);
+  const id = asId(input.storeId, "Store not found");
+  const database = await mongoDb();
+  const preferred =
+    input.isTemp === true || input.isTemp === "true" || input.isTempStore === true
+      ? "tempstores"
+      : "stores";
+  const names = preferred === "tempstores" ? ["tempstores", "stores"] : ["stores", "tempstores"];
+  let collection = "";
+  for (const name of names) {
+    const existing = await database.collection(name).findOne(
+      { _id: id },
+      { projection: { _id: 1 } },
+    );
+    if (existing) {
+      collection = name;
+      break;
+    }
+  }
+  if (!collection) throw new Error("Store not found");
+  const salesPeople = await resolveSalesUsers(
+    database,
+    salesIdList(input),
+    collection === "tempstores",
+  );
+  const $set: Record<string, unknown> = { salesPersons: salesPeople };
+  const update: Record<string, unknown> = { $set };
+  if (salesPeople[0]) $set.salesPerson = salesPeople[0];
+  else update.$unset = { salesPerson: "" };
+  await database.collection(collection).updateOne({ _id: id }, update);
+}
+
+export async function setStoreOrderBlocked(
+  token: string | null,
+  input: Record<string, unknown>,
+) {
+  const role = await actorRole(token);
+  if (role !== "Admin" && role !== "Supervisor") throw new Error("Not allowed");
+  const id = asId(input.storeId, "Store not found");
+  const blocked = input.orderBlocked === true || input.orderBlocked === "true";
+  const preferred =
+    input.isTemp === true || input.isTemp === "true" || input.isTempStore === true
+      ? "tempstores"
+      : "stores";
+  const names = preferred === "tempstores" ? ["tempstores", "stores"] : ["stores", "tempstores"];
+  const database = await mongoDb();
+  for (const name of names) {
+    const existing = await database.collection(name).findOne(
+      { _id: id },
+      { projection: { environment: 1 } },
+    );
+    if (!existing) continue;
+    if (role === "Supervisor" && text(existing.environment) !== "shmp") {
+      throw new Error("Not allowed");
+    }
+    await database.collection(name).updateOne(
+      { _id: id },
+      { $set: { orderBlocked: blocked } },
+    );
+    return { orderBlocked: blocked };
+  }
+  throw new Error("Store not found");
+}
+
 export function storeError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unable to update stores";
   const status =
@@ -548,14 +928,7 @@ async function remoteJson(path: string, req: Request, init?: RequestInit) {
 }
 
 function remoteErrorMessage(body: unknown, fallback: string) {
-  if (typeof body === "string" && body.trim()) return body;
-  if (body && typeof body === "object") {
-    const o = body as Record<string, unknown>;
-    if (typeof o.error === "string") return o.error;
-    if (typeof o.name === "string") return o.name;
-    if (typeof o.message === "string") return o.message;
-  }
-  return fallback;
+  return describeApiError(body, fallback);
 }
 
 function asRemoteStoreList(body: unknown) {
@@ -596,9 +969,16 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
     tradeLicenseExpiry: tradeLicenseExpiryIso(store.tradeLicenseExpiry),
     trnDocumentUrl: text(store.trnDocumentUrl) || undefined,
     tradeLicenseDocumentUrl: text(store.tradeLicenseDocumentUrl) || undefined,
+    eidNumber: text(store.eidNumber),
+    eidDocumentFileName: text(store.eidDocumentFileName) || undefined,
     isTemp,
     isTempStore: isTemp,
     salesPerson: salesId,
+    salesPersons: salesPersonIdsFromStore({
+      salesPerson: salesId,
+      salesPersons: store.salesPersons,
+    }).map((id) => ({ _id: id, name: "" })),
+    orderBlocked: store.orderBlocked === true,
     salesman: salesId && salesName ? { _id: salesId, name: salesName } : undefined,
     copyCount,
   };
@@ -708,6 +1088,7 @@ export async function proxyUpdateStoreRecord(
       }
     }
     if (!uid) return new Response("Enter a store code", { status: 400 });
+    if (!salesPerson) salesPerson = salesIdList(input)[0] || "";
     if (!salesPerson) {
       return new Response("Choose a sales person", { status: 400 });
     }
@@ -730,7 +1111,11 @@ export async function proxyUpdateStoreRecord(
     trnNo: trnNo || undefined,
     contactNumber: text(input.contactNumber),
     salesPerson: salesPerson || undefined,
+    salesPersons: salesIdList(input),
     tradeLicenseExpiry: tradeLicenseExpiry || undefined,
+    eidNumber: Object.prototype.hasOwnProperty.call(input, "eidNumber")
+      ? text(input.eidNumber)
+      : undefined,
   };
 
   const { res, body: result } = await remoteJson(
@@ -765,4 +1150,31 @@ export async function proxyDeleteStoreRecord(
     );
   }
   return Response.json({ removed: 1 });
+}
+
+export async function proxySetStoreOrderBlocked(
+  req: Request,
+  input: Record<string, unknown>,
+): Promise<Response> {
+  const storeId = text(input.storeId);
+  if (!storeId) return new Response("Store not found", { status: 400 });
+  const environment = text(input.environment);
+  const path =
+    environment === "shmp"
+      ? `/shmp/stores/${encodeURIComponent(storeId)}/block`
+      : `/admin/edit/storeBlock/${encodeURIComponent(storeId)}`;
+  const { res, body } = await remoteJson(path, req, {
+    method: "POST",
+    body: JSON.stringify({
+      orderBlocked: input.orderBlocked === true || input.orderBlocked === "true",
+      isTemp: input.isTemp === true || input.isTempStore === true,
+      isTempStore: input.isTemp === true || input.isTempStore === true,
+    }),
+  });
+  if (!res.ok) {
+    return new Response(remoteErrorMessage(body, "Unable to update store"), {
+      status: res.status || 400,
+    });
+  }
+  return Response.json(body);
 }

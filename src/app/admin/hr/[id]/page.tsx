@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { HrUserDocuments } from "@/components/HrStaffEditor";
+import { SalarySlipCard } from "@/components/SalarySlipCard";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
@@ -74,6 +75,7 @@ export default function AdminHrDetailPage() {
         effectiveDate: incDate || undefined,
         notes: incNotes.trim() || undefined,
         setAsBasic: incSetBasic,
+        scope: "stl",
       });
       toast("Increment added", "success");
       setIncAmount("");
@@ -111,7 +113,7 @@ export default function AdminHrDetailPage() {
         <ErrorState message={error} onRetry={() => void load()} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          <HrUserDocuments personId={id} showCompany />
+          <HrUserDocuments personId={id} showCompany scope="stl" />
           <div className="space-y-4">
             <Card>
               <h2 className="mb-3 text-sm font-semibold text-ink">Add salary increment</h2>
@@ -151,6 +153,7 @@ export default function AdminHrDetailPage() {
           </div>
         </div>
       )}
+      {staff ? <SalarySlipCard kind="user" personId={id} /> : null}
     </div>
   );
 }

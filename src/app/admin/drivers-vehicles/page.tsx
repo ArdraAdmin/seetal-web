@@ -30,7 +30,7 @@ export default function DriversVehiclesLandingPage() {
           <div>
             <p className="text-sm font-medium text-ink">Vehicles</p>
             <p className="mt-0.5 text-sm text-slate-500">
-              Vehicle numbers, purchase details, and maintenance
+              Vehicle numbers, purchase details, documents, and maintenance
             </p>
           </div>
           <span className="text-xs font-medium text-ink">Open</span>

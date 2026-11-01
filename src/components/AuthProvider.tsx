@@ -65,6 +65,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled) {
         setUser(stored);
         setEnvironment(env);
+        // The stored session is enough to enter the app. Profile refresh hits
+        // the API and can take a long time when the database is slow.
+        setLoading(false);
       }
       try {
         const fresh = await fetchCurrentUser();
@@ -75,13 +78,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           /* Keep the access already stored with this session. */
         }
+        if (cancelled) return;
         const next = { ...fresh, customAccess };
         saveAuth(next, env);
         setUser(next);
       } catch {
         // Keep stored session if /user/me is unavailable (older API).
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
     void hydrate();

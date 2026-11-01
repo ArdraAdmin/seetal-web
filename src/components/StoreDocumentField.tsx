@@ -6,6 +6,7 @@ export function StoreDocumentField({
   label,
   file,
   existingUrl,
+  onViewExisting,
   required = false,
   hint = "PDF or image",
   onChange,
@@ -13,11 +14,12 @@ export function StoreDocumentField({
   label: string;
   file: File | null;
   existingUrl?: string;
+  onViewExisting?: () => void;
   required?: boolean;
   hint?: string;
   onChange: (file: File | null) => void;
 }) {
-  const hasExisting = Boolean(existingUrl?.trim());
+  const hasExisting = Boolean(existingUrl?.trim()) || Boolean(onViewExisting);
   return (
     <label className="block space-y-1.5 sm:col-span-2">
       <FieldLabel label={label} required={required} optional={!required} />
@@ -30,6 +32,14 @@ export function StoreDocumentField({
       />
       {file ? (
         <p className="text-xs text-slate-500">Selected: {file.name}</p>
+      ) : hasExisting && onViewExisting ? (
+        <button
+          type="button"
+          onClick={onViewExisting}
+          className="text-xs font-medium text-brand-dark underline"
+        >
+          View current document
+        </button>
       ) : hasExisting ? (
         <a
           href={existingUrl}

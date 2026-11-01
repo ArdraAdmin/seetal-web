@@ -26,6 +26,7 @@ import {
   TextField,
 } from "@/components/ui";
 import { HrEmployeeDocuments } from "@/components/HrStaffEditor";
+import { SalarySlipCard } from "@/components/SalarySlipCard";
 import {
   AttendanceHistory,
   DESIGNATIONS,
@@ -303,6 +304,7 @@ function WorkerDetail() {
 
       <AttendanceHistory kind="worker" personId={id} />
       {!supervisor ? <HrEmployeeDocuments personId={id} /> : null}
+      {!supervisor ? <SalarySlipCard kind="employee" personId={id} /> : null}
     </div>
   );
 }

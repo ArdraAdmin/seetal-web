@@ -1,3 +1,4 @@
+import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 import type { ShmpProductionLog } from "./shmp-production";
 
@@ -40,11 +41,7 @@ async function shmpRequest<T>(
     body = text;
   }
   if (!res.ok) {
-    const msg =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new Error(describeApiError(body, `Request failed (${res.status})`));
   }
   return body as T;
 }
@@ -209,7 +206,7 @@ export type ShmpPresentTodayRow = {
   source?: string;
 };
 
-/** Present workers + Sales/Supervisor check-ins for today (admins excluded). */
+/** Present workers and supervisor check-ins for today (admins and sales excluded). */
 export const shmpPresentToday = (params?: { companyId?: string; date?: string }) => {
   const q = new URLSearchParams();
   if (params?.companyId) q.set("companyId", params.companyId);
@@ -508,6 +505,7 @@ export type ShmpStore = {
   tradeLicenseDocumentUrl?: string;
   salesPerson?: string | ShmpStorePerson;
   salesPersons?: Array<string | ShmpStorePerson>;
+  orderBlocked?: boolean;
   environment?: string;
 };
 
@@ -639,6 +637,12 @@ export const shmpUpdateStore = (
     body: JSON.stringify(body),
   });
 };
+export const shmpSetStoreBlocked = (id: string, orderBlocked: boolean) =>
+  shmpRequest<{ orderBlocked: boolean }>(`/stores/${id}/block`, {
+    method: "POST",
+    body: JSON.stringify({ orderBlocked }),
+  });
+
 export const shmpDeleteStore = (id: string) =>
   shmpRequest<{ ok: boolean; _id: string }>(`/stores/${id}`, {
     method: "DELETE",

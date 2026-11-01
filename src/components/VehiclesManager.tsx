@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  addVehicle,
+  createVehicle,
   deleteVehicle,
   getVehicleExtrasMap,
   getVehicles,
@@ -12,6 +12,16 @@ import type { Vehicle, VehicleExtras } from "@/lib/types";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { salesMoney } from "@/lib/sales";
+import { vehicleFormError } from "@/lib/vehicle-records";
+import {
+  documentDrafts,
+  documentUploads,
+  EMPTY_VEHICLE_FORM,
+  VehicleDocumentFields,
+  VehicleProfileFields,
+  type DocumentRow,
+  type VehicleFormState,
+} from "@/components/VehicleFormFields";
 import {
   Card,
   EmptyState,
@@ -20,7 +30,6 @@ import {
   PageHeader,
   PrimaryButton,
   SecondaryButton,
-  TextField,
 } from "@/components/ui";
 
 function vehicleLabel(v: Vehicle) {
@@ -39,6 +48,9 @@ function extraLine(extras?: VehicleExtras) {
   if (extras.insurancePremium != null) {
     bits.push(`Insurance ${salesMoney(Number(extras.insurancePremium))}`);
   }
+  const documents = extras.documents?.length ?? 0;
+  if (documents === 1) bits.push("1 document");
+  else if (documents > 1) bits.push(`${documents} documents`);
   return bits.length ? bits.join(" · ") : null;
 }
 
@@ -54,7 +66,9 @@ export function VehiclesManager({
   const [extras, setExtras] = useState<Record<string, VehicleExtras>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [number, setNumber] = useState("");
+  const [form, setForm] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -84,22 +98,44 @@ export function VehiclesManager({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const n = Number(number);
-    if (!Number.isFinite(n)) {
-      toast("Enter a valid vehicle number", "error");
+    const problem = vehicleFormError({
+      vehicleNumber: form.number,
+      purchaseYear: form.purchaseYear,
+      price: form.price,
+      purchaseFrom: form.purchaseFrom,
+      mulkyaExpiry: form.mulkyaExpiry,
+      insurancePremium: form.insurancePremium,
+      documents: documentDrafts(documents),
+    });
+    if (problem) {
+      toast(problem, "error");
       return;
     }
     setSaving(true);
     try {
-      await addVehicle(n);
+      await createVehicle({
+        vehicleNumber: form.number,
+        purchaseYear: form.purchaseYear,
+        price: form.price,
+        purchaseFrom: form.purchaseFrom,
+        mulkyaExpiry: form.mulkyaExpiry,
+        insurancePremium: form.insurancePremium,
+        documents: documentUploads(documents),
+      });
       toast("Vehicle added", "success");
-      setNumber("");
+      closeForm();
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
     } finally {
       setSaving(false);
     }
+  }
+
+  function closeForm() {
+    setForm(EMPTY_VEHICLE_FORM);
+    setDocuments([]);
+    setShowForm(false);
   }
 
   async function onDelete(id: string) {
@@ -120,7 +156,7 @@ export function VehiclesManager({
     <div>
       <PageHeader
         title="Vehicles"
-        subtitle="Shared vehicle records used by both STL and SHMP. Open a vehicle to edit details and add maintenance."
+        subtitle="Shared vehicle records used by both STL and SHMP. Mulkya expiry and insurance premium are required. Documents are optional."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -136,22 +172,32 @@ export function VehiclesManager({
         }
       />
 
-      <Card className="mb-5">
-        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-3">
-          <div className="min-w-0 w-full flex-1 sm:min-w-[200px]">
-            <TextField
-              label="Vehicle number"
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              required
-              placeholder="e.g. 1234"
+      {showForm ? (
+        <Card className="mb-5">
+          <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
+            <VehicleProfileFields form={form} disabled={saving} onChange={setForm} />
+            <VehicleDocumentFields
+              rows={documents}
+              disabled={saving}
+              onChangeRows={setDocuments}
             />
-          </div>
-          <PrimaryButton type="submit" disabled={saving}>
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton type="submit" disabled={saving}>
+                {saving ? "Adding…" : "Add vehicle"}
+              </PrimaryButton>
+              <SecondaryButton type="button" disabled={saving} onClick={closeForm}>
+                Cancel
+              </SecondaryButton>
+            </div>
+          </form>
+        </Card>
+      ) : (
+        <div className="mb-5">
+          <PrimaryButton type="button" onClick={() => setShowForm(true)}>
             Add vehicle
           </PrimaryButton>
-        </form>
-      </Card>
+        </div>
+      )}
 
       {loading ? (
         <LoadingState />
@@ -160,7 +206,7 @@ export function VehiclesManager({
       ) : vehicles.length === 0 ? (
         <EmptyState
           title="No vehicles yet"
-          description="Add a vehicle number above."
+          description="Add the vehicle details above. Mulkya expiry and insurance premium are required."
         />
       ) : (
         <div className="space-y-3">

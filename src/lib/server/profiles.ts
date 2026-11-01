@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { ObjectId, type Document, type UpdateFilter } from "mongodb";
 import { getMongoClient, isDatabaseNotConfigured } from "./mongo";
 import { userIdFromAuthHeader } from "./password";
 
@@ -48,6 +48,17 @@ export async function deleteSalesOrWarehouseProfile(input: {
   await db.collection("tempstores").updateMany(
     { salesPerson: id },
     { $unset: { salesPerson: "" } },
+  );
+  const pullSalesPerson = {
+    $pull: { salesPersons: { $in: [id, id.toHexString()] } },
+  } as unknown as UpdateFilter<Document>;
+  await db.collection("stores").updateMany(
+    { salesPersons: { $in: [id, id.toHexString()] } },
+    pullSalesPerson,
+  );
+  await db.collection("tempstores").updateMany(
+    { salesPersons: { $in: [id, id.toHexString()] } },
+    pullSalesPerson,
   );
   await users.deleteOne({ _id: id });
 }

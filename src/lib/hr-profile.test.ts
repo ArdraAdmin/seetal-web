@@ -4,6 +4,7 @@ import {
   emptyHrProfileForm,
   hrProfilePayload,
   hrProfileToForm,
+  stlTotalSalary,
   toDateInput,
   validateHrProfileForm,
 } from "./hr-profile.ts";
@@ -30,6 +31,7 @@ describe("HR profile form", () => {
     );
     assert.equal(form.visaName, "Aisha Khan");
     assert.equal(form.totalSalary, "4500");
+    assert.equal(form.sundayAllowance, "");
     const payload = hrProfilePayload(form);
     assert.deepEqual(payload.passportCopy, {
       key: "hr-documents/1-passport.pdf",
@@ -54,5 +56,31 @@ describe("HR profile form", () => {
     form.insuranceCopy = { key: "hr-documents/1-d.pdf", fileName: "d.pdf" };
     form.employmentContractCopy = { key: "hr-documents/1-e.pdf", fileName: "e.pdf" };
     assert.equal(validateHrProfileForm(form), null);
+    assert.equal(validateHrProfileForm(form, "shmp"), "Basic salary is required");
+    form.basicSalary = "800";
+    form.overtimeSalary = "400";
+    form.totalSalary = "2000";
+    assert.equal(validateHrProfileForm(form, "shmp"), null);
+    assert.equal(validateHrProfileForm(form, "stl"), "Other benefits is required");
+    form.otherBenefits = "800";
+    assert.equal(validateHrProfileForm(form, "stl"), null);
+  });
+
+  it("derives STL other benefits and auto-sums total salary", () => {
+    const form = hrProfileToForm(
+      { basicSalary: 800, overtimeSalary: 400, totalSalary: 2000 },
+      "Aisha",
+      "stl",
+    );
+    assert.equal(form.otherBenefits, "800");
+    assert.equal(form.totalSalary, "2000");
+    assert.equal(stlTotalSalary({ basicSalary: "800", overtimeSalary: "", otherBenefits: "200" }), "1000");
+    const payload = hrProfilePayload(
+      { ...form, overtimeSalary: "100", otherBenefits: "200" },
+      "stl",
+    );
+    assert.equal(payload.totalSalary, 1100);
+    assert.equal(payload.overtimeSalary, 100);
+    assert.equal(payload.otherBenefits, 200);
   });
 });

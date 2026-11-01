@@ -8,7 +8,7 @@ export const CUSTOM_COMPANY_LABELS: Record<CustomCompanyKey, string> = {
   stl: "STL",
   sarvah: "Sarvah",
   shmp: "SHMP",
-  shlaxmi: "SH Laxmi",
+  shlaxmi: "SH Lakshmi",
 };
 
 export const SELLING_COMPANY_KEYS: CustomCompanyKey[] = [
@@ -42,7 +42,6 @@ export const SELLING_MODULES: PortalModule[] = [
   { id: "inventory", label: "Inventory", href: "/admin/inventory" },
   { id: "catalog", label: "Catalog", href: "/admin/catalog" },
   { id: "stock-transfer", label: "Stock transfer", href: "/admin/stock-transfer" },
-  { id: "pending-orders", label: "Pending orders", href: "/admin/pending-orders" },
   { id: "approvals", label: "Approvals", href: "/admin/approvals" },
   { id: "leave", label: "Leave", href: "/admin/leave" },
   { id: "attendance", label: "Attendance", href: "/admin/attendance" },
@@ -104,7 +103,6 @@ const SELLING_API_KEYS: Record<string, string[]> = {
   inventory: ["inventory"],
   catalog: ["inventory"],
   "stock-transfer": ["inventory"],
-  "pending-orders": ["orders"],
   approvals: ["approvals"],
   leave: ["leave"],
   attendance: ["attendance"],

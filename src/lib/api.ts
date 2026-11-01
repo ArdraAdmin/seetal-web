@@ -1,5 +1,6 @@
+import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
-import type { ExpiryAlertRow } from "./expiry-window";
+import { mulkyaAlertsFromVehicles } from "./expiry-window";
 import type {
   Driver,
   GrvLine,
@@ -58,7 +59,8 @@ import {
   saveSelectedSalesCompany,
   type SalesCompanyKey,
 } from "./sales-selected-company";
-import { filterShmpSalesInventory } from "./shmp-sales-inventory";
+import { exportRangeBounds } from "./invoice";
+import { viewableVehicleFileType } from "./vehicle-records";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -87,14 +89,7 @@ async function parseBody(res: Response): Promise<unknown> {
 }
 
 function errorMessage(body: unknown, fallback: string): string {
-  if (typeof body === "string" && body.trim()) return body;
-  if (body && typeof body === "object") {
-    const o = body as Record<string, unknown>;
-    if (typeof o.error === "string") return o.error;
-    if (typeof o.err === "string") return o.err;
-    if (typeof o.message === "string") return o.message;
-  }
-  return fallback;
+  return describeApiError(body, fallback);
 }
 
 async function requestRaw(
@@ -154,7 +149,9 @@ async function siteRequest<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body) {
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
@@ -369,49 +366,149 @@ export const addVehicle = (vehicleNumber: number) =>
     method: "POST",
     body: JSON.stringify({ vehicleNumber }),
   });
-export const editVehicle = (
-  vehicleId: string,
-  vehicleNumber: number,
-  extras?: VehicleExtras,
-) =>
-  siteRequest<string>("/api/admin/vehicle/edit", {
+
+export type VehicleWriteInput = {
+  vehicleNumber: string;
+  purchaseYear: string;
+  price: string;
+  purchaseFrom: string;
+  mulkyaExpiry: string;
+  insurancePremium: string;
+  documents?: Array<{ name: string; file: File }>;
+  removeDocumentIds?: string[];
+};
+
+function vehicleFormData(input: VehicleWriteInput, vehicleId?: string) {
+  const body = new FormData();
+  if (vehicleId) body.set("vehicleId", vehicleId);
+  body.set("vehicleNumber", input.vehicleNumber);
+  body.set("purchaseYear", input.purchaseYear);
+  body.set("price", input.price);
+  body.set("purchaseFrom", input.purchaseFrom);
+  body.set("mulkyaExpiry", input.mulkyaExpiry);
+  body.set("insurancePremium", input.insurancePremium);
+  for (const id of input.removeDocumentIds ?? []) {
+    body.append("removeDocumentId", id);
+  }
+  for (const document of input.documents ?? []) {
+    body.append("documentName", document.name);
+    body.append("documentFile", document.file);
+  }
+  return body;
+}
+
+export const createVehicle = (input: VehicleWriteInput) =>
+  request<{ id: string }>("/admin/vehicle/add", {
     method: "POST",
-    body: JSON.stringify({ vehicleId, vehicleNumber, ...extras }),
+    body: vehicleFormData(input),
+  });
+
+export const editVehicle = (vehicleId: string, input: VehicleWriteInput) =>
+  request<string>("/admin/vehicle/edit", {
+    method: "POST",
+    body: vehicleFormData(input, vehicleId),
   });
 export const deleteVehicle = (vehicleId: string) =>
-  siteRequest<string>("/api/admin/vehicle/delete", {
+  request<string>("/admin/vehicle/delete", {
     method: "POST",
     body: JSON.stringify({ vehicleId }),
   });
 export const getVehicleDetails = (vehicleId: string) =>
-  siteRequest<{ extras: VehicleExtras; maintenance: VehicleMaintenance[] }>(
-    `/api/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}`,
+  request<{ extras: VehicleExtras; maintenance: VehicleMaintenance[] }>(
+    `/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}`,
   );
 export const getVehicleExtrasMap = (ids: string[]) => {
   if (ids.length === 0) {
     return Promise.resolve({ extras: {} as Record<string, VehicleExtras> });
   }
-  return siteRequest<{ extras: Record<string, VehicleExtras> }>(
-    `/api/admin/vehicle/details?ids=${ids.map(encodeURIComponent).join(",")}`,
+  return request<{ extras: Record<string, VehicleExtras> }>(
+    `/admin/vehicle/details?ids=${ids.map(encodeURIComponent).join(",")}`,
   );
 };
-export const getMulkyaAlerts = () =>
-  siteRequest<{ vehicles: ExpiryAlertRow[] }>(
-    "/api/admin/vehicle/mulkya-alerts",
-  );
+export async function getMulkyaAlerts() {
+  const vehicles = await getVehicles();
+  return {
+    vehicles: mulkyaAlertsFromVehicles(Array.isArray(vehicles) ? vehicles : []),
+  };
+}
 export const addVehicleMaintenance = (
   vehicleId: string,
   payload: {
     title: string;
-    amount: number;
+    amount: string;
     description: string;
     date: string;
+    invoice: File;
   },
-) =>
-  siteRequest<VehicleMaintenance>("/api/admin/vehicle/maintenance", {
+) => {
+  const body = new FormData();
+  body.set("vehicleId", vehicleId);
+  body.set("title", payload.title);
+  body.set("amount", payload.amount);
+  body.set("description", payload.description);
+  body.set("date", payload.date);
+  body.set("invoice", payload.invoice);
+  return request<VehicleMaintenance>("/admin/vehicle/maintenance", {
     method: "POST",
-    body: JSON.stringify({ vehicleId, ...payload }),
+    body,
   });
+};
+
+async function fetchVehicleFile(fileId: string): Promise<Blob> {
+  const headers = new Headers();
+  const user = getStoredAuth();
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
+  const res = await fetch(
+    `${apiBase()}/admin/vehicle/files/${encodeURIComponent(fileId)}`,
+    { headers, cache: "no-store" },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (parsed.error) message = parsed.error;
+    } catch {
+      // Response is already plain text.
+    }
+    throw new ApiError(message || "Unable to download file", res.status);
+  }
+  return res.blob();
+}
+
+function vehicleFileObjectUrl(blob: Blob, fileName: string) {
+  const name = fileName.trim() || "document";
+  const type = viewableVehicleFileType(blob.type, name);
+  const file = new File([blob], name, { type });
+  return URL.createObjectURL(file);
+}
+
+export async function downloadVehicleFile(fileId: string, fileName: string) {
+  const blob = await fetchVehicleFile(fileId);
+  const url = vehicleFileObjectUrl(blob, fileName);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName.trim() || "document";
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function previewVehicleFile(fileId: string, fileName: string) {
+  const blob = await fetchVehicleFile(fileId);
+  const name = fileName.trim() || "document";
+  const type = viewableVehicleFileType(blob.type, name);
+  return {
+    url: vehicleFileObjectUrl(blob, name),
+    name,
+    type,
+  };
+}
 
 // —— Stores ——
 export const getStores = (page: number) =>
@@ -455,6 +552,7 @@ export type StoreEditInput = {
   uid?: string;
   trnNo?: string;
   salesPerson?: string;
+  salesPersons?: string[];
   location?: string;
   tradeLicenseExpiry?: string;
   isTemp?: boolean;
@@ -476,6 +574,7 @@ export type StoreCreateInput = {
   uid?: string;
   trnNo?: string;
   salesPerson?: string;
+  salesPersons?: string[];
   location?: string;
   tradeLicenseExpiry?: string;
   trnDocument?: File | null;
@@ -506,6 +605,9 @@ function appendAdminStoreFormData(
     const value = body[key];
     if (value == null || value === "") continue;
     fd.append(key, String(value));
+  }
+  if (body.salesPersons?.length) {
+    fd.append("salesPersons", JSON.stringify(body.salesPersons));
   }
   if (body.trnDocument instanceof File) fd.append("trnDocument", body.trnDocument);
   if (body.tradeLicenseDocument instanceof File) {
@@ -541,9 +643,83 @@ export const editAdminStore = (body: StoreEditInput) => {
 };
 
 export const createAdminStore = (body: StoreCreateInput) =>
-  request<{ store?: StoreProfile }>("/admin/create/store", {
+  request<{ store?: StoreProfile; _id?: string }>("/admin/create/store", {
     method: "POST",
     body: appendAdminStoreFormData({ ...body, location: body.location || "—" }),
+  });
+
+export const saveAdminStoreEid = (input: {
+  storeId: string;
+  eidNumber: string;
+  isTemp?: boolean;
+  file?: File | null;
+}) => {
+  const body = new FormData();
+  body.set("storeId", input.storeId);
+  body.set("eidNumber", input.eidNumber);
+  body.set("isTemp", input.isTemp ? "true" : "false");
+  if (input.file instanceof File) body.set("eidDocument", input.file);
+  return siteRequest<{ ok: boolean }>("/api/admin/stores/eid", {
+    method: "POST",
+    body,
+  });
+};
+
+export async function openAdminStoreEidFile(storeId: string) {
+  const headers = new Headers();
+  const user = getStoredAuth();
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
+  const res = await fetch(
+    `/api/admin/stores/eid?storeId=${encodeURIComponent(storeId)}`,
+    { headers, cache: "no-store" },
+  );
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new ApiError(raw || "Unable to open the EID document", res.status);
+  }
+  const blob = await res.blob();
+  const type = blob.type || "application/octet-stream";
+  const url = URL.createObjectURL(new Blob([blob], { type }));
+  const opened = window.open(url, "_blank", "noopener");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (!opened) {
+    throw new ApiError("Allow pop-ups to view the EID document", 400);
+  }
+}
+
+export const setAdminStoreSalesPeople = (
+  storeId: string,
+  salesPersons: string[],
+  isTemp = false,
+) =>
+  siteRequest<string>("/api/admin/stores/access", {
+    method: "POST",
+    body: JSON.stringify({
+      storeId,
+      salesPersons,
+      salesPerson: salesPersons[0] || "",
+      isTemp,
+      isTempStore: isTemp,
+    }),
+  });
+
+export const setAdminStoreBlocked = (
+  storeId: string,
+  orderBlocked: boolean,
+  options?: { isTemp?: boolean; environment?: string },
+) =>
+  siteRequest<{ orderBlocked: boolean }>("/api/admin/stores/block", {
+    method: "POST",
+    body: JSON.stringify({
+      storeId,
+      orderBlocked,
+      isTemp: options?.isTemp === true,
+      isTempStore: options?.isTemp === true,
+      environment: options?.environment,
+    }),
   });
 
 export const deleteAdminStore = (storeId: string) =>
@@ -2051,6 +2227,18 @@ async function downloadShmpAssignedStores(userId: string) {
   }
 }
 
+export function fetchAssignedSalesStores(userId: string) {
+  return siteRequest<StoreProfile[]>(
+    `/api/sales/assigned-stores?userId=${encodeURIComponent(userId)}`,
+  );
+}
+
+export function fetchSalesStoreAccess(storeId: string, userId: string) {
+  return siteRequest<{ assigned: boolean; orderBlocked: boolean }>(
+    `/api/sales/store-access?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
+  );
+}
+
 export async function getSalesStorePage(
   userId: string,
   page = 1,
@@ -2079,7 +2267,11 @@ export async function searchSalesStores(
   }
   const data = await request<unknown>("/sales/searchStore", {
     method: "POST",
-    body: JSON.stringify({ tag, page }),
+    body: JSON.stringify({
+      tag,
+      page,
+      userId: userId || getStoredAuth()?.id || "",
+    }),
   });
   return asStoreList(data);
 }
@@ -2229,7 +2421,13 @@ export async function downloadSalesStores(
     }
     return [...byId.values()];
   }
-  const downloaded = asStoreList(await request<unknown>("/sales/store"));
+  const downloaded = asStoreList(
+    await request<unknown>(
+      userId
+        ? `/sales/store?userId=${encodeURIComponent(userId)}`
+        : "/sales/store",
+    ),
+  );
   const byId = new Map(downloaded.map((store) => [store._id, store]));
   if (userId) {
     try {
@@ -2326,9 +2524,7 @@ export async function selectSalesCompany(
   const resolved = resolveSalesCompanyByKey(key, companies);
   if (!resolved) {
     throw new Error(
-      key === "sarvah"
-        ? "Could not find the SHMP catalog used for Sarvah inventory. Ask admin to add SHMP in company list, then try again."
-        : `Could not find ${SALES_COMPANY_LABELS[key] || key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
+      `Could not find ${SALES_COMPANY_LABELS[key] || key.toUpperCase()} in company list. Ask admin to add it, then try again.`,
     );
   }
   const access = accessFromSelectedCompany(resolved);
@@ -2352,9 +2548,6 @@ export async function selectSalesCompany(
   saveSalesCompanyAccess(access);
   saveSelectedSalesCompany(resolved);
   saveSalesWorkspace(key);
-  if (key === "shmp") {
-    return { access, products: [] as Product[] };
-  }
   const firstPage = prefetchCompanyInventoryPage(resolved.id, 1);
   void firstPage.finally(() => {
     queueSalesCatalogDownload(userId, access, generation);
@@ -2398,60 +2591,11 @@ const companyPageCache = new Map<
   string,
   Promise<{ products: Product[]; hasNext: boolean }>
 >();
-const shmpStoreInventoryCache = new Map<string, Product[]>();
-const shmpStoreInventoryInflight = new Map<string, Promise<Product[]>>();
-
 function resetCompanyInventoryMemory() {
   companyStubCache.clear();
   companyStubInflight.clear();
   companyPageCache.clear();
   companyInventoryGate = null;
-  shmpStoreInventoryCache.clear();
-  shmpStoreInventoryInflight.clear();
-}
-
-function isShmpSalesInventory() {
-  return loadSelectedSalesCompany()?.name === "shmp";
-}
-
-function shmpStoreInventoryKey(storeId: string, companyId: string) {
-  return `${storeId}:${companyId}`;
-}
-
-async function ensureShmpStoreInventory(
-  storeId: string,
-  userId: string,
-  companyId: string,
-) {
-  const key = shmpStoreInventoryKey(storeId, companyId);
-  const cached = shmpStoreInventoryCache.get(key);
-  if (cached) return cached;
-  let pending = shmpStoreInventoryInflight.get(key);
-  if (!pending) {
-    pending = request<unknown>("/sales/shmpInventory", {
-      method: "POST",
-      body: JSON.stringify({ storeId, userId, companyId }),
-    })
-      .then((data) => {
-        const products = asProductList(data);
-        shmpStoreInventoryCache.set(key, products);
-        return products;
-      })
-      .finally(() => {
-        shmpStoreInventoryInflight.delete(key);
-      });
-    shmpStoreInventoryInflight.set(key, pending);
-  }
-  return pending;
-}
-
-export function localShmpStoreCatalog(storeId: string) {
-  const selected = loadSelectedSalesCompany();
-  if (selected?.name !== "shmp" || !storeId || !selected.id) return null;
-  return (
-    shmpStoreInventoryCache.get(shmpStoreInventoryKey(storeId, selected.id)) ||
-    null
-  );
 }
 
 function companyStubToProduct(row: CompanyProduct, companyId: string): Product {
@@ -2627,9 +2771,6 @@ function downloadSalesCatalogForAccess(
     if (generation !== catalogGeneration) {
       return { access, products: [] as Product[] };
     }
-    if (isShmpSalesInventory()) {
-      return { access, products: [] as Product[] };
-    }
     try {
       const assigned = await catalogFromAssignedCompanies(access).catch(
         () => [] as Product[],
@@ -2720,9 +2861,6 @@ export async function syncSalesInventory(userId: string) {
 
 async function runSalesInventorySync(userId: string) {
   const previous = loadSalesCompanyAccess();
-  if (isShmpSalesInventory()) {
-    return { access: previous, products: [] as Product[] };
-  }
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return { access: previous, products: catalogForAccess(previous) || [] };
   }
@@ -3041,20 +3179,8 @@ export function localSalesInventoryPage(
   tag: string,
   cat = "",
   subCat = "",
-  storeId = "",
+  _storeId = "",
 ) {
-  if (isShmpSalesInventory()) {
-    const selected = loadSelectedSalesCompany();
-    if (!storeId || !selected?.id) return null;
-    const catalog = shmpStoreInventoryCache.get(
-      shmpStoreInventoryKey(storeId, selected.id),
-    );
-    if (!catalog) return null;
-    return sliceSalesInventoryPage(
-      filterShmpSalesInventory(catalog, tag, cat, subCat),
-      uiPage,
-    );
-  }
   const catalog = catalogForAccess(loadSalesCompanyAccess());
   if (!catalog || catalog.length === 0) return null;
   if ((cat || subCat) && !catalogSupportsCategoryFilter(catalog)) return null;
@@ -3084,17 +3210,6 @@ export async function loadSalesInventoryUiPage(
   if (local) return local;
 
   const selected = loadSelectedSalesCompany();
-  if (selected?.name === "shmp" && selected.id) {
-    const products = await ensureShmpStoreInventory(
-      storeId,
-      userId,
-      selected.id,
-    );
-    return sliceSalesInventoryPage(
-      filterShmpSalesInventory(products, tag, cat, subCat),
-      uiPage,
-    );
-  }
   if (selected?.id && !cat && !subCat) {
     try {
       const needle = tag.trim().toLowerCase();
@@ -3347,8 +3462,9 @@ export const placeSalesOrder = (body: Record<string, unknown>) =>
   });
 
 // —— GRV ——
-export async function getGrvOrders() {
-  const data = await request<unknown>("/admin/grv");
+export async function getGrvOrders(tag = "") {
+  const query = tag.trim() ? `?tag=${encodeURIComponent(tag.trim())}` : "";
+  const data = await request<unknown>(`/admin/grv${query}`);
   const list = Array.isArray(data)
     ? (data as GrvOrder[])
     : (asWarehouseOrders(data) as GrvOrder[]);
@@ -3388,6 +3504,112 @@ export async function getConfirmedInvoice(
 export async function getAllConfirmedInvoices(userId: string) {
   const result = await getAllWarehouseOrders(userId, 2);
   return result.orders as GrvOrder[];
+}
+
+export async function getGrvOrder(orderId: string) {
+  return request<GrvOrder>(`/admin/grv/${encodeURIComponent(orderId)}`);
+}
+
+export interface PaymentInvoice {
+  id: string;
+  source: string;
+  invoiceNumber: string;
+  date?: string;
+  storeName?: string;
+  totalCost: number;
+  grvAmount: number;
+  collectableAmount: number;
+  grvRemark: string;
+  paymentId: string | null;
+  paymentStatus: string;
+  amountPaid: number;
+  pdcId: string | null;
+  chequeDate: string | null;
+  canClear: boolean;
+}
+
+export async function getPaymentInvoices(
+  userId: string,
+  range: 7 | 15 | 30 | null,
+) {
+  const body: Record<string, unknown> = { userId };
+  if (range === 7 || range === 15) {
+    body.rangeDays = range;
+  } else {
+    const { startDate, endDate } = exportRangeBounds(range);
+    body.startDate = startDate;
+    body.endDate = endDate;
+  }
+  return request<{
+    invoices: PaymentInvoice[];
+    receivables: number;
+    received: number;
+  }>("/admin/payment/invoices", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getPaymentInvoice(userId: string, invoiceId: string) {
+  const data = await request<{ invoice?: PaymentInvoice }>(
+    "/admin/payment/invoices",
+    {
+      method: "POST",
+      body: JSON.stringify({ userId, invoiceId }),
+    },
+  );
+  if (!data?.invoice?.id) throw new ApiError("Invoice not found", 404);
+  return data.invoice;
+}
+
+export function clearInvoicePayment(body: {
+  userId: string;
+  paymentId?: string | null;
+  invoiceId: string;
+  source: string;
+}) {
+  return request<unknown>("/admin/payment/clear", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function readChequeDate(userId: string, file: File) {
+  const body = new FormData();
+  body.set("userId", userId);
+  body.set("chequeImage", file);
+  const data = await request<{ chequeDate?: string }>("/admin/pdc/ocr", {
+    method: "POST",
+    body,
+  });
+  const iso = String(data?.chequeDate || "");
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return { date: null as Date | null };
+  return {
+    date: new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+  };
+}
+
+export function createPdcWithImage(input: {
+  userId: string;
+  invoiceId: string;
+  source: string;
+  amount: number;
+  chequeDate: string;
+  file: File;
+}) {
+  const body = new FormData();
+  body.set("userId", input.userId);
+  body.set("invoiceId", input.invoiceId);
+  body.set("source", input.source);
+  body.set("amount", String(input.amount));
+  body.set("chequeDate", new Date(`${input.chequeDate}T00:00:00`).toISOString());
+  body.set("givenDate", new Date().toISOString());
+  body.set("chequeImage", input.file);
+  return request<unknown>("/admin/pdc/createWithImage", {
+    method: "POST",
+    body,
+  });
 }
 
 export async function getInvoiceStoreDetails(userId: string, orderId: string) {

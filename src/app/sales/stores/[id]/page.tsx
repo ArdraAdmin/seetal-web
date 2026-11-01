@@ -10,7 +10,6 @@ import {
   getProduct,
   loadSalesInventoryUiPage,
   localSalesInventoryPage,
-  localShmpStoreCatalog,
   SALES_INVENTORY_PAGE_SIZE,
   syncSalesInventory,
 } from "@/lib/api";
@@ -53,6 +52,7 @@ import {
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
 import { loadSalesWorkspace } from "@/lib/sales-selected-company";
+import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 
 function categoriesFromProducts(products: Product[]): CategoryGroup[] {
   const groups = new Map<string, CategoryGroup>();
@@ -91,11 +91,8 @@ function categoriesFromProducts(products: Product[]): CategoryGroup[] {
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function categoriesFromCatalog(storeId = ""): CategoryGroup[] {
-  const products =
-    localShmpStoreCatalog(storeId) ||
-    catalogForAccess(loadSalesCompanyAccess()) ||
-    [];
+function categoriesFromCatalog(): CategoryGroup[] {
+  const products = catalogForAccess(loadSalesCompanyAccess()) || [];
   return categoriesFromProducts(products);
 }
 
@@ -109,6 +106,7 @@ export default function SalesStoreProductsPage() {
   const storeName = searchParams.get("name") || "Store";
   const marks = searchParams.get("marks") || "";
   const tempStore = searchParams.get("temp") === "1";
+  const access = useSalesStoreAccess(storeId);
 
   async function openCart() {
     const ok = await ensureLocationForOrders();
@@ -160,7 +158,7 @@ export default function SalesStoreProductsPage() {
         setAppliedQuery(tag);
         setError(null);
         setLoading(false);
-        const shmpGroups = categoriesFromCatalog(storeId);
+        const shmpGroups = categoriesFromCatalog();
         if (shmpGroups.length > 0) setCategories(shmpGroups);
         return;
       }
@@ -183,7 +181,7 @@ export default function SalesStoreProductsPage() {
         setHasNext(data.hasNext);
         setPage(nextPage);
         setAppliedQuery(tag);
-        const shmpGroups = categoriesFromCatalog(storeId);
+        const shmpGroups = categoriesFromCatalog();
         if (shmpGroups.length > 0) setCategories(shmpGroups);
       } catch (e) {
         if (gen !== loadGen.current) return;
@@ -196,17 +194,19 @@ export default function SalesStoreProductsPage() {
   );
 
   useEffect(() => {
+    if (access.status !== "open") return;
     cacheRef.current = createSalesProductCache();
     void load(1, "");
-  }, [load]);
+  }, [load, access.status]);
 
   useEffect(() => {
     return onSalesAccessChange(() => {
+      if (access.status !== "open") return;
       cacheRef.current = createSalesProductCache();
       const filters = filtersRef.current;
       void load(1, filters.appliedQuery, filters.category, filters.subCategory);
     });
-  }, [load]);
+  }, [load, access.status]);
 
   useEffect(() => {
     const workspace = loadSalesWorkspace();
@@ -218,10 +218,10 @@ export default function SalesStoreProductsPage() {
           setCategories(groups);
           return;
         }
-        setCategories(categoriesFromCatalog(storeId));
+        setCategories(categoriesFromCatalog());
       })
-      .catch(() => setCategories(categoriesFromCatalog(storeId)));
-  }, [storeId]);
+      .catch(() => setCategories(categoriesFromCatalog()));
+  }, []);
 
   function applySearch() {
     void load(1, query.trim());
@@ -249,8 +249,11 @@ export default function SalesStoreProductsPage() {
               {marks}
             </p>
           ) : null}
-          <p className="mt-1 text-sm text-slate-500">Select product</p>
+          {access.status === "open" ? (
+            <p className="mt-1 text-sm text-slate-500">Select product</p>
+          ) : null}
         </div>
+        {access.status === "open" ? (
         <button
           type="button"
           onClick={() => void openCart()}
@@ -264,8 +267,17 @@ export default function SalesStoreProductsPage() {
             </span>
           ) : null}
         </button>
+        ) : null}
       </div>
 
+      {access.status === "loading" ? (
+        <LoadingState label="Checking store…" />
+      ) : access.status !== "open" ? (
+        <Card>
+          <p className="text-sm font-semibold text-ink">{access.message}</p>
+        </Card>
+      ) : (
+      <>
       <Card className="mb-5">
         <form
           className="flex flex-wrap items-center gap-2"
@@ -394,6 +406,8 @@ export default function SalesStoreProductsPage() {
             onPage={(next) => void load(next, appliedQuery)}
           />
         </>
+      )}
+      </>
       )}
     </div>
   );

@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   attendanceRecordUserId,
+  isShmpAttendancePortalRole,
   isShmpHrPortalRole,
   isStlHrRole,
   presentRowVisibleToCaller,
   presentRowVisibleToSupervisor,
+  stlAttendanceLoginId,
+  stlHrPeopleForAttendance,
   warehouseStaffLabel,
 } from "./hr-scope.ts";
 
@@ -26,6 +29,30 @@ describe("HR people filters", () => {
     assert.equal(isShmpHrPortalRole("Worker"), false);
   });
 
+  it("limits SHMP attendance portal check-ins to supervisors", () => {
+    assert.equal(isShmpAttendancePortalRole("Supervisor"), true);
+    assert.equal(isShmpAttendancePortalRole("Sales"), false);
+    assert.equal(isShmpAttendancePortalRole("Warehouse"), false);
+  });
+
+  it("uses the STL HR roster for attendance", () => {
+    const rows = stlHrPeopleForAttendance([
+      { id: "wh", kind: "user", role: "Warehouse" },
+      { id: "sales", kind: "user", role: "Sales" },
+      { id: "staff", kind: "staff", role: "Sales", linkedUserId: "linked" },
+    ]);
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ["wh", "staff"],
+    );
+    assert.equal(stlAttendanceLoginId(rows[0]), "wh");
+    assert.equal(stlAttendanceLoginId(rows[1]), "linked");
+    assert.equal(
+      stlAttendanceLoginId({ id: "staff2", kind: "staff", linkedUserId: null }),
+      "",
+    );
+  });
+
   it("lets supervisors see workers and supervisors only", () => {
     assert.equal(
       presentRowVisibleToSupervisor({ kind: "worker", role: "Worker" }),
@@ -41,6 +68,10 @@ describe("HR people filters", () => {
     );
     assert.equal(
       presentRowVisibleToCaller({ kind: "portal", role: "Sales" }, false),
+      false,
+    );
+    assert.equal(
+      presentRowVisibleToCaller({ kind: "portal", role: "Supervisor" }, false),
       true,
     );
     assert.equal(

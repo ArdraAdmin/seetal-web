@@ -6,6 +6,7 @@ import { ShoppingCart } from "lucide-react";
 import {
   createSalesStoreCache,
   downloadSalesStores,
+  fetchAssignedSalesStores,
   loadSalesStoreSearchPage,
   loadSalesStoreUiPage,
   SALES_STORE_PAGE_SIZE,
@@ -16,12 +17,12 @@ import {
   saveDownloadedStores,
 } from "@/lib/sales-company";
 import {
-  storeAssignedToSalesman,
   storeLocation,
   storeMarks,
   storeProductsHref,
   storeTitle,
 } from "@/lib/sales";
+import { storesVisibleToSalesperson } from "@/lib/store-access";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -42,24 +43,20 @@ import {
   TextField,
 } from "@/components/ui";
 
-function splitStores(
-  list: StoreProfile[],
-  userId: string,
-  assignedOnly = false,
-) {
-  const mine: StoreProfile[] = [];
-  const other: StoreProfile[] = [];
-  for (const store of list) {
-    if (userId && storeAssignedToSalesman(store, userId)) mine.push(store);
-    else if (!assignedOnly) other.push(store);
-  }
-  return { mine, other };
+function storeMatchesQuery(store: StoreProfile, tag: string) {
+  const needle = tag.trim().toLowerCase();
+  if (!needle) return true;
+  return [store.storeName, store.name, store.marks, store.city, store.country, store.alias]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ")
+    .includes(needle);
 }
 
 export default function SalesHomePage() {
   const { user } = useAuth();
   const firstName = (user?.name || "Sales").trim().split(/\s+/)[0];
   const cacheRef = useRef(createSalesStoreCache());
+  const assignedCache = useRef<{ key: string; stores: StoreProfile[] } | null>(null);
   const loadGen = useRef(0);
   const [companyKey, setCompanyKey] = useState<SalesCompanyKey | null>(
     () => loadSalesWorkspace(),
@@ -92,20 +89,15 @@ export default function SalesHomePage() {
     return onSelectedSalesCompanyChange(refresh);
   }, []);
 
-  const showLists = (
-    list: StoreProfile[],
-    nextPage: number,
-    tag: string,
-    assigned = assignedOnly,
-  ) => {
+  const showLists = (list: StoreProfile[], nextPage: number, tag: string) => {
     if (!user?.id) return;
-    const { mine, other } = splitStores(list, user.id, assigned);
+    const visible = storesVisibleToSalesperson(list, user.id);
     if (tag) {
       setMyStores([]);
-      setOtherStores(list);
+      setOtherStores(visible);
     } else {
-      setMyStores(mine);
-      setOtherStores(assigned ? [] : other);
+      setMyStores(visible);
+      setOtherStores([]);
     }
     setPage(nextPage);
     setAppliedQuery(tag);
@@ -120,6 +112,34 @@ export default function SalesHomePage() {
       setLoading(true);
       setError(null);
       try {
+        if (companyKey !== "shmp") {
+          try {
+            const cacheKey = `${user.id}:${companyKey}`;
+            if (assignedCache.current?.key !== cacheKey) {
+              assignedCache.current = {
+                key: cacheKey,
+                stores: await fetchAssignedSalesStores(user.id),
+              };
+            }
+            const assignedStores = assignedCache.current.stores;
+            if (gen !== loadGen.current) return;
+            const filtered = tag
+              ? assignedStores.filter((store) => storeMatchesQuery(store, tag))
+              : assignedStores;
+            const start = (nextPage - 1) * SALES_STORE_PAGE_SIZE;
+            const slice = filtered.slice(start, start + SALES_STORE_PAGE_SIZE);
+            setMyStores(tag ? [] : slice);
+            setOtherStores(tag ? slice : []);
+            setPage(nextPage);
+            setAppliedQuery(tag);
+            setHasNext(start + SALES_STORE_PAGE_SIZE < filtered.length);
+            setDownloaded(false);
+            setLoading(false);
+            return;
+          } catch {
+            /* The sales API list is the fallback when this app cannot read stores. */
+          }
+        }
         const cached = loadDownloadedStores(companyKey);
         if (cached.length > 0) {
           const filtered = tag
@@ -138,7 +158,7 @@ export default function SalesHomePage() {
               })
             : cached;
           if (gen !== loadGen.current) return;
-          showLists(filtered as StoreProfile[], nextPage, tag, assigned);
+          showLists(filtered as StoreProfile[], nextPage, tag);
           setDownloaded(true);
           return;
         }
@@ -152,7 +172,7 @@ export default function SalesHomePage() {
           );
           if (gen !== loadGen.current) return;
           setMyStores([]);
-          setOtherStores(data.stores);
+          setOtherStores(storesVisibleToSalesperson(data.stores, user.id));
           setHasNext(data.hasNext);
         } else {
           const data = await loadSalesStoreUiPage(
@@ -162,8 +182,12 @@ export default function SalesHomePage() {
             companyKey,
           );
           if (gen !== loadGen.current) return;
-          setMyStores(data.myStores);
-          setOtherStores(assigned ? [] : data.otherStores);
+          setMyStores(storesVisibleToSalesperson(data.myStores, user.id));
+          setOtherStores(
+            assigned
+              ? []
+              : storesVisibleToSalesperson(data.otherStores, user.id),
+          );
           setHasNext(assigned ? false : data.hasNext);
         }
         setPage(nextPage);
@@ -194,11 +218,26 @@ export default function SalesHomePage() {
     setDownloading(true);
     setError(null);
     try {
-      const stores = await downloadSalesStores(user.id, companyKey);
-      const list = Array.isArray(stores) ? stores : [];
+      let stores: StoreProfile[] | null = null;
+      if (companyKey !== "shmp") {
+        try {
+          stores = await fetchAssignedSalesStores(user.id);
+          assignedCache.current = {
+            key: `${user.id}:${companyKey}`,
+            stores,
+          };
+        } catch {
+          stores = null;
+        }
+      }
+      if (!stores) {
+        const downloaded = await downloadSalesStores(user.id, companyKey);
+        stores = Array.isArray(downloaded) ? downloaded : [];
+      }
+      const list = storesVisibleToSalesperson(stores, user.id);
       saveDownloadedStores(list, companyKey);
       if (gen !== loadGen.current) return;
-      showLists(list, 1, "", assignedOnly);
+      showLists(list, 1, "");
       setQuery("");
       setDownloaded(true);
       setLoading(false);

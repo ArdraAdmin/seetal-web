@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Star, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Star, Trash2, X } from "lucide-react";
 import {
   deleteProductImage,
   reorderProductImages,
@@ -42,6 +42,138 @@ export function ProductThumb({
       alt={name || "Product image"}
       className={`${className} shrink-0 rounded-lg border border-line object-cover`}
     />
+  );
+}
+
+export function ProductImageGallery({
+  imagePath,
+  name,
+}: {
+  imagePath?: unknown;
+  name: string;
+}) {
+  const urls = productImageUrls(imagePath);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (openIndex === null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpenIndex(null);
+        return;
+      }
+      if (urls.length < 2) return;
+      if (event.key === "ArrowRight") {
+        setOpenIndex((current) =>
+          current === null ? current : (current + 1) % urls.length,
+        );
+      }
+      if (event.key === "ArrowLeft") {
+        setOpenIndex((current) =>
+          current === null ? current : (current - 1 + urls.length) % urls.length,
+        );
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openIndex, urls.length]);
+
+  if (urls.length === 0) {
+    return <p className="text-sm text-slate-500">No images for this product.</p>;
+  }
+
+  const openUrl = openIndex === null ? null : urls[openIndex];
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {urls.map((url, index) => (
+          <button
+            key={`${url}-${index}`}
+            type="button"
+            onClick={() => setOpenIndex(index)}
+            className="overflow-hidden rounded-lg border border-line bg-white text-left hover:border-brand"
+          >
+            {/* Signed product URLs are temporary, so the optimizer cannot cache them. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={`${name || "Product"} image ${index + 1}`}
+              className="aspect-square w-full object-cover"
+            />
+            <span className="block px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {index + 1}
+              {index === 0 ? " · Thumbnail" : ""}
+            </span>
+          </button>
+        ))}
+      </div>
+      {openUrl && openIndex !== null ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${name || "Product"} image ${openIndex + 1}`}
+          onClick={() => setOpenIndex(null)}
+        >
+          <div
+            className="relative flex max-h-full max-w-5xl flex-col items-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="absolute -top-2 right-0 rounded-lg bg-white p-2 text-slate-700 hover:bg-[#f7f5f0] sm:-right-2 sm:-top-2"
+              aria-label="Close image"
+              onClick={() => setOpenIndex(null)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {/* Signed product URLs are temporary, so the optimizer cannot cache them. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={openUrl}
+              alt={`${name || "Product"} image ${openIndex + 1}`}
+              className="max-h-[80vh] max-w-full rounded-lg object-contain"
+            />
+            <div className="mt-3 flex items-center gap-2">
+              {urls.length > 1 ? (
+                <button
+                  type="button"
+                  className="rounded-lg bg-white p-2 text-slate-700 hover:bg-[#f7f5f0]"
+                  aria-label="Previous image"
+                  onClick={() =>
+                    setOpenIndex((current) =>
+                      current === null
+                        ? current
+                        : (current - 1 + urls.length) % urls.length,
+                    )
+                  }
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              ) : null}
+              <span className="rounded-lg bg-white px-3 py-2 text-sm font-medium text-ink">
+                {openIndex + 1} of {urls.length}
+              </span>
+              {urls.length > 1 ? (
+                <button
+                  type="button"
+                  className="rounded-lg bg-white p-2 text-slate-700 hover:bg-[#f7f5f0]"
+                  aria-label="Next image"
+                  onClick={() =>
+                    setOpenIndex((current) =>
+                      current === null ? current : (current + 1) % urls.length,
+                    )
+                  }
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -1,3 +1,4 @@
+import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 
 const REMOTE_API_BASE = (
@@ -44,11 +45,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
   }
   if (!res.ok) {
-    const msg =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: unknown }).error)
-        : text || res.statusText;
-    throw new ApiError(msg || "Request failed", res.status);
+    throw new ApiError(
+      describeApiError(body, text || res.statusText || "Request failed"),
+      res.status,
+    );
   }
   return body as T;
 }
@@ -303,6 +303,124 @@ export async function saveLeaveSettings(payload: {
   });
 }
 
+export type SalarySlip = {
+  name: string;
+  period: { year: number; month: number; label: string };
+  attendance: {
+    calendarDays: number;
+    totalLabel: string;
+    weekdaysWorked: string;
+    sundaysWorked: string;
+    publicHolidaysWorked: string;
+    sundayAllowanceDays: string;
+    weekdaysInMonth: number;
+    sundaysInMonth: number;
+    publicHolidaysInMonth: number;
+  };
+  amounts: {
+    basicSalary: number;
+    weekdayOt: number;
+    sundayOt: number;
+    publicHolidayOt: number;
+    otherBenefits: number;
+    sundayAllowance: number;
+    totalPayable: number;
+  };
+  rates: {
+    wageDays: number;
+    standardHours: number;
+    shiftHours: number;
+    breakHours: number;
+    actualHours: number;
+    extraHours: number;
+    weekdayMultiplier: number;
+    sundayMultiplier: number;
+    publicHolidayMultiplier: number;
+    sundayAllowancePerDay: number;
+    sundayAllowanceSource: "company" | "employee";
+    dailyBasicWage: number;
+    hourlyBasicWage: number;
+  };
+  holidayLines: Array<{ date: string; name: string; multiplier: number }>;
+};
+
+export async function getSalarySlip(
+  userId: string,
+  kind: "user" | "staff" | "employee",
+  id: string,
+  year: number,
+  month: number,
+) {
+  const qs = new URLSearchParams({
+    userId,
+    year: String(year),
+    month: String(month),
+  });
+  return request<SalarySlip>(`/admin/hr/salary-slip/${kind}/${encodeURIComponent(id)}?${qs}`);
+}
+
+export type PayrollConfig = {
+  wageDays: number;
+  standardHours: number;
+  shiftHours: number;
+  breakHours: number;
+  weekdayMultiplier: number;
+  sundayMultiplier: number;
+  publicHolidayMultiplier: number;
+  sundayAllowance: number;
+  companyId?: string | null;
+  source?: "company" | "global" | "default";
+};
+
+export type PublicHolidayRow = {
+  id: string;
+  date: string;
+  name: string;
+  multiplier: number | null;
+  companyId: string | null;
+  scope: "company" | "global";
+};
+
+export async function getPayrollSettings(userId: string, companyId?: string, year?: number) {
+  const qs = new URLSearchParams({ userId });
+  if (companyId) qs.set("companyId", companyId);
+  if (year) qs.set("year", String(year));
+  return request<{
+    resolved: PayrollConfig;
+    defaults: PayrollConfig;
+    holidays: PublicHolidayRow[];
+    year: number;
+  }>(`/admin/payroll/settings?${qs}`);
+}
+
+export async function savePayrollSettings(
+  userId: string,
+  companyId: string | null,
+  config: Omit<PayrollConfig, "companyId" | "source">,
+) {
+  return request<PayrollConfig>("/admin/payroll/settings", {
+    method: "POST",
+    body: JSON.stringify({ userId, companyId, ...config }),
+  });
+}
+
+export async function addPublicHoliday(
+  userId: string,
+  payload: { companyId?: string | null; date: string; name: string; multiplier?: number | null },
+) {
+  return request<PublicHolidayRow>("/admin/payroll/holidays", {
+    method: "POST",
+    body: JSON.stringify({ userId, ...payload }),
+  });
+}
+
+export async function deletePublicHoliday(userId: string, id: string) {
+  return request<{ ok: boolean }>(
+    `/admin/payroll/holidays/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function getModuleAccessMe(userId: string) {
   return request<{
     modules: string[];
@@ -441,7 +559,10 @@ export type HrProfile = {
   visaDesignation?: string;
   visaName?: string;
   basicSalary?: number;
+  overtimeSalary?: number;
+  otherBenefits?: number;
   totalSalary?: number;
+  sundayAllowance?: number;
   salaryIncrements?: Array<{
     effectiveDate: string;
     amount: number;
@@ -474,7 +595,7 @@ export async function updateHrStaff(
   adminUserId: string,
   id: string,
   hrProfile: Record<string, unknown>,
-  options?: { enforceDocuments?: boolean },
+  options?: { enforceDocuments?: boolean; scope?: "stl" | "shmp" },
 ) {
   return request<HrStaff>(`/admin/hr/${id}`, {
     method: "PUT",
@@ -482,6 +603,7 @@ export async function updateHrStaff(
       userId: adminUserId,
       hrProfile,
       enforceDocuments: options?.enforceDocuments === true,
+      scope: options?.scope,
     }),
   });
 }
@@ -563,6 +685,7 @@ export async function updateEmployeeHr(
       userId: adminUserId,
       hrProfile,
       enforceDocuments: true,
+      scope: "shmp",
     }),
   });
 }
@@ -575,6 +698,7 @@ export async function addHrIncrement(
     effectiveDate?: string;
     notes?: string;
     setAsBasic?: boolean;
+    scope?: "stl" | "shmp";
   },
 ) {
   return request<HrStaff>(`/admin/hr/${id}/increments`, {
@@ -591,6 +715,7 @@ export async function addHrStaffIncrement(
     effectiveDate?: string;
     notes?: string;
     setAsBasic?: boolean;
+    scope?: "stl" | "shmp";
   },
 ) {
   return request<HrStaff>(`/admin/hr/staff/${id}/increments`, {
@@ -650,11 +775,10 @@ async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> 
     }
   }
   if (!res.ok) {
-    const msg =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: unknown }).error)
-        : text || res.statusText;
-    throw new ApiError(msg || "Request failed", res.status);
+    throw new ApiError(
+      describeApiError(body, text || res.statusText || "Request failed"),
+      res.status,
+    );
   }
   return body as T;
 }

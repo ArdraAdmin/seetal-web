@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  Banknote,
   Boxes,
   CalendarDays,
   ClipboardList,
@@ -28,6 +29,7 @@ import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { isSupervisor } from "@/lib/auth";
 import { shmpModuleVisible } from "@/lib/custom-users";
+import { navItemActive } from "@/lib/nav-active";
 import { canSupervisorAccessShmpPath } from "@/lib/supervisor-shmp-access";
 
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -44,6 +46,12 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/shmp", label: "Dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
   { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
+  {
+    href: "/shmp/hr/payroll",
+    label: "Payroll settings",
+    icon: Banknote,
+    moduleId: "hr",
+  },
   { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
   { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" },
   { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
@@ -147,15 +155,7 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
             {navItems.map((item) => {
-              const prefixes = item.match ?? [item.href];
-              const active =
-                item.href === "/shmp"
-                  ? pathname === "/shmp"
-                  : prefixes.some(
-                      (prefix) =>
-                        pathname === prefix ||
-                        pathname.startsWith(`${prefix}/`),
-                    );
+              const active = navItemActive(item, pathname, navItems, "/shmp");
               const Icon = item.icon;
               return (
                 <li key={item.href}>
