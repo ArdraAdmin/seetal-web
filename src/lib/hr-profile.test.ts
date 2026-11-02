@@ -52,13 +52,14 @@ describe("HR profile form", () => {
     form.eidExpiry = "2027-02-01";
     form.eidCopy = { key: "hr-documents/1-b.pdf", fileName: "b.pdf" };
     form.visaCopy = { key: "hr-documents/1-c.pdf", fileName: "c.pdf" };
+    assert.equal(validateHrProfileForm(form), "Visa UID number is required");
+    form.visaNumber = "UID-1";
     form.insuranceExpiry = "2027-03-01";
     form.insuranceCopy = { key: "hr-documents/1-d.pdf", fileName: "d.pdf" };
     form.employmentContractCopy = { key: "hr-documents/1-e.pdf", fileName: "e.pdf" };
     assert.equal(validateHrProfileForm(form), null);
     assert.equal(validateHrProfileForm(form, "shmp"), "Basic salary is required");
     form.basicSalary = "800";
-    form.overtimeSalary = "400";
     form.totalSalary = "2000";
     assert.equal(validateHrProfileForm(form, "shmp"), null);
     assert.equal(validateHrProfileForm(form, "stl"), "Other benefits is required");
@@ -72,15 +73,28 @@ describe("HR profile form", () => {
       "Aisha",
       "stl",
     );
-    assert.equal(form.otherBenefits, "800");
+    assert.equal(form.otherBenefits, "1200");
     assert.equal(form.totalSalary, "2000");
-    assert.equal(stlTotalSalary({ basicSalary: "800", overtimeSalary: "", otherBenefits: "200" }), "1000");
+    assert.equal(stlTotalSalary({ basicSalary: "800", otherBenefits: "200" }), "1000");
     const payload = hrProfilePayload(
-      { ...form, overtimeSalary: "100", otherBenefits: "200" },
+      { ...form, otherBenefits: "200" },
       "stl",
     );
-    assert.equal(payload.totalSalary, 1100);
-    assert.equal(payload.overtimeSalary, 100);
+    assert.equal(payload.totalSalary, 1000);
+    assert.equal(payload.overtimeSalary, 400);
     assert.equal(payload.otherBenefits, 200);
+    assert.equal("visaCost" in payload, false);
+    assert.equal("visaDetails" in payload, false);
+  });
+
+  it("uses the EID expiry as the visa expiry", () => {
+    const form = hrProfileToForm(
+      { eidExpiry: "2028-05-01", visaExpiry: "2020-01-01", visaNumber: "UID-9" },
+      "Aisha",
+    );
+    assert.equal(form.visaExpiry, "2028-05-01");
+    const payload = hrProfilePayload({ ...form, eidExpiry: "2029-06-01", visaExpiry: "2020-01-01" });
+    assert.equal(payload.visaExpiry, "2029-06-01");
+    assert.equal(payload.eidExpiry, "2029-06-01");
   });
 });

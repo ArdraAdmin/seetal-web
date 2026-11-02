@@ -11,8 +11,18 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { getProfile, getSalesLeave, getSalesProfiles, updateSalesProfile } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { SharjahPermitFields } from "@/components/HrProfileFields";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
+import { portalFieldVisible } from "@/lib/custom-users";
+import {
+  emptySharjahPermit,
+  loadSharjahPermit,
+  saveSharjahPermit,
+  type SharjahPermitState,
+} from "@/lib/sharjah-permit";
+import { uploadHrFile } from "@/lib/stl-features-api";
+import { parseReturnTo } from "@/lib/user-management";
 import {
   shmpAccessUser,
   shmpAccessUsers,
@@ -58,8 +68,14 @@ function UserDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const supervisor = isSupervisor(user);
-  const backHref = supervisor ? "/shmp/attendance" : "/shmp/hr";
-  const backLabel = supervisor ? "Back to attendance" : "Back to HR";
+  const showSalary = portalFieldVisible(user?.customAccess, "shmp", "hr", "salary");
+  const returnTo = parseReturnTo(searchParams.get("returnTo"));
+  const backHref = returnTo || (supervisor ? "/shmp/attendance" : "/shmp/hr");
+  const backLabel = returnTo
+    ? "Back to user management"
+    : supervisor
+      ? "Back to attendance"
+      : "Back to HR";
   const id = String(params?.id || "");
   const [accessUser, setAccessUser] = useState<ShmpAccessUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +84,9 @@ function UserDetail() {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
+  const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
+  const [savedPermit, setSavedPermit] = useState<SharjahPermitState>(emptySharjahPermit);
+  const [permitReady, setPermitReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [leaveSummary, setLeaveSummary] = useState<string | null>(null);
 
@@ -122,6 +141,16 @@ function UserDetail() {
       setName(found.name || "");
       setMobile(found.mobileNumber || "");
       setPassword("");
+      if (user?.id && !supervisor) {
+        const loaded = await loadSharjahPermit(user.id, found._id);
+        if (loaded) {
+          setPermit(loaded);
+          setSavedPermit(loaded);
+          setPermitReady(true);
+        } else {
+          setPermitReady(false);
+        }
+      }
       if (trackedAccessRole(found.role)) {
         const leave = await getSalesLeave(found._id).catch(() => null);
         const bal = leave?.balance;
@@ -139,7 +168,7 @@ function UserDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id, supervisor]);
+  }, [id, supervisor, user?.id]);
 
   useEffect(() => {
     void load();
@@ -163,6 +192,17 @@ function UserDetail() {
         await shmpUpdateAccessUser(id, body);
       } catch {
         await updateSalesProfile(id, body);
+      }
+      const permitChanged =
+        permit.expiry !== savedPermit.expiry || permit.file?.key !== savedPermit.file?.key;
+      if (permitReady && permitChanged && user?.id) {
+        await saveSharjahPermit({
+          adminUserId: user.id,
+          personId: id,
+          scope: "shmp",
+          permit,
+          fallbackName: name.trim(),
+        });
       }
       toast("User updated", "success");
       setPassword("");
@@ -238,6 +278,17 @@ function UserDetail() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Leave blank to keep current"
           />
+          <SharjahPermitFields
+            expiry={permit.expiry}
+            file={permit.file}
+            disabled={saving || !permitReady}
+            onExpiryChange={(expiry) => setPermit((current) => ({ ...current, expiry }))}
+            onFileChange={(file) => setPermit((current) => ({ ...current, file }))}
+            onUpload={(selected) => {
+              if (!user?.id) return Promise.reject(new Error("Sign in again"));
+              return uploadHrFile(user.id, selected);
+            }}
+          />
           <div className="flex items-end gap-2 sm:col-span-2">
             <PrimaryButton type="submit" disabled={saving}>
               {saving ? "Saving…" : "Save changes"}
@@ -249,6 +300,7 @@ function UserDetail() {
                 setName(accessUser.name || "");
                 setMobile(accessUser.mobileNumber || "");
                 setPassword("");
+                setPermit(savedPermit);
                 router.replace(`/shmp/hr/user/${id}`);
               }}
             >
@@ -270,6 +322,19 @@ function UserDetail() {
             {leaveSummary ? (
               <DetailField label="Leave balance" value={leaveSummary} />
             ) : null}
+            <DetailField label="Sharjah permit expiry" value={permit.expiry || undefined} />
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">Sharjah permit</dt>
+              <dd className="mt-1 font-medium break-all text-ink">
+                {permit.file?.url ? (
+                  <a href={permit.file.url} target="_blank" rel="noreferrer" className="underline">
+                    {permit.file.fileName}
+                  </a>
+                ) : (
+                  permit.file?.fileName || "—"
+                )}
+              </dd>
+            </div>
           </dl>
         </div>
       )}
@@ -283,7 +348,7 @@ function UserDetail() {
       )}
 
       {!supervisor ? <HrUserDocuments personId={id} scope="shmp" /> : null}
-      {!supervisor ? <SalarySlipCard kind="user" personId={id} /> : null}
+      {!supervisor && showSalary ? <SalarySlipCard kind="user" personId={id} /> : null}
     </div>
   );
 }

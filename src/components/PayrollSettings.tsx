@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { SelectField } from "@/components/StlFeatureUi";
@@ -14,7 +15,7 @@ import {
   TextField,
 } from "@/components/ui";
 import { companyLabel, getCompanies, type CompanyRecord } from "@/lib/api";
-import { filterCompaniesForModule } from "@/lib/custom-users";
+import { filterCompaniesForModule, portalFieldVisible } from "@/lib/custom-users";
 import {
   addPublicHoliday,
   deletePublicHoliday,
@@ -89,7 +90,14 @@ function sourceLabel(source?: PayrollConfig["source"]) {
 
 export function PayrollSettings() {
   const { user } = useAuth();
+  const pathname = usePathname();
   const { toast } = useToast();
+  const salaryVisible = portalFieldVisible(
+    user?.customAccess,
+    pathname.startsWith("/shmp") ? "shmp" : "selling",
+    "hr",
+    "salary",
+  );
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [companyId, setCompanyId] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -221,6 +229,17 @@ export function PayrollSettings() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!salaryVisible) {
+    return (
+      <div>
+        <PageHeader
+          title="Payroll settings"
+          subtitle="Salary is not included for this account."
+        />
+      </div>
+    );
   }
 
   return (

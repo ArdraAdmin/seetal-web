@@ -1319,6 +1319,7 @@ export const createMasterCategory = (body: {
 
 export const createSubCategory = (body: {
   masterCategoryId: string;
+  masterCategoryName: string;
   subCategory: string;
   awsMasterCatDir: string;
   awsSubCatDir: string;
@@ -1341,9 +1342,18 @@ export const editSubCategory = (body: Record<string, unknown>) =>
   });
 
 export const deleteSubCategory = (catId: string) =>
-  request<unknown>("/admin/category/delete", {
+  siteRequest<{ deleted: true }>("/api/admin/categories/delete", {
     method: "POST",
     body: JSON.stringify({ catId }),
+  });
+
+export const deleteMasterCategory = (body: {
+  masterCategoryId: string;
+  masterCategoryName: string;
+}) =>
+  siteRequest<{ deletedSubcategories: number }>("/api/admin/categories/delete", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 
 // —— Pending orders ——

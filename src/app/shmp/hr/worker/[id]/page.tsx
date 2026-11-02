@@ -12,6 +12,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
+import { portalFieldVisible } from "@/lib/custom-users";
+import { parseReturnTo } from "@/lib/user-management";
 import {
   shmpEmployee,
   shmpEmployees,
@@ -63,9 +65,16 @@ function WorkerDetail() {
   const router = useRouter();
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
+  const showVisa = portalFieldVisible(user?.customAccess, "shmp", "hr", "visa");
+  const showSalary = portalFieldVisible(user?.customAccess, "shmp", "hr", "salary");
   const { toast } = useToast();
-  const backHref = supervisor ? "/shmp/attendance" : "/shmp/hr";
-  const backLabel = supervisor ? "Back to attendance" : "Back to HR";
+  const returnTo = parseReturnTo(searchParams.get("returnTo"));
+  const backHref = returnTo || (supervisor ? "/shmp/attendance" : "/shmp/hr");
+  const backLabel = returnTo
+    ? "Back to user management"
+    : supervisor
+      ? "Back to attendance"
+      : "Back to HR";
   const id = String(params?.id || "");
   const [emp, setEmp] = useState<Emp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -294,17 +303,19 @@ function WorkerDetail() {
             <DetailField label="Annual leave remaining" value={leave.annual} />
             <DetailField label="Sick leave remaining" value={leave.sick} />
             <DetailField label="Years worked" value={emp.visa?.yearsWorked} />
+            {showVisa ? (
             <DetailField
               label="Visa expiry"
               value={emp.visa?.expiry ? emp.visa.expiry.slice(0, 10) : undefined}
             />
+            ) : null}
           </dl>
         </div>
       )}
 
       <AttendanceHistory kind="worker" personId={id} />
       {!supervisor ? <HrEmployeeDocuments personId={id} /> : null}
-      {!supervisor ? <SalarySlipCard kind="employee" personId={id} /> : null}
+      {!supervisor && showSalary ? <SalarySlipCard kind="employee" personId={id} /> : null}
     </div>
   );
 }

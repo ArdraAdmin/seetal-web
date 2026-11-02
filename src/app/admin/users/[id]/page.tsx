@@ -3,5 +3,5 @@
 import { CustomUserEditor } from "@/components/CustomUserEditor";
 
 export default function EditAdminUserPage() {
-  return <CustomUserEditor basePath="/admin/users" />;
+  return <CustomUserEditor basePath="/admin/users" side="admin" />;
 }

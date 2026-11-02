@@ -21,9 +21,11 @@ import {
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 import { ExpiryAlertDialog } from "@/components/ExpiryAlertDialog";
 import { CompanySwitcher } from "@/components/StlFeatureUi";
 import { ErrorState, SecondaryButton } from "@/components/ui";
+import { portalFieldVisible } from "@/lib/custom-users";
 import type { DashboardStats } from "@/lib/api";
 import { monthlySalesHref, salesmanBreakdownHref } from "@/lib/admin-kpi";
 import {
@@ -105,6 +107,9 @@ export function KpiDashboard({
   mulkyaAlerts: ExpiryAlertRow[];
   mulkyaLoading: boolean;
 }) {
+  const { user } = useAuth();
+  const show = (fieldId: string) =>
+    portalFieldVisible(user?.customAccess, "selling", "dashboard", fieldId);
   const [openAlert, setOpenAlert] = useState<
     "mulkya" | "visa" | "passport" | "eid" | "insurance" | "sharjah" | null
   >(null);
@@ -197,11 +202,16 @@ export function KpiDashboard({
         <ErrorState message={kpiError} onRetry={onRetryKpi} />
       ) : null}
 
+      {show("this-month") ||
+      show("inventory-value") ||
+      show("top-salesman") ||
+      show("sales-lost") ? (
       <section className="space-y-3">
         <SectionLabel>Performance</SectionLabel>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {kpi && thisMonth && month ? (
             <>
+              {show("this-month") ? (
               <HeroCard
                 label="This month"
                 icon={TrendingUp}
@@ -220,6 +230,8 @@ export function KpiDashboard({
                   }`}
                 </p>
               </HeroCard>
+              ) : null}
+              {show("inventory-value") ? (
               <HeroCard
                 label="Inventory value"
                 icon={Warehouse}
@@ -227,6 +239,8 @@ export function KpiDashboard({
                 detail={inventory?.abbreviated ? inventory.full : undefined}
                 href="/admin/inventory"
               />
+              ) : null}
+              {show("top-salesman") ? (
               <HeroCard
                 label="Top salesman"
                 icon={Trophy}
@@ -243,6 +257,8 @@ export function KpiDashboard({
                   />
                 ) : null}
               </HeroCard>
+              ) : null}
+              {show("sales-lost") ? (
               <HeroCard
                 label="Sales lost"
                 icon={PackageX}
@@ -255,71 +271,98 @@ export function KpiDashboard({
                 href="/admin/sales-lost"
                 alert={kpi.salesLost.totalLost > 0}
               />
+              ) : null}
             </>
           ) : (
             <>
-              <HeroSkeleton />
-              <HeroSkeleton />
-              <HeroSkeleton />
-              <HeroSkeleton />
+              {show("this-month") ? <HeroSkeleton /> : null}
+              {show("inventory-value") ? <HeroSkeleton /> : null}
+              {show("top-salesman") ? <HeroSkeleton /> : null}
+              {show("sales-lost") ? <HeroSkeleton /> : null}
             </>
           )}
         </div>
       </section>
+      ) : null}
 
+      {show("mulkiya") ||
+      show("visa") ||
+      show("passport") ||
+      show("eid") ||
+      show("insurance") ||
+      show("sharjah") ||
+      show("trade-license") ||
+      show("pending-approvals") ? (
       <section className="space-y-3">
         <SectionLabel>Needs attention</SectionLabel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {show("mulkiya") ? (
           <AttentionCard
             label="Mulkiya expiring"
             icon={Car}
             value={mulkyaLoading ? undefined : mulkyaAlerts.length}
             onOpen={() => setOpenAlert("mulkya")}
           />
+          ) : null}
+          {show("visa") ? (
           <AttentionCard
             label="Visa expiring"
             icon={IdCard}
             value={kpi ? visaAlerts.length : undefined}
             onOpen={() => setOpenAlert("visa")}
           />
+          ) : null}
+          {show("passport") ? (
           <AttentionCard
             label="Passport expiring"
             icon={FileText}
             value={kpi ? passportAlerts.length : undefined}
             onOpen={() => setOpenAlert("passport")}
           />
+          ) : null}
+          {show("eid") ? (
           <AttentionCard
             label="EID expiring"
             icon={Shield}
             value={kpi ? eidAlerts.length : undefined}
             onOpen={() => setOpenAlert("eid")}
           />
+          ) : null}
+          {show("insurance") ? (
           <AttentionCard
             label="Insurance expiring"
             icon={ShieldCheck}
             value={kpi ? insuranceAlerts.length : undefined}
             onOpen={() => setOpenAlert("insurance")}
           />
+          ) : null}
+          {show("sharjah") ? (
           <AttentionCard
             label="Sharjah permit expiring"
             icon={Landmark}
             value={kpi ? sharjahAlerts.length : undefined}
             onOpen={() => setOpenAlert("sharjah")}
           />
+          ) : null}
+          {show("trade-license") ? (
           <AttentionCard
-            label="Expired trade licenses"
+            label="Trade license expiring"
             icon={AlertTriangle}
             value={stats.expiredTradeLicenses}
             href="/admin/stores?license=expired"
           />
+          ) : null}
+          {show("pending-approvals") ? (
           <AttentionCard
             label="Pending approvals"
             icon={ShieldCheck}
             value={stats.pendingApprovals}
             href="/admin/approvals"
           />
+          ) : null}
         </div>
       </section>
+      ) : null}
 
       <ExpiryAlertDialog
         open={openAlert === "mulkya"}
@@ -374,14 +417,16 @@ export function KpiDashboard({
         <ErrorState message={statsError} onRetry={onRetryStats} />
       ) : null}
 
+      {show("users") || show("stores") || show("warehouse-users") || show("inventory-skus") ? (
       <section className="space-y-3">
         <SectionLabel>Operations</SectionLabel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {show("users") ? (
           <CountCard
             label="Users"
             icon={Users}
             value={users ? formatCount(users.total) : undefined}
-            href="/admin/profiles/sales"
+            href={user?.customAccess ? undefined : "/admin/users?group=sales"}
           >
             {users ? (
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -392,6 +437,8 @@ export function KpiDashboard({
               </div>
             ) : null}
           </CountCard>
+          ) : null}
+          {show("stores") ? (
           <CountCard
             label="Stores"
             icon={Store}
@@ -402,6 +449,8 @@ export function KpiDashboard({
             }
             href="/admin/stores"
           />
+          ) : null}
+          {show("warehouse-users") ? (
           <CountCard
             label="Warehouse users"
             icon={UserCog}
@@ -412,8 +461,10 @@ export function KpiDashboard({
                   ? formatCount(users.warehouse)
                   : undefined
             }
-            href="/admin/profiles/warehouse"
+            href={user?.customAccess ? undefined : "/admin/users?group=warehouse"}
           />
+          ) : null}
+          {show("inventory-skus") ? (
           <CountCard
             label="Inventory SKUs"
             icon={Package}
@@ -424,13 +475,20 @@ export function KpiDashboard({
             }
             href="/admin/inventory"
           />
+          ) : null}
         </div>
       </section>
+      ) : null}
 
+      {show("monthly-sales") ||
+      show("user-mix") ||
+      show("top-products") ||
+      show("sales-by-salesman") ? (
       <section className="space-y-3">
         <SectionLabel>Insights</SectionLabel>
         {kpi ? (
           <div className="grid gap-4 lg:grid-cols-2">
+            {show("monthly-sales") ? (
             <Panel title="Monthly sales" href={monthHref}>
               {month ? (
                 <ul className="mt-5 space-y-4">
@@ -450,6 +508,8 @@ export function KpiDashboard({
                 <EmptyNote>No monthly sales yet.</EmptyNote>
               )}
             </Panel>
+            ) : null}
+            {show("user-mix") ? (
             <Panel title="User mix">
               {users && users.total > 0 ? (
                 <UserMix users={users} />
@@ -457,6 +517,8 @@ export function KpiDashboard({
                 <EmptyNote>No users to show.</EmptyNote>
               )}
             </Panel>
+            ) : null}
+            {show("top-products") ? (
             <Panel title="Top products">
               {kpi.topProducts.length === 0 ? (
                 <EmptyNote>No product sales this month.</EmptyNote>
@@ -475,6 +537,8 @@ export function KpiDashboard({
                 </ol>
               )}
             </Panel>
+            ) : null}
+            {show("sales-by-salesman") ? (
             <Panel title="Sales by salesman">
               {kpi.salesmanGraph.length === 0 ? (
                 <EmptyNote>No salesman totals this month.</EmptyNote>
@@ -512,16 +576,18 @@ export function KpiDashboard({
                 </>
               )}
             </Panel>
+            ) : null}
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            <PanelSkeleton />
-            <PanelSkeleton />
-            <PanelSkeleton />
-            <PanelSkeleton />
+            {show("monthly-sales") ? <PanelSkeleton /> : null}
+            {show("user-mix") ? <PanelSkeleton /> : null}
+            {show("top-products") ? <PanelSkeleton /> : null}
+            {show("sales-by-salesman") ? <PanelSkeleton /> : null}
           </div>
         )}
       </section>
+      ) : null}
     </div>
   );
 }
@@ -664,14 +730,13 @@ function CountCard({
   label: string;
   icon: LucideIcon;
   value: string | undefined;
-  href: string;
+  href?: string;
   children?: ReactNode;
 }) {
-  return (
-    <Link
-      href={href}
-      className="block rounded-2xl border border-line bg-white p-4 shadow-[0_1px_2px_rgba(14,58,50,0.04)] transition hover:border-brand/40 hover:bg-[#faf8f3]"
-    >
+  const className =
+    "block rounded-2xl border border-line bg-white p-4 shadow-[0_1px_2px_rgba(14,58,50,0.04)]";
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
           {label}
@@ -686,6 +751,12 @@ function CountCard({
         </p>
       )}
       {children}
+    </>
+  );
+  if (!href) return <div className={className}>{body}</div>;
+  return (
+    <Link href={href} className={`${className} transition hover:border-brand/40 hover:bg-[#faf8f3]`}>
+      {body}
     </Link>
   );
 }

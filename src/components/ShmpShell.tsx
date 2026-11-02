@@ -28,7 +28,7 @@ import {
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { isSupervisor } from "@/lib/auth";
-import { shmpModuleVisible } from "@/lib/custom-users";
+import { portalFieldVisible, shmpModuleVisible } from "@/lib/custom-users";
 import { navItemActive } from "@/lib/nav-active";
 import { canSupervisorAccessShmpPath } from "@/lib/supervisor-shmp-access";
 
@@ -40,6 +40,7 @@ type NavItem = {
   icon: NavIcon;
   match?: string[];
   moduleId?: string;
+  fieldId?: string;
   fullAdminOnly?: boolean;
 };
 
@@ -51,6 +52,7 @@ const NAV: NavItem[] = [
     label: "Payroll settings",
     icon: Banknote,
     moduleId: "hr",
+    fieldId: "salary",
   },
   { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
   { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" },
@@ -116,9 +118,16 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
     }
     if (supervisor) return canSupervisorAccessShmpPath(item.href);
     if (user?.customAccess) {
-      return Boolean(
-        item.moduleId && shmpModuleVisible(user.customAccess, item.moduleId),
-      );
+      if (!item.moduleId || !shmpModuleVisible(user.customAccess, item.moduleId)) {
+        return false;
+      }
+      if (
+        item.fieldId &&
+        !portalFieldVisible(user.customAccess, "shmp", item.moduleId, item.fieldId)
+      ) {
+        return false;
+      }
+      return true;
     }
     return true;
   });

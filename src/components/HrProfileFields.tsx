@@ -77,6 +77,14 @@ function FileField({
   );
 }
 
+export type HrFieldVisibility = {
+  salary?: boolean;
+  passport?: boolean;
+  eid?: boolean;
+  visa?: boolean;
+  insurance?: boolean;
+};
+
 export function HrProfileFields({
   form,
   onChange,
@@ -84,6 +92,7 @@ export function HrProfileFields({
   onUpload,
   showCompany = false,
   scope,
+  shown,
 }: {
   form: HrProfileFormState;
   onChange: (form: HrProfileFormState) => void;
@@ -91,7 +100,13 @@ export function HrProfileFields({
   onUpload: (file: File) => Promise<HrFileRef>;
   showCompany?: boolean;
   scope: HrSalaryScope;
+  shown?: HrFieldVisibility;
 }) {
+  const showSalary = shown?.salary !== false;
+  const showPassport = shown?.passport !== false;
+  const showEid = shown?.eid !== false;
+  const showVisa = shown?.visa !== false;
+  const showInsurance = shown?.insurance !== false;
   function set<K extends keyof HrProfileFormState>(key: K, value: HrProfileFormState[K]) {
     onChange({ ...form, [key]: value });
   }
@@ -101,7 +116,7 @@ export function HrProfileFields({
   }
 
   function setSalary(
-    key: "basicSalary" | "overtimeSalary" | "otherBenefits" | "totalSalary",
+    key: "basicSalary" | "otherBenefits" | "totalSalary",
     value: string,
   ) {
     const next = { ...form, [key]: value };
@@ -111,8 +126,13 @@ export function HrProfileFields({
     onChange(next);
   }
 
-  function salary(key: "basicSalary" | "overtimeSalary" | "otherBenefits" | "totalSalary") {
+  function salary(key: "basicSalary" | "otherBenefits" | "totalSalary") {
     return (event: ChangeEvent<HTMLInputElement>) => setSalary(key, event.target.value);
+  }
+
+  function onEidExpiry(event: ChangeEvent<HTMLInputElement>) {
+    const eidExpiry = event.target.value;
+    onChange({ ...form, eidExpiry, visaExpiry: eidExpiry });
   }
 
   return (
@@ -120,6 +140,8 @@ export function HrProfileFields({
       <section className="grid gap-3 sm:grid-cols-2">
         <TextField label="Name as per visa" required value={form.visaName} disabled={disabled} onChange={text("visaName")} />
         <TextField label="Designation as per visa" required value={form.visaDesignation} disabled={disabled} onChange={text("visaDesignation")} />
+        {showSalary ? (
+        <>
         <TextField
           label="Basic salary (AED)"
           type="number"
@@ -130,22 +152,6 @@ export function HrProfileFields({
           disabled={disabled}
           onChange={salary("basicSalary")}
         />
-        <div>
-          <TextField
-            label="Overtime (AED)"
-            type="number"
-            min={0}
-            step="0.01"
-            required={scope === "shmp"}
-            optional={scope === "stl"}
-            value={form.overtimeSalary}
-            disabled={disabled}
-            onChange={salary("overtimeSalary")}
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            Contractual monthly overtime. Actual overtime on the salary slip is calculated from attendance.
-          </p>
-        </div>
         {scope === "stl" ? (
           <TextField
             label="Other benefits (AED)"
@@ -172,7 +178,7 @@ export function HrProfileFields({
           />
           <p className="mt-1 text-xs text-slate-500">
             {scope === "stl"
-              ? "Automatically calculated as basic salary + overtime + other benefits."
+              ? "Automatically calculated as basic salary + other benefits."
               : "Predefined monthly salary. Statutory overtime is calculated from attendance at month end."}
           </p>
         </div>
@@ -182,8 +188,11 @@ export function HrProfileFields({
             Company payment for each Sunday worked, separate from statutory Sunday overtime. Leave blank to use the payroll default, usually AED 80 or AED 100.
           </p>
         </div>
+        </>
+        ) : null}
       </section>
 
+      {showPassport ? (
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-ink">Passport</h3>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -193,28 +202,39 @@ export function HrProfileFields({
           <FileField label="Passport-size photo" optional value={form.photo} disabled={disabled} onUpload={onUpload} onChange={(file) => set("photo", file)} />
         </div>
       </section>
+      ) : null}
 
+      {showEid ? (
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-ink">Emirates ID</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <TextField label="EID number" required value={form.eidNumber} disabled={disabled} onChange={text("eidNumber")} />
-          <TextField label="EID expiry" type="date" required value={form.eidExpiry} disabled={disabled} onChange={text("eidExpiry")} />
+          <TextField label="EID expiry" type="date" required value={form.eidExpiry} disabled={disabled} onChange={onEidExpiry} />
           <FileField label="EID copy" required value={form.eidCopy} disabled={disabled} onUpload={onUpload} onChange={(file) => set("eidCopy", file)} />
         </div>
       </section>
+      ) : null}
 
+      {showVisa ? (
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-ink">Visa</h3>
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label="Visa number" optional value={form.visaNumber} disabled={disabled} onChange={text("visaNumber")} />
-          <TextField label="Visa expiry" type="date" optional value={form.visaExpiry} disabled={disabled} onChange={text("visaExpiry")} />
+          <TextField label="Visa UID number" required value={form.visaNumber} disabled={disabled} onChange={text("visaNumber")} />
+          {showEid ? (
+            <div>
+              <TextField label="Visa expiry" type="date" readOnly value={form.eidExpiry} disabled />
+              <p className="mt-1 text-xs text-slate-500">Same as the EID expiry.</p>
+            </div>
+          ) : (
+            <TextField label="Visa expiry" type="date" optional value={form.visaExpiry} disabled={disabled} onChange={text("visaExpiry")} />
+          )}
           <TextField label="Visa application year" type="number" optional value={form.visaApplicationYear} disabled={disabled} onChange={text("visaApplicationYear")} />
-          <TextField label="Visa cost (AED)" type="number" min={0} step="0.01" optional value={form.visaCost} disabled={disabled} onChange={text("visaCost")} />
-          <TextField label="Visa details" optional value={form.visaDetails} disabled={disabled} onChange={text("visaDetails")} />
           <FileField label="Visa copy" required value={form.visaCopy} disabled={disabled} onUpload={onUpload} onChange={(file) => set("visaCopy", file)} />
         </div>
       </section>
+      ) : null}
 
+      {showInsurance ? (
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-ink">Insurance and contract</h3>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -228,15 +248,7 @@ export function HrProfileFields({
           <FileField label="Offer letter" optional value={form.offerLetter} disabled={disabled} onUpload={onUpload} onChange={(file) => set("offerLetter", file)} />
         </div>
       </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-ink">Sharjah permit</h3>
-        <p className="text-xs text-slate-500">Optional. If an expiry date is set, the dashboard warns 15 days before it.</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label="Sharjah permit expiry" type="date" optional value={form.sharjahPermitExpiry} disabled={disabled} onChange={text("sharjahPermitExpiry")} />
-          <FileField label="Sharjah permit" optional value={form.sharjahPermitCopy} disabled={disabled} onUpload={onUpload} onChange={(file) => set("sharjahPermitCopy", file)} />
-        </div>
-      </section>
+      ) : null}
 
       {showCompany ? (
         <section className="grid gap-3 sm:grid-cols-2">
@@ -244,5 +256,46 @@ export function HrProfileFields({
         </section>
       ) : null}
     </div>
+  );
+}
+
+export function SharjahPermitFields({
+  expiry,
+  file,
+  disabled,
+  onUpload,
+  onExpiryChange,
+  onFileChange,
+}: {
+  expiry: string;
+  file: HrFileRef | null;
+  disabled?: boolean;
+  onUpload: (file: File) => Promise<HrFileRef>;
+  onExpiryChange: (value: string) => void;
+  onFileChange: (file: HrFileRef | null) => void;
+}) {
+  return (
+    <section className="space-y-3 sm:col-span-2">
+      <h3 className="text-sm font-semibold text-ink">Sharjah permit</h3>
+      <p className="text-xs text-slate-500">Optional. If an expiry date is set, the dashboard warns 15 days before it.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <TextField
+          label="Sharjah permit expiry"
+          type="date"
+          optional
+          value={expiry}
+          disabled={disabled}
+          onChange={(event) => onExpiryChange(event.target.value)}
+        />
+        <FileField
+          label="Sharjah permit"
+          optional
+          value={file}
+          disabled={disabled}
+          onUpload={onUpload}
+          onChange={onFileChange}
+        />
+      </div>
+    </section>
   );
 }

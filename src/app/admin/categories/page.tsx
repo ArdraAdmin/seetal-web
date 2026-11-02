@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createMasterCategory,
   createSubCategory,
+  deleteMasterCategory,
   deleteSubCategory,
   editMasterCategory,
   editSubCategory,
@@ -16,6 +17,7 @@ import type { ProfileUser } from "@/lib/types";
 import {
   parseCategoryGroups,
   parseMasterCategories,
+  buildCreateSubCategoryBody,
   slugDir,
   type CategoryGroup,
   type CategoryRecord,
@@ -50,6 +52,7 @@ export default function CategoriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<FormMode>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
   const [openNames, setOpenNames] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({
     masterCategoryName: "",
@@ -177,26 +180,32 @@ export default function CategoriesPage() {
     setSaving(true);
     try {
       if (mode.kind === "add-master") {
-        if (!form.masterCategoryName.trim() || !form.awsMasterCatDir.trim()) {
-          toast("Name and AWS directory are required", "info");
+        const name = form.masterCategoryName.trim();
+        const dir = slugDir(name);
+        if (!name) {
+          toast("Category name is required", "info");
+          return;
+        }
+        if (!dir) {
+          toast("Category name must include letters or numbers", "info");
           return;
         }
         await createMasterCategory({
-          masterCategoryName: form.masterCategoryName.trim(),
-          awsMasterCatDir: form.awsMasterCatDir.trim(),
+          masterCategoryName: name,
+          awsMasterCatDir: dir,
         });
         toast("Category created", "success");
       } else if (mode.kind === "add-sub") {
-        if (!form.masterCategoryId || !form.subCategory.trim() || !form.awsSubCatDir.trim()) {
-          toast("Master category, subcategory, and AWS directory are required", "info");
+        const body = buildCreateSubCategoryBody(form);
+        if (!body.masterCategoryId || !body.masterCategoryName || !body.subCategory) {
+          toast("Master category and subcategory are required", "info");
           return;
         }
-        await createSubCategory({
-          masterCategoryId: form.masterCategoryId,
-          subCategory: form.subCategory.trim(),
-          awsMasterCatDir: form.awsMasterCatDir.trim(),
-          awsSubCatDir: form.awsSubCatDir.trim(),
-        });
+        if (!body.awsSubCatDir) {
+          toast("Subcategory name must include letters or numbers", "info");
+          return;
+        }
+        await createSubCategory(body);
         toast("Subcategory created", "success");
       } else if (mode.kind === "edit-master") {
         if (!form.categoryManager) {
@@ -236,17 +245,40 @@ export default function CategoriesPage() {
     }
   }
 
+  async function onDeleteMaster(group: CategoryGroup) {
+    const name = group.name || "this category";
+    const confirmed = window.confirm(
+      `This will delete the entire category "${name}" and its attached subcategories.`,
+    );
+    if (!confirmed) return;
+    setDeletingName(name);
+    try {
+      await deleteMasterCategory({
+        masterCategoryId: group.masterCategoryId,
+        masterCategoryName: group.name,
+      });
+      if (
+        mode &&
+        (mode.kind === "edit-master" || mode.kind === "edit-sub") &&
+        mode.group.name === group.name
+      ) {
+        setMode(null);
+      }
+      toast("Category deleted", "success");
+      await load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setDeletingName(null);
+    }
+  }
+
   async function onDelete(item: CategoryRecord) {
     if (!item._id) return;
     if (!confirm(`Delete "${item.subCategory || "this subcategory"}"?`)) return;
     try {
-      const result = await deleteSubCategory(item._id);
-      toast(
-        typeof result === "string" && result.trim()
-          ? result.replace(/"/g, "")
-          : "Subcategory updated",
-        "success",
-      );
+      await deleteSubCategory(item._id);
+      toast("Subcategory deleted", "success");
       await load();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Delete failed", "error");
@@ -298,30 +330,17 @@ export default function CategoriesPage() {
           </h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {mode.kind === "add-master" || mode.kind === "edit-master" ? (
-              <>
-                <TextField
-                  label="Category name"
-                  required
-                  value={form.masterCategoryName}
-                  onChange={(e) => {
-                    const name = e.target.value;
-                    setForm((current) => ({
-                      ...current,
-                      masterCategoryName: name,
-                      awsMasterCatDir:
-                        mode.kind === "add-master" ? slugDir(name) : current.awsMasterCatDir,
-                    }));
-                  }}
-                />
-                <TextField
-                  label="AWS directory"
-                  required
-                  value={form.awsMasterCatDir}
-                  onChange={(e) =>
-                    setForm({ ...form, awsMasterCatDir: e.target.value })
-                  }
-                />
-              </>
+              <TextField
+                label="Category name"
+                required
+                value={form.masterCategoryName}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    masterCategoryName: e.target.value,
+                  }))
+                }
+              />
             ) : null}
             {mode.kind === "add-sub" || mode.kind === "edit-sub" ? (
               <>
@@ -350,23 +369,12 @@ export default function CategoriesPage() {
                   label="Subcategory"
                   required
                   value={form.subCategory}
-                  onChange={(e) => {
-                    const name = e.target.value;
+                  onChange={(e) =>
                     setForm((current) => ({
                       ...current,
-                      subCategory: name,
-                      awsSubCatDir:
-                        mode.kind === "add-sub"
-                          ? name.replace(/[^A-Za-z0-9]+/g, "").toLowerCase()
-                          : current.awsSubCatDir,
-                    }));
-                  }}
-                />
-                <TextField
-                  label="AWS subdirectory"
-                  required
-                  value={form.awsSubCatDir}
-                  onChange={(e) => setForm({ ...form, awsSubCatDir: e.target.value })}
+                      subCategory: e.target.value,
+                    }))
+                  }
                 />
               </>
             ) : null}
@@ -435,12 +443,23 @@ export default function CategoriesPage() {
                       {group.items.length === 1 ? "y" : "ies"}
                     </p>
                   </button>
-                  <SecondaryButton
-                    type="button"
-                    onClick={() => startEditMaster(group)}
-                  >
-                    Edit
-                  </SecondaryButton>
+                  <div className="flex gap-2">
+                    <SecondaryButton
+                      type="button"
+                      disabled={deletingName === group.name}
+                      onClick={() => startEditMaster(group)}
+                    >
+                      Edit
+                    </SecondaryButton>
+                    <SecondaryButton
+                      type="button"
+                      className="border-red-200 text-red-700"
+                      disabled={deletingName === group.name}
+                      onClick={() => void onDeleteMaster(group)}
+                    >
+                      {deletingName === group.name ? "Deleting…" : "Delete"}
+                    </SecondaryButton>
+                  </div>
                 </div>
                 {open ? (
                   <ul className="divide-y divide-line border-t border-line">
@@ -449,16 +468,9 @@ export default function CategoriesPage() {
                         key={item._id || `${group.name}-${item.subCategory || index}`}
                         className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
                       >
-                        <div>
-                          <p className="text-sm font-medium text-black">
-                            {item.subCategory || "Untitled"}
-                          </p>
-                          {item.awsSubCatDir ? (
-                            <p className="text-xs text-slate-500">
-                              {item.awsSubCatDir}
-                            </p>
-                          ) : null}
-                        </div>
+                        <p className="text-sm font-medium text-black">
+                          {item.subCategory || "Untitled"}
+                        </p>
                         <div className="flex gap-2">
                           <SecondaryButton
                             type="button"

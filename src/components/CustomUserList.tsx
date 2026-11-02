@@ -5,8 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import { listCustomUsers } from "@/lib/custom-users-api";
 import {
   CUSTOM_COMPANY_LABELS,
-  enabledModuleCount,
+  companiesForSide,
+  sideModuleCount,
+  userMatchesSide,
   type CustomUserRecord,
+  type UserListSide,
 } from "@/lib/custom-users";
 import {
   EmptyState,
@@ -17,7 +20,15 @@ import {
   TextField,
 } from "@/components/ui";
 
-export function CustomUserList({ basePath }: { basePath: string }) {
+export function CustomUserList({
+  basePath,
+  side,
+  embedded = false,
+}: {
+  basePath: string;
+  side: UserListSide;
+  embedded?: boolean;
+}) {
   const [users, setUsers] = useState<CustomUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,41 +65,45 @@ export function CustomUserList({ basePath }: { basePath: string }) {
     };
   }, []);
 
+  const scoped = users.filter((user) => userMatchesSide(user.companies, side));
   const term = query.trim().toLowerCase();
   const rows = term
-    ? users.filter((user) =>
+    ? scoped.filter((user) =>
         `${user.name} ${user.email} ${user.companies.join(" ")}`
           .toLowerCase()
           .includes(term),
       )
-    : users;
+    : scoped;
+  const sideCompanies = companiesForSide(side);
 
   return (
     <div>
-      <PageHeader
-        title="User management"
-        subtitle="Create a person, choose their companies, then turn on the modules they can open."
-        actions={
-          <div className="flex gap-2">
-            <SecondaryButton
-              type="button"
-              disabled={loading}
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
-            >
-              Refresh
-            </SecondaryButton>
-            <Link
-              href={`${basePath}/new`}
-              className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
-            >
-              Create user
-            </Link>
-          </div>
-        }
-      />
+      {embedded ? null : (
+        <PageHeader
+          title="User management"
+          subtitle="Create a person, choose their companies, then turn on the modules they can open."
+          actions={
+            <div className="flex gap-2">
+              <SecondaryButton
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  setLoading(true);
+                  void load();
+                }}
+              >
+                Refresh
+              </SecondaryButton>
+              <Link
+                href={`${basePath}/new`}
+                className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
+              >
+                Create user
+              </Link>
+            </div>
+          }
+        />
+      )}
       <div className="mb-4 max-w-sm">
         <TextField
           label="Search"
@@ -103,10 +118,12 @@ export function CustomUserList({ basePath }: { basePath: string }) {
         <ErrorState message={error} onRetry={() => void load()} />
       ) : rows.length === 0 ? (
         <EmptyState
-          title={users.length === 0 ? "No custom users yet" : "No users match this search"}
+          title={scoped.length === 0 ? "No custom users yet" : "No users match this search"}
           description={
-            users.length === 0
-              ? "Create a user and choose which company data and modules they can see."
+            scoped.length === 0
+              ? side === "admin"
+                ? "Create a user for STL, Sarvah, or SH Lakshmi."
+                : "Create a user for SHMP."
               : undefined
           }
         />
@@ -129,11 +146,12 @@ export function CustomUserList({ basePath }: { basePath: string }) {
                   <td className="px-4 py-3 text-slate-600">{user.email}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {user.companies
+                      .filter((key) => sideCompanies.includes(key))
                       .map((key) => CUSTOM_COMPANY_LABELS[key] || key)
                       .join(", ")}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {enabledModuleCount(user)}
+                    {sideModuleCount(user, side)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link

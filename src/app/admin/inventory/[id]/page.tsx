@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import { getProduct } from "@/lib/api";
 import type { Product } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import { productImageUrls } from "@/lib/product-image";
 import { ProductImageGallery } from "@/components/ProductImage";
@@ -53,6 +55,9 @@ function categoryName(product: Product) {
 
 export default function InventoryItemPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const showPrice = portalFieldVisible(user?.customAccess, "selling", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "selling", "inventory", "quantity");
   const id = String(params?.id || "");
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,18 +162,24 @@ export default function InventoryItemPage() {
               <DetailField label="Company" value={companyName(product)} />
               <DetailField label="Unit" value={product.unit} />
               <DetailField label="Ratio" value={product.ratio} />
+              {showPrice ? (
               <DetailField
                 label="Selling price"
                 value={salesMoney(Number(product.sellingPrice) || 0)}
               />
+              ) : null}
+              {showQty ? (
               <DetailField
                 label="Quantity (cartons)"
                 value={product.inQty?.amountInCartons ?? 0}
               />
+              ) : null}
+              {showQty ? (
               <DetailField
                 label="Quantity (units)"
                 value={product.inQty?.amountInUnits ?? 0}
               />
+              ) : null}
               <DetailField
                 label="Display in catalog"
                 value={product.isDisplay === false ? "Hidden" : "Visible"}

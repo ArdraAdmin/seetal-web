@@ -28,8 +28,6 @@ import {
   Target,
   Truck,
   UserSquare,
-  Users,
-  UserCog,
   UserPlus,
   Warehouse,
   X,
@@ -42,7 +40,7 @@ import {
   pendingApprovalCount,
 } from "@/lib/approval";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
-import { sellingModuleVisible } from "@/lib/custom-users";
+import { portalFieldVisible, sellingModuleVisible } from "@/lib/custom-users";
 import { navItemActive } from "@/lib/nav-active";
 import {
   isSettingsNavHref,
@@ -59,6 +57,8 @@ type NavItem = {
   icon: NavIcon;
   match?: string[];
   moduleId?: string;
+  /** Hidden unless this field of moduleId is granted. */
+  fieldId?: string;
   superAdminOnly?: boolean;
   /** Tracking — lav@shrseetal.com only, after 5 Settings clicks. */
   trackingOnly?: boolean;
@@ -78,18 +78,6 @@ const NAV: NavItem[] = [
     match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
   },
   { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" },
-  {
-    href: "/admin/profiles/sales",
-    label: "Sales profiles",
-    icon: Users,
-    moduleId: "sales-profiles",
-  },
-  {
-    href: "/admin/profiles/warehouse",
-    label: "Warehouse profiles",
-    icon: UserCog,
-    moduleId: "warehouse-profiles",
-  },
   { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
   { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
   {
@@ -138,6 +126,7 @@ const NAV: NavItem[] = [
     label: "Payroll settings",
     icon: Banknote,
     moduleId: "hr",
+    fieldId: "salary",
   },
   {
     href: "/admin/driver-deliveries",
@@ -216,9 +205,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const canSeeTracking = isTrackingAdmin(user) && trackingUnlocked;
   const navItems = NAV.filter((item) => {
     if (user?.customAccess) {
-      return Boolean(
-        item.moduleId && sellingModuleVisible(user.customAccess, item.moduleId),
-      );
+      if (!item.moduleId || !sellingModuleVisible(user.customAccess, item.moduleId)) {
+        return false;
+      }
+      if (
+        item.fieldId &&
+        !portalFieldVisible(user.customAccess, "selling", item.moduleId, item.fieldId)
+      ) {
+        return false;
+      }
+      return true;
     }
     if (item.trackingOnly) return canSeeTracking;
     if (item.superAdminOnly) return isSuperAdmin(user);

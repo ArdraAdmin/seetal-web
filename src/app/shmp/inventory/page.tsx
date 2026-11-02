@@ -16,6 +16,8 @@ import {
   type CompanyRecord,
 } from "@/lib/api";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
+import { useAuth } from "@/components/AuthProvider";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
@@ -56,6 +58,9 @@ import {
 
 export default function ShmpInventoryPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const showPrice = portalFieldVisible(user?.customAccess, "shmp", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "shmp", "inventory", "quantity");
   const [products, setProducts] = useState<ShmpInventoryProduct[]>([]);
   const [stores, setStores] = useState<ShmpStore[]>([]);
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
@@ -364,15 +369,18 @@ export default function ShmpInventoryPage() {
                   <p className="text-sm text-slate-500">
                     Ref: {product.itemRef || "—"}
                     {baseCode ? ` · Code: ${baseCode}` : ""} ·{" "}
-                    {product.unit || "—"} ·{" "}
-                    {salesMoney(Number(product.sellingPrice) || 0)}
+                    {product.unit || "—"}
+                    {showPrice
+                      ? ` · ${salesMoney(Number(product.sellingPrice) || 0)}`
+                      : ""}
                     {companyNameOf(product)
                       ? ` · ${companyNameOf(product)}`
                       : ""}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Qty: {product.inQty?.amountInCartons ?? 0} CTN /{" "}
-                    {product.inQty?.amountInUnits ?? 0} units
+                    {showQty
+                      ? `Qty: ${product.inQty?.amountInCartons ?? 0} CTN / ${product.inQty?.amountInUnits ?? 0} units`
+                      : ""}
                     {product.isDisplay === false ? " · Hidden" : ""}
                     {visibleStoreCount
                       ? ` · Visible in ${visibleStoreCount} store${visibleStoreCount === 1 ? "" : "s"}`

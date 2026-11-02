@@ -1,7 +1,13 @@
 "use client";
 
-import { CustomUserList } from "@/components/CustomUserList";
+import { Suspense } from "react";
+import { UserManagement } from "@/components/UserManagement";
+import { LoadingState } from "@/components/ui";
 
 export default function AdminUsersPage() {
-  return <CustomUserList basePath="/admin/users" />;
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <UserManagement side="admin" />
+    </Suspense>
+  );
 }

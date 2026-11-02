@@ -3,5 +3,5 @@
 import { CustomUserForm } from "@/components/CustomUserForm";
 
 export default function NewAdminUserPage() {
-  return <CustomUserForm basePath="/admin/users" />;
+  return <CustomUserForm basePath="/admin/users" side="admin" />;
 }

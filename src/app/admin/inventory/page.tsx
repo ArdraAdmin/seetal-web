@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { salesMoney } from "@/lib/sales";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { useAuth } from "@/components/AuthProvider";
 import { ProductThumb } from "@/components/ProductImage";
 import { useToast } from "@/components/Toast";
@@ -29,6 +30,8 @@ const PAGE_SIZES = [10, 20, 50, 100, 1000] as const;
 export default function InventoryPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const showPrice = portalFieldVisible(user?.customAccess, "selling", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "selling", "inventory", "quantity");
   const [products, setProducts] = useState<Product[]>([]);
   const [exporting, setExporting] = useState(false);
   const [searchHits, setSearchHits] = useState<Product[] | null>(null);
@@ -207,14 +210,18 @@ export default function InventoryPage() {
                   {p.itemName || "Unnamed"}
                 </p>
                 <p className="text-sm text-slate-500">
-                  Ref: {p.itemRef || "—"} · {p.unit || "—"} ·{" "}
-                  {salesMoney(Number(p.sellingPrice) || 0)}
+                  Ref: {p.itemRef || "—"} · {p.unit || "—"}
+                  {showPrice ? ` · ${salesMoney(Number(p.sellingPrice) || 0)}` : ""}
                 </p>
+                {showQty ? (
                 <p className="mt-1 text-xs text-slate-500">
                   Qty: {p.inQty?.amountInCartons ?? 0} CTN /{" "}
                   {p.inQty?.amountInUnits ?? 0} units
                   {p.isDisplay === false ? " · Hidden" : ""}
                 </p>
+                ) : p.isDisplay === false ? (
+                <p className="mt-1 text-xs text-slate-500">Hidden</p>
+                ) : null}
               </div>
               </div>
               <div className="flex gap-2">

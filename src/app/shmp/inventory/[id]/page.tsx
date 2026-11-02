@@ -18,6 +18,8 @@ import {
 } from "@/lib/api";
 import { ProductImageField, ProductImageGallery } from "@/components/ProductImage";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
+import { useAuth } from "@/components/AuthProvider";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import {
   baseItemCodeOf,
@@ -83,6 +85,9 @@ function InventoryItemDetail() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const showPrice = portalFieldVisible(user?.customAccess, "shmp", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "shmp", "inventory", "quantity");
   const id = String(params?.id || "");
 
   const [product, setProduct] = useState<ShmpInventoryProduct | null>(null);
@@ -312,18 +317,24 @@ function InventoryItemDetail() {
               />
               <DetailField label="Unit" value={product.unit} />
               <DetailField label="Ratio" value={product.ratio} />
+              {showPrice ? (
               <DetailField
                 label="Base selling price"
                 value={salesMoney(Number(product.sellingPrice) || 0)}
               />
+              ) : null}
+              {showQty ? (
               <DetailField
                 label="Quantity (cartons)"
                 value={product.inQty?.amountInCartons ?? 0}
               />
+              ) : null}
+              {showQty ? (
               <DetailField
                 label="Quantity (units)"
                 value={product.inQty?.amountInUnits ?? 0}
               />
+              ) : null}
               <DetailField
                 label="Display in catalog"
                 value={product.isDisplay === false ? "Hidden" : "Visible"}
@@ -374,6 +385,7 @@ function InventoryItemDetail() {
                             Item code: {row.storeItemCode || "—"}
                           </p>
                         </div>
+                        {showPrice ? (
                         <p className="text-right font-medium text-ink">
                           {salesMoney(usesBase ? base : price)}
                           {usesBase ? (
@@ -382,6 +394,7 @@ function InventoryItemDetail() {
                             </span>
                           ) : null}
                         </p>
+                        ) : null}
                       </li>
                     );
                   })}

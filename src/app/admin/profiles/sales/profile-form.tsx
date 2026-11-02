@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createSalesProfile,
   deleteUser,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
 import { companyIds, dateInputValue, salesField } from "@/lib/profiles";
+import { parseReturnTo } from "@/lib/user-management";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -40,6 +41,8 @@ const EMPTY = {
 
 export function SalesProfileForm({ profileId }: { profileId?: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const backHref = parseReturnTo(searchParams.get("returnTo")) || "/admin/profiles/sales";
   const { toast } = useToast();
   const creating = !profileId;
   const [title, setTitle] = useState(
@@ -139,7 +142,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         await updateSalesProfile(profileId, payload);
         toast("Sales profile updated", "success");
       }
-      router.push("/admin/profiles/sales");
+      router.push(backHref);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
     } finally {
@@ -155,7 +158,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
     try {
       await deleteUser(profileId);
       toast("Profile deleted", "success");
-      router.push("/admin/profiles/sales");
+      router.push(backHref);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed", "error");
     } finally {
@@ -174,7 +177,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         }
         actions={
           <Link
-            href="/admin/profiles/sales"
+            href={backHref}
             className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
           >
             Back
@@ -282,7 +285,7 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
               <SecondaryButton
                 type="button"
                 disabled={saving || deleting}
-                onClick={() => router.push("/admin/profiles/sales")}
+                onClick={() => router.push(backHref)}
               >
                 Cancel
               </SecondaryButton>

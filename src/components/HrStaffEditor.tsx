@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { HrProfileFields } from "@/components/HrProfileFields";
+import { HrProfileFields, type HrFieldVisibility } from "@/components/HrProfileFields";
+import { portalFieldVisible, type CustomAccess, type PortalSide } from "@/lib/custom-users";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { SalarySlipCard } from "@/components/SalarySlipCard";
 import { useAuth } from "@/components/AuthProvider";
@@ -41,11 +42,26 @@ import {
   type HrStaff,
 } from "@/lib/stl-features-api";
 
+function hrFieldsFor(
+  access: CustomAccess | null | undefined,
+  portal: PortalSide,
+): HrFieldVisibility {
+  const on = (fieldId: string) => portalFieldVisible(access, portal, "hr", fieldId);
+  return {
+    salary: on("salary"),
+    passport: on("passport"),
+    eid: on("eid"),
+    visa: on("visa"),
+    insurance: on("insurance"),
+  };
+}
+
 export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
+  const shown = hrFieldsFor(user?.customAccess, scope === "stl" ? "selling" : "shmp");
   const id = String(params.id || "");
   const creating = id === "new";
   const listHref = scope === "stl" ? "/admin/hr" : "/shmp/hr";
@@ -112,7 +128,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   async function onSave(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form, scope);
+    const problem = validateHrProfileForm(form, scope, shown);
     if (problem) {
       toast(problem, "info");
       return;
@@ -203,6 +219,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               onUpload={onUpload}
               showCompany={scope === "stl"}
               scope={scope}
+              shown={shown}
             />
             <div className="mt-4">
               <PrimaryButton type="submit" disabled={busy}>
@@ -212,14 +229,14 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
           </Card>
         </form>
       )}
-      {!creating && staff && user?.id ? (
+      {!creating && staff && user?.id && shown.salary ? (
         <IncrementCard
           staff={staff}
           onAdded={load}
           add={(payload) => addHrStaffIncrement(user.id, id, { ...payload, scope })}
         />
       ) : null}
-      {!creating && staff ? <SalarySlipCard kind="staff" personId={id} /> : null}
+      {!creating && staff && shown.salary ? <SalarySlipCard kind="staff" personId={id} /> : null}
     </div>
   );
 }
@@ -276,6 +293,7 @@ function RecordDocuments({
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const shown = hrFieldsFor(user?.customAccess, scope === "stl" ? "selling" : "shmp");
   const [form, setForm] = useState<HrProfileFormState>(emptyHrProfileForm);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -308,7 +326,7 @@ function RecordDocuments({
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form, scope);
+    const problem = validateHrProfileForm(form, scope, shown);
     if (problem) {
       toast(problem, "info");
       return;
@@ -337,6 +355,7 @@ function RecordDocuments({
         disabled={busy}
         showCompany={showCompany}
         scope={scope}
+        shown={shown}
         onUpload={(file) => {
           if (!user?.id) return Promise.reject(new Error("Sign in again"));
           return uploadHrFile(user.id, file);

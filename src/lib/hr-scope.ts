@@ -26,7 +26,7 @@ export type StlHrRosterRow = {
   linkedUserId?: string | null;
 };
 
-/** Same people the STL HR page lists. */
+/** Warehouse logins plus added staff. Attendance keeps warehouse users; the HR list shows added staff only. */
 export function stlHrPeopleForAttendance<T extends StlHrRosterRow>(rows: T[]) {
   return rows.filter((row) => row.kind === "staff" || isStlHrRole(row.role));
 }

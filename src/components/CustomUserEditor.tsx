@@ -5,9 +5,15 @@ import { useParams } from "next/navigation";
 import { CustomUserForm } from "@/components/CustomUserForm";
 import { ErrorState, LoadingState } from "@/components/ui";
 import { getCustomUser } from "@/lib/custom-users-api";
-import type { CustomUserRecord } from "@/lib/custom-users";
+import type { CustomUserRecord, UserListSide } from "@/lib/custom-users";
 
-export function CustomUserEditor({ basePath }: { basePath: string }) {
+export function CustomUserEditor({
+  basePath,
+  side,
+}: {
+  basePath: string;
+  side: UserListSide;
+}) {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [user, setUser] = useState<CustomUserRecord | null>(null);
@@ -38,5 +44,5 @@ export function CustomUserEditor({ basePath }: { basePath: string }) {
   if (error || !user) {
     return <ErrorState message={error || "User not found"} />;
   }
-  return <CustomUserForm basePath={basePath} user={user} />;
+  return <CustomUserForm basePath={basePath} side={side} user={user} />;
 }

@@ -104,14 +104,14 @@ function formatMoney(value: number): string {
 }
 
 export function stlTotalSalary(
-  form: Pick<HrProfileFormState, "basicSalary" | "overtimeSalary" | "otherBenefits">,
+  form: Pick<HrProfileFormState, "basicSalary" | "otherBenefits">,
 ): string {
-  const parts = [form.basicSalary, form.overtimeSalary, form.otherBenefits].map((value) => {
+  const parts = [form.basicSalary, form.otherBenefits].map((value) => {
     if (value.trim() === "") return 0;
     return Number(value);
   });
   if (parts.some((amount) => !Number.isFinite(amount))) return "";
-  return formatMoney(parts[0] + parts[1] + parts[2]);
+  return formatMoney(parts[0] + parts[1]);
 }
 
 function moneyText(value?: number | null): string {
@@ -134,10 +134,7 @@ export function hrProfileToForm(
   form.totalSalary = moneyText(source.totalSalary);
   if (scope === "stl") {
     if (form.otherBenefits === "" && source.totalSalary != null) {
-      const derived =
-        Number(source.totalSalary) -
-        Number(source.basicSalary || 0) -
-        Number(source.overtimeSalary || 0);
+      const derived = Number(source.totalSalary) - Number(source.basicSalary || 0);
       if (Number.isFinite(derived)) {
         form.otherBenefits = formatMoney(Math.max(0, derived));
       }
@@ -148,7 +145,6 @@ export function hrProfileToForm(
     source.sundayAllowance != null ? String(source.sundayAllowance) : "";
   form.visaNumber = source.visaNumber || "";
   form.visaDetails = source.visaDetails || "";
-  form.visaExpiry = toDateInput(source.visaExpiry);
   form.visaApplicationYear =
     source.visaApplicationYear != null ? String(source.visaApplicationYear) : "";
   form.visaCost = source.visaCost != null ? String(source.visaCost) : "";
@@ -156,6 +152,7 @@ export function hrProfileToForm(
   form.passportExpiry = toDateInput(source.passportExpiry);
   form.eidNumber = source.eidNumber || "";
   form.eidExpiry = toDateInput(source.eidExpiry);
+  form.visaExpiry = form.eidExpiry || toDateInput(source.visaExpiry);
   form.insuranceExpiry = toDateInput(source.insuranceExpiry);
   form.sharjahPermitExpiry = toDateInput(source.sharjahPermitExpiry);
   for (const key of FILE_KEYS) form[key] = fileFrom(source[key]);
@@ -180,10 +177,8 @@ export function hrProfilePayload(
     totalSalary: scope === "stl" ? numberOrBlank(stlTotalSalary(form)) : numberOrBlank(form.totalSalary),
     sundayAllowance: numberOrBlank(form.sundayAllowance),
     visaNumber: form.visaNumber.trim(),
-    visaDetails: form.visaDetails.trim(),
-    visaExpiry: form.visaExpiry,
+    visaExpiry: form.eidExpiry || form.visaExpiry,
     visaApplicationYear: numberOrBlank(form.visaApplicationYear),
-    visaCost: numberOrBlank(form.visaCost),
     passportNumber: form.passportNumber.trim(),
     passportExpiry: form.passportExpiry,
     eidNumber: form.eidNumber.trim(),
@@ -203,35 +198,48 @@ export function hrProfilePayload(
 export function validateHrProfileForm(
   form: HrProfileFormState,
   scope?: HrSalaryScope,
+  shown?: {
+    salary?: boolean;
+    passport?: boolean;
+    eid?: boolean;
+    visa?: boolean;
+    insurance?: boolean;
+  },
 ): string | null {
   if (!form.visaName.trim()) return "Name as per visa is required";
   if (!form.visaDesignation.trim()) return "Designation as per visa is required";
-  if (!form.passportNumber.trim()) return "Passport number is required";
-  if (!form.passportExpiry) return "Passport expiry is required";
-  if (!form.passportCopy?.key) return "Passport copy is required";
-  if (!form.eidNumber.trim()) return "EID number is required";
-  if (!form.eidExpiry) return "EID expiry is required";
-  if (!form.eidCopy?.key) return "EID copy is required";
-  if (!form.visaCopy?.key) return "Visa copy is required";
-  if (!form.insuranceExpiry) return "Insurance expiry is required";
-  if (!form.insuranceCopy?.key) return "Insurance copy is required";
-  if (!form.employmentContractCopy?.key) return "Employment contract copy is required";
-  if (scope === "shmp") {
+  if (shown?.passport !== false) {
+    if (!form.passportNumber.trim()) return "Passport number is required";
+    if (!form.passportExpiry) return "Passport expiry is required";
+    if (!form.passportCopy?.key) return "Passport copy is required";
+  }
+  if (shown?.eid !== false) {
+    if (!form.eidNumber.trim()) return "EID number is required";
+    if (!form.eidExpiry) return "EID expiry is required";
+    if (!form.eidCopy?.key) return "EID copy is required";
+  }
+  if (shown?.visa !== false) {
+    if (!form.visaNumber.trim()) return "Visa UID number is required";
+    if (!form.visaCopy?.key) return "Visa copy is required";
+  }
+  if (shown?.insurance !== false) {
+    if (!form.insuranceExpiry) return "Insurance expiry is required";
+    if (!form.insuranceCopy?.key) return "Insurance copy is required";
+    if (!form.employmentContractCopy?.key) return "Employment contract copy is required";
+  }
+  if (shown?.salary !== false && scope === "shmp") {
     if (form.basicSalary.trim() === "") return "Basic salary is required";
-    if (form.overtimeSalary.trim() === "") return "Overtime is required";
     if (form.totalSalary.trim() === "") return "Total salary is required";
   }
-  if (scope === "stl") {
+  if (shown?.salary !== false && scope === "stl") {
     if (form.basicSalary.trim() === "") return "Basic salary is required";
     if (form.otherBenefits.trim() === "") return "Other benefits is required";
   }
   const amounts = [
     ["Basic salary", form.basicSalary],
-    ["Overtime", form.overtimeSalary],
     ["Other benefits", form.otherBenefits],
     ["Total salary", form.totalSalary],
     ["Sunday allowance", form.sundayAllowance],
-    ["Visa cost", form.visaCost],
   ] as const;
   for (const [label, value] of amounts) {
     if (value.trim() === "") continue;
@@ -241,4 +249,17 @@ export function validateHrProfileForm(
     }
   }
   return null;
+}
+
+export function profileWithSharjahPermit(
+  profile: HrProfile | null | undefined,
+  expiry: string,
+  file: HrFileValue,
+  fallbackName = "",
+  scope?: HrSalaryScope,
+) {
+  const form = hrProfileToForm(profile, fallbackName, scope);
+  form.sharjahPermitExpiry = expiry;
+  form.sharjahPermitCopy = file;
+  return hrProfilePayload(form, scope);
 }

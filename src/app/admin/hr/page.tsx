@@ -15,18 +15,14 @@ import {
   TextField,
 } from "@/components/ui";
 import { getWarehouseProfiles } from "@/lib/api";
-import { isStlHrRole, warehouseStaffLabel } from "@/lib/hr-scope";
+import { warehouseStaffLabel } from "@/lib/hr-scope";
 import { warehouseField } from "@/lib/profiles";
-import { salesMoney } from "@/lib/sales";
-import { SHARJAH_ALERT_DAYS, VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
+import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
 
 function visaSoon(expiry?: string) {
   return isExpiringWithinDays(expiry, VISA_ALERT_DAYS);
-}
-
-function sharjahSoon(expiry?: string) {
-  return isExpiringWithinDays(expiry, SHARJAH_ALERT_DAYS);
 }
 
 function rowRole(row: HrStaff, managerIds: Set<string>) {
@@ -42,6 +38,8 @@ function rowRole(row: HrStaff, managerIds: Set<string>) {
 export default function AdminHrPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const show = (fieldId: string) =>
+    portalFieldVisible(user?.customAccess, "selling", "hr", fieldId);
   const [staff, setStaff] = useState<HrStaff[]>([]);
   const [managerIds, setManagerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -57,7 +55,7 @@ export default function AdminHrPage() {
         getHrStaff(user.id, { role: "Warehouse", scope: "stl" }),
         getWarehouseProfiles().catch(() => []),
       ]);
-      setStaff((hr.staff || []).filter((row) => row.kind === "staff" || isStlHrRole(row.role)));
+      setStaff((hr.staff || []).filter((row) => row.kind === "staff"));
       setManagerIds(
         new Set(
           warehouse
@@ -87,15 +85,17 @@ export default function AdminHrPage() {
     <div>
       <PageHeader
         title="HR"
-        subtitle="Warehouse user and warehouse manager visa, salary and increment records."
+        subtitle="Joined date, years of service, and visa expiry for staff you add here."
         actions={
           <div className="flex flex-wrap gap-2">
             <PrimaryButton type="button" onClick={() => router.push("/admin/hr/staff/new")}>
               Add staff
             </PrimaryButton>
+            {show("salary") ? (
             <SecondaryButton type="button" onClick={() => router.push("/admin/hr/payroll")}>
               Payroll settings
             </SecondaryButton>
+            ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
               Refresh
             </SecondaryButton>
@@ -110,7 +110,14 @@ export default function AdminHrPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No warehouse staff found" />
+        <EmptyState
+          title={staff.length === 0 ? "No staff yet" : "No matching staff"}
+          description={
+            staff.length === 0
+              ? "Add a staff member to show their joined date, years of service, and visa expiry."
+              : undefined
+          }
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="w-full text-left text-sm">
@@ -120,10 +127,7 @@ export default function AdminHrPage() {
                 <th className="px-4 py-2">Role</th>
                 <th className="px-4 py-2">Joined</th>
                 <th className="px-4 py-2 text-right">Years</th>
-                <th className="px-4 py-2">Visa expiry</th>
-                <th className="px-4 py-2">Sharjah permit</th>
-                <th className="px-4 py-2 text-right">Basic salary</th>
-                <th className="px-4 py-2 text-right">Total salary</th>
+                {show("visa") ? <th className="px-4 py-2">Visa expiry</th> : null}
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -137,22 +141,13 @@ export default function AdminHrPage() {
                   <td className="px-4 py-2">{rowRole(s, managerIds)}</td>
                   <td className="px-4 py-2">{fmtDateOnly(s.joiningDate)}</td>
                   <td className="px-4 py-2 text-right">{s.yearsOfService ?? "-"}</td>
+                  {show("visa") ? (
                   <td
                     className={`px-4 py-2 ${visaSoon(s.hrProfile?.visaExpiry) ? "font-medium text-red-700" : ""}`}
                   >
                     {fmtDateOnly(s.hrProfile?.visaExpiry)}
                   </td>
-                  <td
-                    className={`px-4 py-2 ${sharjahSoon(s.hrProfile?.sharjahPermitExpiry) ? "font-medium text-red-700" : ""}`}
-                  >
-                    {fmtDateOnly(s.hrProfile?.sharjahPermitExpiry)}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {s.hrProfile?.basicSalary != null ? salesMoney(s.hrProfile.basicSalary) : "-"}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {s.hrProfile?.totalSalary != null ? salesMoney(s.hrProfile.totalSalary) : "-"}
-                  </td>
+                  ) : null}
                   <td className="px-4 py-2 text-right">
                     <Link
                       href={s.kind === "staff" ? `/admin/hr/staff/${s.id}` : `/admin/hr/${s.id}`}

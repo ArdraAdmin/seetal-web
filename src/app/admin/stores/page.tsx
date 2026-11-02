@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
 import { salesPersonIdsFromStore } from "@/lib/store-access";
+import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
   formatTradeLicenseDate,
   storeDocumentError,
@@ -142,15 +143,12 @@ function copyCount(store: StoreProfile) {
   return Number.isFinite(count) && count > 1 ? count : 1;
 }
 
-function isExpiredTradeLicense(value: unknown) {
-  if (!value) return false;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return false;
-  const expiry = new Date(date);
-  expiry.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return expiry.getTime() < today.getTime();
+function isDueTradeLicense(value: unknown) {
+  if (value == null || value === "") return false;
+  if (value instanceof Date || typeof value === "string") {
+    return isExpiringWithinDays(value, EXPIRY_ALERT_DAYS);
+  }
+  return false;
 }
 
 function CountryCityFields({
@@ -449,7 +447,7 @@ export default function StoresPage() {
       return expiredStores.map((store) => byId.get(String(store._id)) ?? store);
     }
     return stores.filter((store) =>
-      isExpiredTradeLicense(store.tradeLicenseExpiry),
+      isDueTradeLicense(store.tradeLicenseExpiry),
     );
   }, [stores, expiredStores, expiredOnly]);
 
@@ -595,7 +593,7 @@ export default function StoresPage() {
         title="Stores"
         subtitle={
           expiredOnly
-            ? "Stores whose trade license expiry date is before today."
+            ? `Stores whose trade license expires in ${EXPIRY_ALERT_DAYS} days or less, including already expired.`
             : "Edit store details or delete a store."
         }
         actions={
@@ -647,7 +645,8 @@ export default function StoresPage() {
         <Card className="mb-5 border-brand/30 bg-[#f7f5f0]">
           <p className="text-sm font-medium text-ink">
             Showing {filtered.length} store
-            {filtered.length === 1 ? "" : "s"} with an expired trade license
+            {filtered.length === 1 ? "" : "s"} with a trade license expiring in{" "}
+            {EXPIRY_ALERT_DAYS} days or less
           </p>
         </Card>
       ) : null}
@@ -709,7 +708,7 @@ export default function StoresPage() {
         <EmptyState
           title={
             expiredOnly
-              ? "No stores with an expired trade license"
+              ? `No trade licenses expiring in the next ${EXPIRY_ALERT_DAYS} days`
               : "No stores found"
           }
         />

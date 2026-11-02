@@ -16,6 +16,7 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import {
   addHrIncrement,
@@ -28,6 +29,7 @@ export default function AdminHrDetailPage() {
   const id = params.id;
   const { user } = useAuth();
   const { toast } = useToast();
+  const showSalary = portalFieldVisible(user?.customAccess, "selling", "hr", "salary");
   const [staff, setStaff] = useState<HrStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +116,7 @@ export default function AdminHrDetailPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <HrUserDocuments personId={id} showCompany scope="stl" />
+          {showSalary ? (
           <div className="space-y-4">
             <Card>
               <h2 className="mb-3 text-sm font-semibold text-ink">Add salary increment</h2>
@@ -151,9 +154,10 @@ export default function AdminHrDetailPage() {
               )}
             </Card>
           </div>
+          ) : null}
         </div>
       )}
-      {staff ? <SalarySlipCard kind="user" personId={id} /> : null}
+      {staff && showSalary ? <SalarySlipCard kind="user" personId={id} /> : null}
     </div>
   );
 }

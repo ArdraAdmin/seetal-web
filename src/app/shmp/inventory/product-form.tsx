@@ -10,6 +10,8 @@ import {
   type ShmpInventoryProduct,
   type ShmpStore,
 } from "@/lib/shmp-api";
+import { useAuth } from "@/components/AuthProvider";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { FieldLabel, TextField } from "@/components/ui";
 import {
   newStoreVisibilityRow,
@@ -233,10 +235,12 @@ function StoreVisibilityEditor({
   pricing,
   stores,
   onChange,
+  showPrice,
 }: {
   pricing: PricingRow[];
   stores: ShmpStore[];
   onChange: (rows: PricingRow[]) => void;
+  showPrice: boolean;
 }) {
   const [filter, setFilter] = useState("");
   const knownIds = new Set(stores.map((store) => store._id));
@@ -280,6 +284,7 @@ function StoreVisibilityEditor({
   function priceFields(row: PricingRow) {
     return (
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {showPrice ? (
         <TextField
           label="Store price"
           optional
@@ -292,6 +297,7 @@ function StoreVisibilityEditor({
           }
           placeholder="Uses base selling price"
         />
+        ) : null}
         <TextField
           label="Store item code"
           optional
@@ -475,6 +481,9 @@ export function ProductFields({
   loadingCategories: boolean;
   loadingCompanies: boolean;
 }) {
+  const { user } = useAuth();
+  const showPrice = portalFieldVisible(user?.customAccess, "shmp", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "shmp", "inventory", "quantity");
   const selectedGroup = useMemo(
     () =>
       groups.find(
@@ -612,6 +621,7 @@ export function ProductFields({
         value={form.ratio}
         onChange={(e) => setForm((prev) => ({ ...prev, ratio: e.target.value }))}
       />
+      {showQty ? (
       <TextField
         label="Amount in units"
         required
@@ -622,6 +632,8 @@ export function ProductFields({
           setForm((prev) => ({ ...prev, amountInUnits: e.target.value }))
         }
       />
+      ) : null}
+      {showPrice ? (
       <TextField
         label="Base selling price"
         required
@@ -633,6 +645,7 @@ export function ProductFields({
           setForm((prev) => ({ ...prev, sellingPrice: e.target.value }))
         }
       />
+      ) : null}
       <TextField
         label="Description"
         optional
@@ -671,6 +684,7 @@ export function ProductFields({
 
       <div className="sm:col-span-2 lg:col-span-3">
         <StoreVisibilityEditor
+          showPrice={showPrice}
           pricing={form.pricing}
           stores={stores}
           onChange={(pricing) => setForm((prev) => ({ ...prev, pricing }))}

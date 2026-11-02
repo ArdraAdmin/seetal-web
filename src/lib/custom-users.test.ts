@@ -8,9 +8,12 @@ import {
   environmentsForAccess,
   filterCompaniesForModule,
   firstAllowedPath,
+  portalFieldVisible,
   readCustomAccess,
   sanitizeCustomAccess,
   sellingModuleVisible,
+  sideModuleCount,
+  userMatchesSide,
   validateCustomUserInput,
 } from "./custom-users.ts";
 
@@ -126,6 +129,26 @@ describe("custom user access", () => {
     if (!created.ok) return;
     assert.equal(created.value.email, "asha@example.com");
     assert.deepEqual(created.value.access.modules.shlaxmi, ["hr"]);
+
+    const fields = sanitizeCustomAccess({
+      companies: ["stl", "shmp"],
+      modules: {
+        stl: ["dashboard", "dashboard:this-month", "dashboard:nope", "sales-profiles"],
+        shmp: ["hr", "hr:salary", "hr:__none__"],
+      },
+    });
+    assert.equal(fields.ok, true);
+    if (!fields.ok) return;
+    assert.deepEqual(fields.access.modules.stl, ["dashboard", "dashboard:this-month"]);
+    assert.deepEqual(fields.access.modules.shmp, ["hr", "hr:salary", "hr:__none__"]);
+    assert.equal(portalFieldVisible(fields.access, "selling", "dashboard", "this-month"), true);
+    assert.equal(portalFieldVisible(fields.access, "selling", "dashboard", "visa"), false);
+    assert.equal(portalFieldVisible(null, "selling", "dashboard", "visa"), true);
+    assert.equal(userMatchesSide(["shmp"], "admin"), false);
+    assert.equal(userMatchesSide(["stl", "shmp"], "admin"), true);
+    assert.equal(userMatchesSide(["sarvah"], "admin"), true);
+    assert.equal(userMatchesSide(["shmp"], "shmp"), true);
+    assert.equal(sideModuleCount(fields.access, "admin"), 1);
 
     const missingPassword = validateCustomUserInput(
       {

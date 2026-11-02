@@ -33,12 +33,6 @@ export const SELLING_MODULES: PortalModule[] = [
     match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
   },
   { id: "stores", label: "Stores", href: "/admin/stores" },
-  { id: "sales-profiles", label: "Sales profiles", href: "/admin/profiles/sales" },
-  {
-    id: "warehouse-profiles",
-    label: "Warehouse profiles",
-    href: "/admin/profiles/warehouse",
-  },
   { id: "inventory", label: "Inventory", href: "/admin/inventory" },
   { id: "catalog", label: "Catalog", href: "/admin/catalog" },
   { id: "stock-transfer", label: "Stock transfer", href: "/admin/stock-transfer" },
@@ -98,8 +92,6 @@ const SELLING_API_KEYS: Record<string, string[]> = {
   dashboard: ["dashboard"],
   "drivers-vehicles": ["vehicles", "drivers"],
   stores: ["stores"],
-  "sales-profiles": ["profiles"],
-  "warehouse-profiles": ["profiles"],
   inventory: ["inventory"],
   catalog: ["inventory"],
   "stock-transfer": ["inventory"],
@@ -129,6 +121,116 @@ const COMPANY_ALIASES: Record<CustomCompanyKey, string[]> = {
 
 const EMAIL_RE =
   /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
+
+export type ModuleField = {
+  id: string;
+  label: string;
+  group?: string;
+};
+
+/** Parts of a module a custom user can be shown. Missing grants mean every field. */
+export const SELLING_MODULE_FIELDS: Record<string, ModuleField[]> = {
+  dashboard: [
+    { id: "this-month", label: "This month", group: "Performance" },
+    { id: "inventory-value", label: "Inventory value", group: "Performance" },
+    { id: "top-salesman", label: "Top salesman", group: "Performance" },
+    { id: "sales-lost", label: "Sales lost", group: "Performance" },
+    { id: "mulkiya", label: "Mulkiya expiring", group: "Needs attention" },
+    { id: "visa", label: "Visa expiring", group: "Needs attention" },
+    { id: "passport", label: "Passport expiring", group: "Needs attention" },
+    { id: "eid", label: "EID expiring", group: "Needs attention" },
+    { id: "insurance", label: "Insurance expiring", group: "Needs attention" },
+    { id: "sharjah", label: "Sharjah permit expiring", group: "Needs attention" },
+    { id: "trade-license", label: "Trade license expiring", group: "Needs attention" },
+    { id: "pending-approvals", label: "Pending approvals", group: "Needs attention" },
+    { id: "users", label: "Users", group: "Operations" },
+    { id: "stores", label: "Stores", group: "Operations" },
+    { id: "warehouse-users", label: "Warehouse users", group: "Operations" },
+    { id: "inventory-skus", label: "Inventory SKUs", group: "Operations" },
+    { id: "monthly-sales", label: "Monthly sales", group: "Insights" },
+    { id: "user-mix", label: "User mix", group: "Insights" },
+    { id: "top-products", label: "Top products", group: "Insights" },
+    { id: "sales-by-salesman", label: "Sales by salesman", group: "Insights" },
+  ],
+  inventory: [
+    { id: "selling-price", label: "Selling price" },
+    { id: "quantity", label: "Quantity" },
+  ],
+  hr: [
+    { id: "salary", label: "Salary" },
+    { id: "passport", label: "Passport" },
+    { id: "eid", label: "Emirates ID" },
+    { id: "visa", label: "Visa" },
+    { id: "insurance", label: "Insurance and contract" },
+    { id: "sharjah", label: "Sharjah permit" },
+  ],
+};
+
+export const SHMP_MODULE_FIELDS: Record<string, ModuleField[]> = {
+  dashboard: [
+    { id: "present", label: "Present today" },
+    { id: "absent", label: "Absent today" },
+    { id: "holiday", label: "On holiday today" },
+    { id: "ready-cartons", label: "Cartons ready for delivery" },
+    { id: "sales-by-category", label: "Sales value by category" },
+  ],
+  inventory: SELLING_MODULE_FIELDS.inventory,
+  hr: SELLING_MODULE_FIELDS.hr,
+};
+
+const FIELD_NONE = "__none__";
+
+export type PortalSide = "selling" | "shmp";
+export type UserListSide = "admin" | "shmp";
+
+export function companiesForSide(side: UserListSide): CustomCompanyKey[] {
+  return side === "admin" ? [...SELLING_COMPANY_KEYS] : ["shmp"];
+}
+
+export function moduleFields(company: CustomCompanyKey, moduleId: string) {
+  const catalog = company === "shmp" ? SHMP_MODULE_FIELDS : SELLING_MODULE_FIELDS;
+  return catalog[moduleId] || [];
+}
+
+export function isFieldToken(id: string) {
+  return id.includes(":");
+}
+
+export function moduleIdsOnly(ids: string[] | undefined) {
+  return (ids || []).filter((id) => !isFieldToken(id));
+}
+
+/** null means every field. An empty list means none. */
+export function selectedFieldIds(
+  ids: string[] | undefined,
+  moduleId: string,
+): string[] | null {
+  const prefix = `${moduleId}:`;
+  const saved = (ids || [])
+    .filter((id) => id.startsWith(prefix))
+    .map((id) => id.slice(prefix.length));
+  if (saved.length === 0) return null;
+  return saved.filter((id) => id !== FIELD_NONE);
+}
+
+export function withFieldSelection(
+  ids: string[],
+  moduleId: string,
+  fieldIds: string[] | null,
+  knownFieldIds: string[],
+) {
+  const prefix = `${moduleId}:`;
+  const rest = ids.filter((id) => !id.startsWith(prefix));
+  if (fieldIds === null) return rest;
+  if (fieldIds.length === 0) return [...rest, `${moduleId}:${FIELD_NONE}`];
+  const allowed = new Set(knownFieldIds);
+  return [
+    ...rest,
+    ...fieldIds
+      .filter((id) => allowed.has(id))
+      .map((id) => `${moduleId}:${id}`),
+  ];
+}
 
 export type CustomModuleMap = Partial<Record<CustomCompanyKey, string[]>>;
 
@@ -186,11 +288,26 @@ export function sanitizeCustomAccess(
   let enabled = 0;
   for (const company of companies) {
     const allowed = new Set(modulesForCompany(company).map((item) => item.id));
+    const knownFields = new Map(
+      [...allowed].map((moduleId) => [
+        moduleId,
+        new Set(moduleFields(company, moduleId).map((field) => field.id)),
+      ]),
+    );
     const rawList = modulesInput[company];
     const picked = Array.isArray(rawList) ? rawList.map((id) => String(id)) : [];
-    const next = [...new Set(picked.filter((id) => allowed.has(id)))];
-    modules[company] = next;
-    enabled += next.length;
+    const next = [
+      ...new Set(
+        picked.filter((id) => allowed.has(id) || fieldTokenAllowed(company, id, knownFields)),
+      ),
+    ];
+    const turnedOn = new Set(next.filter((id) => allowed.has(id)));
+    modules[company] = next.filter((id) => {
+      if (allowed.has(id)) return true;
+      const moduleId = id.slice(0, id.indexOf(":"));
+      return turnedOn.has(moduleId);
+    });
+    enabled += turnedOn.size;
   }
   if (enabled === 0) {
     return { ok: false, error: "Turn on at least one module" };
@@ -242,10 +359,10 @@ export function validateCustomUserInput(
 export function environmentsForAccess(access: CustomAccess): AppSide[] {
   const envs: AppSide[] = [];
   const selling = SELLING_COMPANY_KEYS.some(
-    (key) => (access.modules[key] || []).length > 0,
+    (key) => moduleIdsOnly(access.modules[key]).length > 0,
   );
   if (selling) envs.push("stl");
-  if ((access.modules.shmp || []).length > 0) envs.push("shmp");
+  if (moduleIdsOnly(access.modules.shmp).length > 0) envs.push("shmp");
   return envs;
 }
 
@@ -265,12 +382,63 @@ export function apiModuleKeysForAccess(access: CustomAccess): string[] {
   return [...keys];
 }
 
+function fieldTokenAllowed(
+  company: CustomCompanyKey,
+  id: string,
+  knownFields: Map<string, Set<string>>,
+) {
+  const split = id.indexOf(":");
+  if (split <= 0) return false;
+  const moduleId = id.slice(0, split);
+  const fieldId = id.slice(split + 1);
+  const fields = knownFields.get(moduleId);
+  if (!fields) return false;
+  return fieldId === FIELD_NONE || fields.has(fieldId);
+}
+
 export function moduleEnabled(
   access: CustomAccess,
   company: CustomCompanyKey,
   moduleId: string,
 ) {
   return (access.modules[company] || []).includes(moduleId);
+}
+
+/** Full admins see every field. A module with no field tokens still shows every field. */
+export function portalFieldVisible(
+  access: CustomAccess | null | undefined,
+  portal: PortalSide,
+  moduleId: string,
+  fieldId: string,
+) {
+  if (!access) return true;
+  const keys = portal === "shmp" ? (["shmp"] as const) : SELLING_COMPANY_KEYS;
+  const companies = keys.filter(
+    (key) => access.companies.includes(key) && moduleEnabled(access, key, moduleId),
+  );
+  if (companies.length === 0) return false;
+  return companies.some((key) => {
+    const selected = selectedFieldIds(access.modules[key], moduleId);
+    return selected === null || selected.includes(fieldId);
+  });
+}
+
+export function userMatchesSide(
+  companies: CustomCompanyKey[],
+  side: UserListSide,
+) {
+  const allowed = new Set(companiesForSide(side));
+  return companies.some((key) => allowed.has(key));
+}
+
+export function sideModuleCount(
+  access: Pick<CustomAccess, "companies" | "modules">,
+  side: UserListSide,
+) {
+  return companiesForSide(side).reduce((total, key) => {
+    if (!access.companies.includes(key)) return total;
+    return total + moduleIdsOnly(access.modules[key]).length;
+  }, 0);
 }
 
 export function sellingModuleVisible(access: CustomAccess, moduleId: string) {
@@ -403,7 +571,7 @@ export function filterCompaniesForModule<
 
 export function enabledModuleCount(access: Pick<CustomAccess, "companies" | "modules">) {
   return access.companies.reduce(
-    (total, key) => total + (access.modules[key]?.length || 0),
+    (total, key) => total + moduleIdsOnly(access.modules[key]).length,
     0,
   );
 }

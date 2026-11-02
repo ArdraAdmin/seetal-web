@@ -9,6 +9,8 @@ import {
   type ShmpDashboardSummary,
   type ShmpStaffCounts,
 } from "@/lib/shmp-api";
+import { useAuth } from "@/components/AuthProvider";
+import { portalFieldVisible } from "@/lib/custom-users";
 import {
   attendanceFilterHref,
   shmpSalesCategoryRows,
@@ -42,6 +44,9 @@ type CategorySlice = {
 };
 
 export default function ShmpDashboardPage() {
+  const { user } = useAuth();
+  const show = (fieldId: string) =>
+    portalFieldVisible(user?.customAccess, "shmp", "dashboard", fieldId);
   const [data, setData] = useState<ShmpDashboardSummary | null>(null);
   const [hasOwnInventory, setHasOwnInventory] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,29 +131,40 @@ export default function ShmpDashboardPage() {
         </p>
       ) : (
         <>
+          {show("present") || show("absent") || show("holiday") || show("ready-cartons") ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {show("present") ? (
             <Metric
               label="Present today"
               value={String(staffToday.present || 0)}
               href={attendanceFilterHref("present")}
             />
+            ) : null}
+            {show("absent") ? (
             <Metric
               label="Absent today"
               value={String(staffToday.absent || 0)}
               href={attendanceFilterHref("absent")}
             />
+            ) : null}
+            {show("holiday") ? (
             <Metric
               label="On holiday today"
               value={String(onHoliday)}
               href={attendanceFilterHref("leave")}
             />
+            ) : null}
+            {show("ready-cartons") ? (
             <Metric
               label="Cartons ready for delivery"
               value={String(Number(data?.totalReadyQty) || 0)}
               href="/shmp/production"
             />
+            ) : null}
           </div>
+          ) : null}
 
+          {show("sales-by-category") ? (
           <section className="rounded-2xl border border-line bg-white p-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
@@ -195,6 +211,7 @@ export default function ShmpDashboardPage() {
               </div>
             )}
           </section>
+          ) : null}
         </>
       )}
     </div>

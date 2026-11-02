@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { deleteUser, searchProfiles } from "@/lib/api";
 import type { ProfileUser } from "@/lib/types";
+import { withReturnTo } from "@/lib/user-management";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -23,6 +24,8 @@ export function ProfilesList({
   addHref,
   addLabel,
   fetcher,
+  embedded = false,
+  returnTo,
 }: {
   title: string;
   role: "Sales" | "Warehouse";
@@ -30,6 +33,8 @@ export function ProfilesList({
   addHref: string;
   addLabel: string;
   fetcher: () => Promise<ProfileUser[]>;
+  embedded?: boolean;
+  returnTo?: string;
 }) {
   const { toast } = useToast();
   const [profiles, setProfiles] = useState<ProfileUser[]>([]);
@@ -88,29 +93,33 @@ export function ProfilesList({
     }
   }
 
+  const createHref = returnTo ? withReturnTo(addHref, returnTo) : addHref;
+
   return (
     <div>
-      <PageHeader
-        title={title}
-        subtitle={
-          role === "Sales"
-            ? "Sales personnel records."
-            : "Warehouse manager records."
-        }
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <SecondaryButton type="button" onClick={() => void load()}>
-              Refresh
-            </SecondaryButton>
-            <Link
-              href={addHref}
-              className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
-            >
-              {addLabel}
-            </Link>
-          </div>
-        }
-      />
+      {embedded ? null : (
+        <PageHeader
+          title={title}
+          subtitle={
+            role === "Sales"
+              ? "Sales personnel records."
+              : "Warehouse manager records."
+          }
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <SecondaryButton type="button" onClick={() => void load()}>
+                Refresh
+              </SecondaryButton>
+              <Link
+                href={createHref}
+                className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
+              >
+                {addLabel}
+              </Link>
+            </div>
+          }
+        />
+      )}
 
       <Card className="mb-5">
         <div className="flex flex-wrap items-end gap-3">
@@ -157,7 +166,11 @@ export function ProfilesList({
               </div>
               <div className="flex flex-wrap gap-2">
                 <Link
-                  href={`${editBase}/${profile._id}`}
+                  href={
+                    returnTo
+                      ? withReturnTo(`${editBase}/${profile._id}`, returnTo)
+                      : `${editBase}/${profile._id}`
+                  }
                   className="inline-flex min-h-10 items-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-[#f7f5f0]"
                 >
                   Edit

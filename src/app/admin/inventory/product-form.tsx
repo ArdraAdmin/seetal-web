@@ -21,7 +21,7 @@ import { useToast } from "@/components/Toast";
 import { ProductImageField } from "@/components/ProductImage";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
 import { useAuth } from "@/components/AuthProvider";
-import { filterCompaniesForModule } from "@/lib/custom-users";
+import { filterCompaniesForModule, portalFieldVisible } from "@/lib/custom-users";
 
 const COMPANY_ORDER = ["SH Lakshmi", "SHMP", "Sarvah", "STL"] as const;
 
@@ -224,6 +224,8 @@ export function ProductForm({
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
+  const showPrice = portalFieldVisible(user?.customAccess, "selling", "inventory", "selling-price");
+  const showQty = portalFieldVisible(user?.customAccess, "selling", "inventory", "quantity");
   const editing = Boolean(product?._id);
   const [saving, setSaving] = useState(false);
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
@@ -525,6 +527,7 @@ export function ProductForm({
           value={form.ratio}
           onChange={(e) => setForm({ ...form, ratio: e.target.value })}
         />
+        {showQty ? (
         <TextField
           label="Amount in units"
           required
@@ -532,6 +535,8 @@ export function ProductForm({
           value={form.amountInUnits}
           onChange={(e) => setForm({ ...form, amountInUnits: e.target.value })}
         />
+        ) : null}
+        {showPrice ? (
         <TextField
           label="Selling price"
           required
@@ -539,6 +544,7 @@ export function ProductForm({
           value={form.sellingPrice}
           onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })}
         />
+        ) : null}
         <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
           <input
             type="checkbox"

@@ -4,15 +4,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getCompanies, getSalesProfiles } from "@/lib/api";
-import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
+import { getHrStaff, uploadHrFile, type HrStaff } from "@/lib/stl-features-api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
+import {
+  emptySharjahPermit,
+  saveSharjahPermit,
+  type SharjahPermitState,
+} from "@/lib/sharjah-permit";
 import { useAuth } from "@/components/AuthProvider";
+import { SharjahPermitFields } from "@/components/HrProfileFields";
+import { portalFieldVisible } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { isSupervisor } from "@/lib/auth";
-import { SHARJAH_ALERT_DAYS, VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
+import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { isShmpHrPortalRole } from "@/lib/hr-scope";
-import { salesMoney } from "@/lib/sales";
 import {
   shmpAccessUsers,
   shmpCreateAccessUser,
@@ -53,17 +59,10 @@ type HrRow = {
   joiningDate?: string | null;
   yearsOfService?: number | null;
   visaExpiry?: string;
-  sharjahPermitExpiry?: string;
-  basicSalary?: number;
-  totalSalary?: number;
 };
 
 function visaSoon(expiry?: string) {
   return isExpiringWithinDays(expiry, VISA_ALERT_DAYS);
-}
-
-function sharjahSoon(expiry?: string) {
-  return isExpiringWithinDays(expiry, SHARJAH_ALERT_DAYS);
 }
 
 function workerYears(emp: Emp) {
@@ -76,6 +75,8 @@ export default function ShmpHrPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
+  const show = (fieldId: string) =>
+    portalFieldVisible(user?.customAccess, "shmp", "hr", fieldId);
   const [staff, setStaff] = useState<HrRow[]>([]);
   const [employees, setEmployees] = useState<Emp[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,6 +93,7 @@ export default function ShmpHrPage() {
   const [userVisaExpiry, setUserVisaExpiry] = useState("");
   const [userShift, setUserShift] = useState<ShmpWorkerShift>("morning");
   const [userBiometricId, setUserBiometricId] = useState("");
+  const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -135,9 +137,6 @@ export default function ShmpHrPage() {
             joiningDate: profile?.joiningDate,
             yearsOfService: profile?.yearsOfService,
             visaExpiry: profile?.hrProfile?.visaExpiry,
-            sharjahPermitExpiry: profile?.hrProfile?.sharjahPermitExpiry,
-            basicSalary: profile?.hrProfile?.basicSalary,
-            totalSalary: profile?.hrProfile?.totalSalary,
           };
         }),
         ...workers.map((emp) => ({
@@ -148,9 +147,6 @@ export default function ShmpHrPage() {
           role: emp.designation ? `Worker · ${emp.designation}` : "Worker",
           yearsOfService: workerYears(emp),
           visaExpiry: emp.hrProfile?.visaExpiry || emp.visa?.expiry,
-          sharjahPermitExpiry: emp.hrProfile?.sharjahPermitExpiry,
-          basicSalary: emp.salary?.basic ?? emp.hrProfile?.basicSalary,
-          totalSalary: emp.hrProfile?.totalSalary,
         })),
         ...hrRows
           .filter((row) => row.kind === "staff")
@@ -163,9 +159,6 @@ export default function ShmpHrPage() {
             joiningDate: row.joiningDate,
             yearsOfService: row.yearsOfService,
             visaExpiry: row.hrProfile?.visaExpiry,
-            sharjahPermitExpiry: row.hrProfile?.sharjahPermitExpiry,
-            basicSalary: row.hrProfile?.basicSalary,
-            totalSalary: row.hrProfile?.totalSalary,
           })),
       ].sort((a, b) => a.name.localeCompare(b.name));
       setStaff(rows);
@@ -203,6 +196,7 @@ export default function ShmpHrPage() {
     setUserVisaExpiry("");
     setUserShift("morning");
     setUserBiometricId("");
+    setPermit(emptySharjahPermit());
   }
 
   async function onCreateUser(e: FormEvent) {
@@ -271,7 +265,7 @@ export default function ShmpHrPage() {
     setCreating(true);
     setError(null);
     try {
-      await shmpCreateAccessUser({
+      const created = await shmpCreateAccessUser({
         role: dialogRole,
         name: userName.trim(),
         email: userEmail.trim(),
@@ -279,6 +273,24 @@ export default function ShmpHrPage() {
         mobileNumber: userMobile.trim() || undefined,
         ...(dialogRole === "Sales" ? { environments: ["stl", "shmp"] } : {}),
       });
+      if ((permit.expiry || permit.file) && created?._id && user?.id) {
+        try {
+          await saveSharjahPermit({
+            adminUserId: user.id,
+            personId: created._id,
+            scope: "shmp",
+            permit,
+            fallbackName: userName.trim(),
+          });
+        } catch (permitError) {
+          toast(
+            permitError instanceof Error
+              ? `${permitError.message} The user was created, but the Sharjah permit was not saved.`
+              : "The user was created, but the Sharjah permit was not saved.",
+            "error",
+          );
+        }
+      }
       toast(`${dialogRole} user created`, "success");
       resetDialog();
       await load();
@@ -312,8 +324,8 @@ export default function ShmpHrPage() {
         title="HR"
         subtitle={
           supervisor
-            ? "Supervisor and factory worker visa, salary and service records."
-            : "Sales, supervisor and factory worker visa, salary and service records."
+            ? "Joined date, years of service, and visa expiry for supervisors and factory workers."
+            : "Joined date, years of service, and visa expiry. Salary stays on each person's record."
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -327,7 +339,7 @@ export default function ShmpHrPage() {
                 Add staff
               </SecondaryButton>
             ) : null}
-            {!supervisor ? (
+            {!supervisor && show("salary") ? (
               <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/payroll")}>
                 Payroll settings
               </SecondaryButton>
@@ -361,10 +373,7 @@ export default function ShmpHrPage() {
                 <th className="px-4 py-2">Role</th>
                 <th className="px-4 py-2">Joined</th>
                 <th className="px-4 py-2 text-right">Years</th>
-                <th className="px-4 py-2">Visa expiry</th>
-                <th className="px-4 py-2">Sharjah permit</th>
-                <th className="px-4 py-2 text-right">Basic salary</th>
-                <th className="px-4 py-2 text-right">Total salary</th>
+                {show("visa") ? <th className="px-4 py-2">Visa expiry</th> : null}
                 <th className="px-4 py-2" />
               </tr>
             </thead>
@@ -378,22 +387,13 @@ export default function ShmpHrPage() {
                   <td className="px-4 py-2">{s.role}</td>
                   <td className="px-4 py-2">{fmtDateOnly(s.joiningDate)}</td>
                   <td className="px-4 py-2 text-right">{s.yearsOfService ?? "-"}</td>
+                  {show("visa") ? (
                   <td
                     className={`px-4 py-2 ${visaSoon(s.visaExpiry) ? "font-medium text-red-700" : ""}`}
                   >
                     {fmtDateOnly(s.visaExpiry)}
                   </td>
-                  <td
-                    className={`px-4 py-2 ${sharjahSoon(s.sharjahPermitExpiry) ? "font-medium text-red-700" : ""}`}
-                  >
-                    {fmtDateOnly(s.sharjahPermitExpiry)}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {s.basicSalary != null ? salesMoney(s.basicSalary) : "-"}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {s.totalSalary != null ? salesMoney(s.totalSalary) : "-"}
-                  </td>
+                  ) : null}
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-3">
                       <Link
@@ -554,6 +554,7 @@ export default function ShmpHrPage() {
                   value={userYearsWorked}
                   onChange={(e) => setUserYearsWorked(e.target.value)}
                 />
+                {show("visa") ? (
                 <TextField
                   label="Visa expiry"
                   type="date"
@@ -561,6 +562,20 @@ export default function ShmpHrPage() {
                   value={userVisaExpiry}
                   onChange={(e) => setUserVisaExpiry(e.target.value)}
                 />
+                ) : null}
+                {dialogRole !== "Worker" ? (
+                  <SharjahPermitFields
+                    expiry={permit.expiry}
+                    file={permit.file}
+                    disabled={creating}
+                    onExpiryChange={(expiry) => setPermit((current) => ({ ...current, expiry }))}
+                    onFileChange={(file) => setPermit((current) => ({ ...current, file }))}
+                    onUpload={(selected) => {
+                      if (!user?.id) return Promise.reject(new Error("Sign in again"));
+                      return uploadHrFile(user.id, selected);
+                    }}
+                  />
+                ) : null}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <PrimaryButton type="submit" disabled={creating}>
                     {creating ? "Creating…" : `Create ${dialogRole}`}
