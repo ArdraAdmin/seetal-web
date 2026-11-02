@@ -1,4 +1,6 @@
 export type ShmpProductionLog = {
+  entryId?: string;
+  designation?: string;
   worker?: { _id?: string | null; name?: string };
   company?: { _id?: string; name?: string } | null;
   order?: { _id?: string; invoiceNo?: string } | null;

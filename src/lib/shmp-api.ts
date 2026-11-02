@@ -173,6 +173,8 @@ export type ShmpAttendanceRow = {
   checkOutAt?: string | null;
   leaveType?: string;
   source?: string;
+  remarks?: string;
+  shift?: { _id?: string; name?: string } | string | null;
   employee?: { _id?: string; name?: string; designation?: string } | string;
   user?: { _id?: string; name?: string; role?: string } | string;
 };
@@ -349,16 +351,20 @@ export type ShmpProductionDashboard = {
   byWorker?: ShmpProductionLog[];
 };
 
+export type ShmpProductionLogsResponse = {
+  date?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  todayCartons?: number;
+  todayValue?: number;
+  monthCartons?: number;
+  monthValue?: number;
+  logs?: ShmpProductionLog[];
+};
+
 export const shmpProductionLogs = (params?: Record<string, string>) => {
   const q = new URLSearchParams(params || {});
-  return shmpRequest<{
-    date?: string;
-    todayCartons?: number;
-    todayValue?: number;
-    monthCartons?: number;
-    monthValue?: number;
-    logs?: ShmpProductionLog[];
-  }>(`/production/logs?${q}`);
+  return shmpRequest<ShmpProductionLogsResponse>(`/production/logs?${q}`);
 };
 export const shmpDeliveries = (params?: Record<string, string>) => {
   const q = new URLSearchParams(params || {});
