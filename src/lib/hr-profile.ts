@@ -167,10 +167,11 @@ export function hrProfilePayload(
   form: HrProfileFormState,
   scope?: HrSalaryScope,
 ): Record<string, unknown> {
+  const company = form.company.trim();
   const payload: Record<string, unknown> = {
     visaName: form.visaName.trim(),
     visaDesignation: form.visaDesignation.trim(),
-    company: form.company.trim(),
+    ...(company ? { company } : {}),
     basicSalary: numberOrBlank(form.basicSalary),
     overtimeSalary: numberOrBlank(form.overtimeSalary),
     otherBenefits: numberOrBlank(form.otherBenefits),

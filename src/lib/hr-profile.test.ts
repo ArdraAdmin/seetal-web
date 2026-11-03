@@ -103,6 +103,8 @@ describe("HR profile form", () => {
     assert.equal(payload.otherBenefits, 200);
     assert.equal("visaCost" in payload, false);
     assert.equal("visaDetails" in payload, false);
+    assert.equal("company" in hrProfilePayload(emptyHrProfileForm()), false);
+    assert.equal(hrProfilePayload({ ...emptyHrProfileForm(), company: "6546cfbdb428f52b30e6f90e" }).company, "6546cfbdb428f52b30e6f90e");
   });
 
   it("uses the EID expiry as the visa expiry", () => {
