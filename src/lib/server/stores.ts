@@ -66,6 +66,7 @@ export type AdminStoreRow = {
   tradeLicenseDocumentUrl?: string;
   eidNumber: string;
   eidDocumentFileName?: string;
+  eidDocumentUrl?: string;
   isTemp: boolean;
   isTempStore: boolean;
   salesPerson: string;
@@ -390,6 +391,7 @@ function toRow(
     tradeLicenseDocumentUrl: text(doc.tradeLicenseDocumentUrl) || undefined,
     eidNumber: text(doc.eidNumber),
     eidDocumentFileName: text(doc.eidDocumentFileName) || undefined,
+    eidDocumentUrl: text(doc.eidDocumentUrl) || undefined,
     isTemp: doc.isTemp,
     isTempStore: doc.isTemp,
     salesPerson: salesId,
@@ -971,6 +973,7 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
     tradeLicenseDocumentUrl: text(store.tradeLicenseDocumentUrl) || undefined,
     eidNumber: text(store.eidNumber),
     eidDocumentFileName: text(store.eidDocumentFileName) || undefined,
+    eidDocumentUrl: text(store.eidDocumentUrl) || undefined,
     isTemp,
     isTempStore: isTemp,
     salesPerson: salesId,
@@ -1130,6 +1133,35 @@ export async function proxyUpdateStoreRecord(
     );
   }
   return new Response("Store updated", { status: 200 });
+}
+
+export async function proxySaveStoreEid(req: Request, form: FormData): Promise<Response> {
+  const storeId = text(form.get("storeId"));
+  if (!storeId) return new Response("Store not found", { status: 400 });
+  const headers = new Headers();
+  const auth =
+    req.headers.get("authorization") || req.headers.get("Authorization");
+  if (auth) {
+    headers.set("Authorization", auth);
+    headers.set("auth-token", auth);
+  }
+  const res = await fetch(
+    `${REMOTE_API}/admin/edit/storeEid/${encodeURIComponent(storeId)}`,
+    { method: "POST", headers, body: form },
+  );
+  const textBody = await res.text();
+  let body: unknown = textBody;
+  try {
+    body = textBody ? JSON.parse(textBody) : null;
+  } catch {
+    /* keep text */
+  }
+  if (!res.ok) {
+    return new Response(remoteErrorMessage(body, "Could not save the EID"), {
+      status: res.status || 400,
+    });
+  }
+  return Response.json({ ok: true });
 }
 
 export async function proxyDeleteStoreRecord(

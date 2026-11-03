@@ -4,6 +4,7 @@ import {
   isStoreObjectKey,
   storeEidFileError,
   storeEidNumberError,
+  storeEidRequiredError,
   storeObjectKey,
 } from "./store-eid.ts";
 
@@ -34,6 +35,30 @@ describe("store EID files", () => {
     assert.equal(storeEidNumberError(""), null);
     assert.equal(storeEidNumberError("784-1990-1234567-1"), null);
     assert.equal(storeEidNumberError("x".repeat(41)), "EID number is too long");
+  });
+
+  it("requires an EID number and a document on the store form", () => {
+    const pdf = { name: "eid.pdf", type: "application/pdf", size: 12 };
+    assert.equal(
+      storeEidRequiredError({ eidNumber: "", file: null }),
+      "EID number is required",
+    );
+    assert.equal(
+      storeEidRequiredError({ eidNumber: "784-1970-4857619-9", file: null }),
+      "Upload an EID document",
+    );
+    assert.equal(
+      storeEidRequiredError({
+        eidNumber: "784-1970-4857619-9",
+        file: null,
+        hasExistingDocument: true,
+      }),
+      null,
+    );
+    assert.equal(
+      storeEidRequiredError({ eidNumber: "784-1970-4857619-9", file: pdf }),
+      null,
+    );
   });
 
   it("builds an S3 key under the store and rejects anything else", () => {

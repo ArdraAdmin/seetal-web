@@ -93,6 +93,7 @@ export interface StoreProfile {
   tradeLicenseDocumentUrl?: string;
   eidNumber?: string;
   eidDocumentFileName?: string;
+  eidDocumentUrl?: string;
   copyCount?: number;
   [key: string]: unknown;
 }

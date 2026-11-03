@@ -24,7 +24,7 @@ import {
   tradeLicenseDateInput,
 } from "@/lib/store-documents";
 import { STORE_EXPORT_HEADERS, storeExportRow } from "@/lib/store-export";
-import { storeEidFileError, storeEidNumberError } from "@/lib/store-eid";
+import { storeEidRequiredError } from "@/lib/store-eid";
 import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
@@ -63,6 +63,7 @@ type StoreForm = {
   eidDocument: File | null;
   existingTrnUrl?: string;
   existingTradeLicenseUrl?: string;
+  existingEidUrl?: string;
   existingEidFile?: boolean;
 };
 
@@ -134,7 +135,8 @@ function formFrom(store: StoreProfile): StoreForm {
     eidDocument: null,
     existingTrnUrl: text(store.trnDocumentUrl) || undefined,
     existingTradeLicenseUrl: text(store.tradeLicenseDocumentUrl) || undefined,
-    existingEidFile: Boolean(text(store.eidDocumentFileName)),
+    existingEidUrl: text(store.eidDocumentUrl) || undefined,
+    existingEidFile: Boolean(text(store.eidDocumentFileName) || text(store.eidDocumentUrl)),
   };
 }
 
@@ -379,15 +381,19 @@ function StoreFields({
       />
       <TextField
         label="EID number"
-        optional
+        required
         value={form.eidNumber}
         onChange={(e) => setField("eidNumber", e.target.value)}
       />
       <StoreDocumentField
         label="EID document"
-        hint="PDF or image · stored in S3"
+        required
+        hint="PDF or image"
         file={form.eidDocument}
-        onViewExisting={form.existingEidFile ? onViewEid : undefined}
+        existingUrl={form.existingEidUrl}
+        onViewExisting={
+          !form.existingEidUrl && form.existingEidFile ? onViewEid : undefined
+        }
         onChange={(file) => setFile("eidDocument", file)}
       />
       <SalesPersonChecklist
@@ -488,13 +494,9 @@ export default function StoresPage() {
     setAddForm((prev) => ({ ...prev, [key]: file }));
   }
 
-  function eidFileError(file: File | null) {
+  function eidDraft(file: File | null) {
     if (!(file instanceof File)) return null;
-    return storeEidFileError({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    });
+    return { name: file.name, type: file.type, size: file.size };
   }
 
   async function onCreateStore() {
@@ -527,8 +529,10 @@ export default function StoresPage() {
       toast("Choose a sales person", "info");
       return;
     }
-    const eidError =
-      storeEidNumberError(addForm.eidNumber) || eidFileError(addForm.eidDocument);
+    const eidError = storeEidRequiredError({
+      eidNumber: addForm.eidNumber,
+      file: eidDraft(addForm.eidDocument),
+    });
     if (eidError) {
       toast(eidError, "info");
       return;
@@ -887,15 +891,17 @@ function StoreCard({
       toast("Choose a sales person", "info");
       return;
     }
-    const eidError =
-      storeEidNumberError(form.eidNumber) ||
-      (form.eidDocument instanceof File
-        ? storeEidFileError({
+    const eidError = storeEidRequiredError({
+      eidNumber: form.eidNumber,
+      file: form.eidDocument instanceof File
+        ? {
             name: form.eidDocument.name,
             type: form.eidDocument.type,
             size: form.eidDocument.size,
-          })
-        : null);
+          }
+        : null,
+      hasExistingDocument: Boolean(form.existingEidFile || form.existingEidUrl),
+    });
     if (eidError) {
       toast(eidError, "info");
       return;
@@ -1046,16 +1052,27 @@ function StoreCard({
               "—"
             )}
             {text(store.eidNumber) ? ` · EID: ${text(store.eidNumber)}` : ""}
-            {text(store.eidDocumentFileName) ? (
+            {text(store.eidDocumentUrl) || text(store.eidDocumentFileName) ? (
               <>
                 {" · EID doc: "}
-                <button
-                  type="button"
-                  onClick={() => void viewEid()}
-                  className="font-medium text-brand-dark underline"
-                >
-                  View
-                </button>
+                {text(store.eidDocumentUrl) ? (
+                  <a
+                    href={text(store.eidDocumentUrl)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-brand-dark underline"
+                  >
+                    View
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void viewEid()}
+                    className="font-medium text-brand-dark underline"
+                  >
+                    View
+                  </button>
+                )}
               </>
             ) : null}
           </p>
@@ -1118,17 +1135,19 @@ function StoreCard({
             { label: "EID number", value: text(store.eidNumber) || "—" },
             {
               label: "EID document",
-              value: text(store.eidDocumentFileName) ? (
-                <button
-                  type="button"
-                  onClick={() => void viewEid()}
-                  className="font-medium text-brand-dark underline"
-                >
-                  View
-                </button>
-              ) : (
-                "—"
-              ),
+              value: text(store.eidDocumentUrl)
+                ? docLink(text(store.eidDocumentUrl))
+                : text(store.eidDocumentFileName)
+                  ? (
+                    <button
+                      type="button"
+                      onClick={() => void viewEid()}
+                      className="font-medium text-brand-dark underline"
+                    >
+                      View
+                    </button>
+                  )
+                  : "—",
             },
             { label: "TRN document", value: docLink(store.trnDocumentUrl) },
             {

@@ -42,6 +42,19 @@ export function storeEidNumberError(value: string): string | null {
   return null;
 }
 
+export function storeEidRequiredError(input: {
+  eidNumber: string;
+  file: StoreEidFileDraft | null;
+  hasExistingDocument?: boolean;
+}): string | null {
+  if (!input.eidNumber.trim()) return "EID number is required";
+  const numberError = storeEidNumberError(input.eidNumber);
+  if (numberError) return numberError;
+  if (input.file) return storeEidFileError(input.file);
+  if (!input.hasExistingDocument) return "Upload an EID document";
+  return null;
+}
+
 export function storeObjectKey(storeId: string, originalName: string) {
   const id = String(storeId || "").trim().toLowerCase();
   if (!/^[a-f0-9]{24}$/.test(id)) throw new Error("Store not found");

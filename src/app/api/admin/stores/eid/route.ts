@@ -2,6 +2,7 @@ import { contentTypeForFile } from "@/lib/vehicle-records";
 import { storeEidFileError } from "@/lib/store-eid";
 import {
   isStoreDbUnconfigured,
+  proxySaveStoreEid,
   readStoreEidFile,
   saveStoreEid,
   storeError,
@@ -46,17 +47,22 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  let form: FormData;
   try {
-    const form = await req.formData();
-    const storeId = form.get("storeId");
-    const eidNumber = form.get("eidNumber");
-    const isTemp = form.get("isTemp") === "true";
-    const entry = form.get("eidDocument");
-    let file: {
-      buffer: Buffer;
-      fileName: string;
-      contentType: string;
-    } | null = null;
+    form = await req.formData();
+  } catch {
+    return new Response("Unable to read the EID upload", { status: 400 });
+  }
+  const storeId = form.get("storeId");
+  const eidNumber = form.get("eidNumber");
+  const isTemp = form.get("isTemp") === "true";
+  const entry = form.get("eidDocument");
+  let file: {
+    buffer: Buffer;
+    fileName: string;
+    contentType: string;
+  } | null = null;
+  try {
     if (entry instanceof File && entry.size > 0) {
       const error = storeEidFileError({
         name: entry.name || "document",
@@ -80,7 +86,19 @@ export async function POST(req: Request) {
     return Response.json({ ok: true });
   } catch (error) {
     if (isStoreDbUnconfigured(error)) {
-      return new Response("Database is not configured", { status: 503 });
+      const forwarded = new FormData();
+      forwarded.set("storeId", typeof storeId === "string" ? storeId : "");
+      forwarded.set("eidNumber", typeof eidNumber === "string" ? eidNumber : "");
+      forwarded.set("isTemp", isTemp ? "true" : "false");
+      if (file) {
+        forwarded.set(
+          "eidDocument",
+          new File([new Uint8Array(file.buffer)], file.fileName, {
+            type: file.contentType,
+          }),
+        );
+      }
+      return proxySaveStoreEid(req, forwarded);
     }
     return storeError(error);
   }
