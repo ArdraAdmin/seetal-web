@@ -12,7 +12,11 @@ type CategoryDoc = {
   subCategory?: string;
 };
 
-function grantsCategories(custom: { companies?: unknown; modules?: unknown }) {
+function grantsCategories(value: unknown) {
+  const custom =
+    value && typeof value === "object"
+      ? (value as { companies?: unknown; modules?: unknown })
+      : {};
   const companies = Array.isArray(custom.companies)
     ? custom.companies.map((item) => String(item))
     : [];

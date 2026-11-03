@@ -39,6 +39,7 @@ type StoreDoc = {
   eidDocumentKey?: string;
   eidDocumentFileName?: string;
   eidDocumentContentType?: string;
+  eidDocumentUrl?: string;
   isTemp: boolean;
 };
 
@@ -213,6 +214,7 @@ async function loadStores(): Promise<StoreDoc[]> {
     eidDocumentKey: 1,
     eidDocumentFileName: 1,
     eidDocumentContentType: 1,
+    eidDocumentUrl: 1,
   };
   // Keep SHMP (environment: shmp) stores out of the STL admin stores list.
   const [permanent, temporary] = await Promise.all([
