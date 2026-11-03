@@ -16,7 +16,7 @@ import {
   TextField,
 } from "@/components/ui";
 import { getWarehouseProfiles } from "@/lib/api";
-import { warehouseStaffLabel } from "@/lib/hr-scope";
+import { addedHrStaffOnly, warehouseStaffLabel } from "@/lib/hr-scope";
 import { warehouseField } from "@/lib/profiles";
 import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { portalFieldVisible } from "@/lib/custom-users";
@@ -58,7 +58,7 @@ export default function AdminHrPage() {
         getHrStaff(user.id, { role: "Warehouse", scope: "stl" }),
         getWarehouseProfiles().catch(() => []),
       ]);
-      setStaff((hr.staff || []).filter((row) => row.kind === "staff"));
+      setStaff(addedHrStaffOnly(hr.staff || []));
       setManagerIds(
         new Set(
           warehouse

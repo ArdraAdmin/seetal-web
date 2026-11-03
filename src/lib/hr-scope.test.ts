@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   attendanceRecordUserId,
+  addedHrStaffOnly,
   isShmpAttendancePortalRole,
-  isShmpHrPortalRole,
   isStlHrRole,
   presentRowVisibleToCaller,
   presentRowVisibleToSupervisor,
@@ -21,12 +21,17 @@ describe("HR people filters", () => {
     assert.equal(isStlHrRole(""), false);
   });
 
-  it("limits SHMP portal people to sales and supervisors", () => {
-    assert.equal(isShmpHrPortalRole("Sales"), true);
-    assert.equal(isShmpHrPortalRole("Supervisor"), true);
-    assert.equal(isShmpHrPortalRole("Admin"), false);
-    assert.equal(isShmpHrPortalRole("Warehouse"), false);
-    assert.equal(isShmpHrPortalRole("Worker"), false);
+  it("shows only people added as staff on the HR list", () => {
+    const rows = addedHrStaffOnly([
+      { id: "sales", kind: "user", role: "Sales" },
+      { id: "supervisor", kind: "user", role: "Supervisor" },
+      { id: "worker", kind: "employee", role: "Worker" },
+      { id: "staff", kind: "staff", role: "Sales" },
+    ]);
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ["staff"],
+    );
   });
 
   it("limits SHMP attendance portal check-ins to supervisors", () => {

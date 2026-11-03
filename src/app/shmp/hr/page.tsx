@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { getCompanies, getSalesProfiles } from "@/lib/api";
+import { getCompanies } from "@/lib/api";
 import { deleteHrStaff, getHrStaff, uploadHrFile, type HrStaff } from "@/lib/stl-features-api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
@@ -18,15 +18,12 @@ import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { isSupervisor } from "@/lib/auth";
 import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
-import { isShmpHrPortalRole } from "@/lib/hr-scope";
+import { addedHrStaffOnly } from "@/lib/hr-scope";
 import {
-  shmpAccessUsers,
   shmpCreateAccessUser,
   shmpCreateAccessWorker,
-  shmpDeactivateEmployee,
   shmpEmployees,
   type ShmpAccessRole,
-  type ShmpAccessUser,
   type ShmpWorkerShift,
 } from "@/lib/shmp-api";
 import {
@@ -38,13 +35,7 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
-import {
-  companyOf,
-  mergeAccessAndSales,
-  personHref,
-  usersVisibleToSupervisor,
-  type Emp,
-} from "./shared";
+import { companyOf, personHref, type Emp } from "./shared";
 
 const SHMP_USER_ROLES: ShmpAccessRole[] = ["Supervisor", "Sales"];
 
@@ -52,7 +43,7 @@ type DialogMode = "Worker" | ShmpAccessRole;
 
 type HrRow = {
   id: string;
-  kind: "user" | "worker" | "staff";
+  kind: "staff";
   name: string;
   email?: string;
   role: string;
@@ -65,9 +56,9 @@ function visaSoon(expiry?: string) {
   return isExpiringWithinDays(expiry, VISA_ALERT_DAYS);
 }
 
-function workerYears(emp: Emp) {
-  const years = emp.visa?.yearsWorked;
-  return typeof years === "number" && Number.isFinite(years) ? years : null;
+function staffRole(row: HrStaff) {
+  if (row.linkedUserId && row.role && row.role !== "Staff") return row.role;
+  return "Staff";
 }
 
 export default function ShmpHrPage() {
@@ -78,7 +69,6 @@ export default function ShmpHrPage() {
   const show = (fieldId: string) =>
     portalFieldVisible(user?.customAccess, "shmp", "hr", fieldId);
   const [staff, setStaff] = useState<HrRow[]>([]);
-  const [employees, setEmployees] = useState<Emp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -98,76 +88,30 @@ export default function ShmpHrPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!user?.id) return;
     setLoading(true);
     setError(null);
     try {
-      const [list, accessUsers, salesProfiles, hr] = await Promise.all([
-        shmpEmployees() as Promise<Emp[]>,
-        shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
-        supervisor ? Promise.resolve([]) : getSalesProfiles().catch(() => []),
-        user?.id && !supervisor
-          ? getHrStaff(user.id, { scope: "shmp" }).catch(() => ({ staff: [] as HrStaff[] }))
-          : Promise.resolve({ staff: [] as HrStaff[] }),
-      ]);
-      const workers = Array.isArray(list) ? list : [];
-      setEmployees(workers);
-      const portal = (
-        supervisor
-          ? usersVisibleToSupervisor(accessUsers)
-          : mergeAccessAndSales(accessUsers, salesProfiles)
-      ).filter((row) => isShmpHrPortalRole(row.role));
-      const hrRows = hr.staff || [];
-      const linkedUserIds = new Set(
-        hrRows
-          .filter((row) => row.kind === "staff" && row.linkedUserId)
-          .map((row) => String(row.linkedUserId)),
-      );
-      const hrById = new Map(hrRows.map((row) => [row.id, row]));
-      const rows: HrRow[] = [
-        ...portal
-          .filter((row) => !linkedUserIds.has(row._id))
-          .map((row) => {
-          const profile = hrById.get(row._id);
-          return {
-            id: row._id,
-            kind: "user" as const,
-            name: profile?.hrProfile?.visaName || row.name || profile?.name || "Unnamed",
-            email: row.email || profile?.email,
-            role: row.role || profile?.role || "User",
-            joiningDate: profile?.joiningDate,
-            yearsOfService: profile?.yearsOfService,
-            visaExpiry: profile?.hrProfile?.visaExpiry,
-          };
-        }),
-        ...workers.map((emp) => ({
-          id: emp._id,
-          kind: "worker" as const,
-          name: emp.hrProfile?.visaName || emp.name,
-          email: emp.email,
-          role: emp.designation ? `Worker · ${emp.designation}` : "Worker",
-          yearsOfService: workerYears(emp),
-          visaExpiry: emp.hrProfile?.visaExpiry || emp.visa?.expiry,
-        })),
-        ...hrRows
-          .filter((row) => row.kind === "staff")
-          .map((row) => ({
-            id: row.id,
-            kind: "staff" as const,
-            name: row.name,
-            email: row.email,
-            role: row.linkedUserId ? row.role : "Staff",
-            joiningDate: row.joiningDate,
-            yearsOfService: row.yearsOfService,
-            visaExpiry: row.hrProfile?.visaExpiry,
-          })),
-      ].sort((a, b) => a.name.localeCompare(b.name));
+      const hr = await getHrStaff(user.id, { scope: "shmp" });
+      const rows: HrRow[] = addedHrStaffOnly(hr.staff || [])
+        .map((row) => ({
+          id: row.id,
+          kind: "staff" as const,
+          name: row.hrProfile?.visaName || row.name,
+          email: row.email,
+          role: staffRole(row),
+          joiningDate: row.joiningDate,
+          yearsOfService: row.yearsOfService,
+          visaExpiry: row.hrProfile?.visaExpiry,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
       setStaff(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load staff");
     } finally {
       setLoading(false);
     }
-  }, [supervisor, user]);
+  }, [user]);
 
   useEffect(() => {
     void load();
@@ -229,7 +173,10 @@ export default function ShmpHrPage() {
         } catch {
           // fall back to an existing worker's company below
         }
-        if (!company) company = companyOf(employees[0]);
+        if (!company) {
+          const workers = (await shmpEmployees().catch(() => [])) as Emp[];
+          company = companyOf(Array.isArray(workers) ? workers[0] : undefined);
+        }
         if (!company) {
           throw new Error("Could not determine SHMP company for this worker");
         }
@@ -318,30 +265,11 @@ export default function ShmpHrPage() {
     }
   }
 
-  async function onDeleteWorker(row: HrRow) {
-    if (row.kind !== "worker") return;
-    if (!confirm(`Remove ${row.name} from staff?`)) return;
-    setDeletingId(row.id);
-    setError(null);
-    try {
-      await shmpDeactivateEmployee(row.id);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
   return (
     <div>
       <PageHeader
         title="HR"
-        subtitle={
-          supervisor
-            ? "Joined date, years of service, and visa expiry for supervisors and factory workers."
-            : "Joined date, years of service, and visa expiry. Salary stays on each person's record."
-        }
+        subtitle="Joined date, years of service, and visa expiry for staff you add here."
         actions={
           <div className="flex flex-wrap gap-2">
             {!supervisor ? (
@@ -378,7 +306,14 @@ export default function ShmpHrPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No staff found" />
+        <EmptyState
+          title={staff.length === 0 ? "No staff yet" : "No matching staff"}
+          description={
+            staff.length === 0
+              ? "Add a staff member to show their joined date, years of service, and visa expiry."
+              : undefined
+          }
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="w-full text-left text-sm">
@@ -423,16 +358,6 @@ export default function ShmpHrPage() {
                           className="font-medium text-red-700 underline disabled:opacity-50"
                           disabled={deletingId === s.id}
                           onClick={() => void onDeleteStaff(s)}
-                        >
-                          {deletingId === s.id ? "Removing…" : "Delete"}
-                        </button>
-                      ) : null}
-                      {s.kind === "worker" && !supervisor ? (
-                        <button
-                          type="button"
-                          className="font-medium text-red-700 underline disabled:opacity-50"
-                          disabled={deletingId === s.id}
-                          onClick={() => void onDeleteWorker(s)}
                         >
                           {deletingId === s.id ? "Removing…" : "Delete"}
                         </button>

@@ -1,9 +1,6 @@
 /** People shown in the STL HR module. Attendance uses this same roster. */
 export const STL_HR_ROLES = ["Warehouse"] as const;
 
-/** Portal logins shown in the SHMP HR module. Workers are separate. */
-export const SHMP_HR_PORTAL_ROLES = ["Sales", "Supervisor"] as const;
-
 /** Portal logins shown on SHMP attendance. Workers are separate. */
 export const SHMP_ATTENDANCE_PORTAL_ROLES = ["Supervisor"] as const;
 
@@ -11,8 +8,9 @@ export function isStlHrRole(role?: string | null) {
   return role === "Warehouse";
 }
 
-export function isShmpHrPortalRole(role?: string | null) {
-  return role === "Sales" || role === "Supervisor";
+/** HR lists show people added as staff. Portal logins stay in user management. */
+export function addedHrStaffOnly<T extends { kind?: string | null }>(rows: T[]) {
+  return rows.filter((row) => row.kind === "staff");
 }
 
 export function isShmpAttendancePortalRole(role?: string | null) {
