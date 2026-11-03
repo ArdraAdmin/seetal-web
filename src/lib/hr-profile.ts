@@ -195,6 +195,22 @@ export function hrProfilePayload(
   return payload;
 }
 
+export function joiningDateError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "Joined date is required";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return "Joined date is invalid";
+  const [year, month, day] = trimmed.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return "Joined date is invalid";
+  }
+  return null;
+}
+
 export function validateHrProfileForm(
   form: HrProfileFormState,
   scope?: HrSalaryScope,

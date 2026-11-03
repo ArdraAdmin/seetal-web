@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getCompanies, getSalesProfiles } from "@/lib/api";
-import { getHrStaff, uploadHrFile, type HrStaff } from "@/lib/stl-features-api";
+import { deleteHrStaff, getHrStaff, uploadHrFile, type HrStaff } from "@/lib/stl-features-api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
   emptySharjahPermit,
@@ -303,6 +303,21 @@ export default function ShmpHrPage() {
     }
   }
 
+  async function onDeleteStaff(row: HrRow) {
+    if (row.kind !== "staff" || !user?.id) return;
+    if (!confirm(`Remove ${row.name} from staff?`)) return;
+    setDeletingId(row.id);
+    try {
+      await deleteHrStaff(user.id, row.id);
+      toast("Staff record removed", "success");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function onDeleteWorker(row: HrRow) {
     if (row.kind !== "worker") return;
     if (!confirm(`Remove ${row.name} from staff?`)) return;
@@ -402,6 +417,16 @@ export default function ShmpHrPage() {
                       >
                         Edit
                       </Link>
+                      {s.kind === "staff" && !supervisor ? (
+                        <button
+                          type="button"
+                          className="font-medium text-red-700 underline disabled:opacity-50"
+                          disabled={deletingId === s.id}
+                          onClick={() => void onDeleteStaff(s)}
+                        >
+                          {deletingId === s.id ? "Removing…" : "Delete"}
+                        </button>
+                      ) : null}
                       {s.kind === "worker" && !supervisor ? (
                         <button
                           type="button"

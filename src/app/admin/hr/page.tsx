@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import {
   EmptyState,
@@ -19,7 +20,7 @@ import { warehouseStaffLabel } from "@/lib/hr-scope";
 import { warehouseField } from "@/lib/profiles";
 import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { portalFieldVisible } from "@/lib/custom-users";
-import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
+import { deleteHrStaff, getHrStaff, type HrStaff } from "@/lib/stl-features-api";
 
 function visaSoon(expiry?: string) {
   return isExpiringWithinDays(expiry, VISA_ALERT_DAYS);
@@ -37,6 +38,7 @@ function rowRole(row: HrStaff, managerIds: Set<string>) {
 
 export default function AdminHrPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const { user } = useAuth();
   const show = (fieldId: string) =>
     portalFieldVisible(user?.customAccess, "selling", "hr", fieldId);
@@ -45,6 +47,7 @@ export default function AdminHrPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -73,6 +76,21 @@ export default function AdminHrPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function onDelete(row: HrStaff) {
+    if (!user?.id || row.kind !== "staff") return;
+    if (!confirm(`Remove ${row.name} from staff?`)) return;
+    setDeletingId(row.id);
+    try {
+      await deleteHrStaff(user.id, row.id);
+      toast("Staff record removed", "success");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Delete failed", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const term = q.trim().toLowerCase();
   const rows = term
@@ -149,12 +167,24 @@ export default function AdminHrPage() {
                   </td>
                   ) : null}
                   <td className="px-4 py-2 text-right">
-                    <Link
-                      href={s.kind === "staff" ? `/admin/hr/staff/${s.id}` : `/admin/hr/${s.id}`}
-                      className="font-medium text-brand-dark underline"
-                    >
-                      Edit
-                    </Link>
+                    <div className="flex justify-end gap-3">
+                      <Link
+                        href={s.kind === "staff" ? `/admin/hr/staff/${s.id}` : `/admin/hr/${s.id}`}
+                        className="font-medium text-brand-dark underline"
+                      >
+                        Edit
+                      </Link>
+                      {s.kind === "staff" ? (
+                        <button
+                          type="button"
+                          className="font-medium text-red-700 underline disabled:opacity-50"
+                          disabled={deletingId === s.id}
+                          onClick={() => void onDelete(s)}
+                        >
+                          {deletingId === s.id ? "Removing…" : "Delete"}
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

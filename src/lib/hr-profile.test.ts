@@ -4,12 +4,21 @@ import {
   emptyHrProfileForm,
   hrProfilePayload,
   hrProfileToForm,
+  joiningDateError,
   stlTotalSalary,
   toDateInput,
   validateHrProfileForm,
 } from "./hr-profile.ts";
 
 describe("HR profile form", () => {
+  it("requires a real joined date", () => {
+    assert.equal(joiningDateError(""), "Joined date is required");
+    assert.equal(joiningDateError("   "), "Joined date is required");
+    assert.equal(joiningDateError("2026-02-31"), "Joined date is invalid");
+    assert.equal(joiningDateError("not-a-date"), "Joined date is invalid");
+    assert.equal(joiningDateError("2026-03-01"), null);
+  });
+
   it("keeps a date-only value and converts timestamps in Dubai", () => {
     assert.equal(toDateInput("2027-04-30"), "2027-04-30");
     assert.equal(toDateInput("2026-10-26T20:30:00.000Z"), "2026-10-27");

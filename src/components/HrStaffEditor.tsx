@@ -23,6 +23,7 @@ import {
   emptyHrProfileForm,
   hrProfilePayload,
   hrProfileToForm,
+  joiningDateError,
   toDateInput,
   validateHrProfileForm,
   type HrProfileFormState,
@@ -31,6 +32,7 @@ import { salesMoney } from "@/lib/sales";
 import {
   addHrStaffIncrement,
   createHrStaff,
+  deleteHrStaff,
   getEmployeeHr,
   getHrLinkCandidates,
   getHrStaffMember,
@@ -75,6 +77,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   const [loading, setLoading] = useState(!creating);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id || creating) return;
@@ -128,6 +131,11 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   async function onSave(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
+    const joinedProblem = joiningDateError(joiningDate);
+    if (joinedProblem) {
+      toast(joinedProblem, "info");
+      return;
+    }
     const problem = validateHrProfileForm(form, scope, shown, {
       requireCompany: scope === "stl",
     });
@@ -143,7 +151,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
           scope,
           email: email.trim(),
           mobileNumber: mobile.trim(),
-          joiningDate: joiningDate || undefined,
+          joiningDate,
           linkedUserId: linkedUserId || undefined,
           hrProfile,
         });
@@ -165,6 +173,20 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!user?.id || creating || !staff) return;
+    if (!confirm(`Remove ${staff.name} from staff?`)) return;
+    setRemoving(true);
+    try {
+      await deleteHrStaff(user.id, id);
+      toast("Staff record removed", "success");
+      router.push(listHref);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Delete failed", "error");
+      setRemoving(false);
     }
   }
 
@@ -199,7 +221,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
             <div className="mb-4 grid gap-3 sm:grid-cols-2">
               <TextField label="Email" type="email" optional value={email} onChange={(event) => setEmail(event.target.value)} />
               <TextField label="Mobile" optional value={mobile} onChange={(event) => setMobile(event.target.value)} />
-              <TextField label="Joined" type="date" optional value={joiningDate} onChange={(event) => setJoiningDate(event.target.value)} />
+              <TextField label="Joined" type="date" required value={joiningDate} onChange={(event) => setJoiningDate(event.target.value)} />
               <SearchableSelect
                 label="Linked login"
                 optional
@@ -217,16 +239,26 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
             <HrProfileFields
               form={form}
               onChange={setForm}
-              disabled={busy}
+              disabled={busy || removing}
               onUpload={onUpload}
               showCompany={scope === "stl"}
               scope={scope}
               shown={shown}
             />
-            <div className="mt-4">
-              <PrimaryButton type="submit" disabled={busy}>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <PrimaryButton type="submit" disabled={busy || removing}>
                 {busy ? "Saving…" : creating ? "Add staff" : "Save record"}
               </PrimaryButton>
+              {!creating ? (
+                <button
+                  type="button"
+                  className="font-medium text-red-700 underline disabled:opacity-50"
+                  disabled={busy || removing}
+                  onClick={() => void onDelete()}
+                >
+                  {removing ? "Removing…" : "Delete staff"}
+                </button>
+              ) : null}
             </div>
           </Card>
         </form>

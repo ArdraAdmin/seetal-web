@@ -621,7 +621,7 @@ export async function createHrStaff(
     scope: "stl" | "shmp";
     email?: string;
     mobileNumber?: string;
-    joiningDate?: string;
+    joiningDate: string;
     hrProfile: Record<string, unknown>;
     linkedUserId?: string;
   },
@@ -635,6 +635,13 @@ export async function createHrStaff(
 export async function getHrStaffRecord(adminUserId: string, id: string) {
   return request<HrStaff>(
     `/admin/hr/staff/${id}?userId=${encodeURIComponent(adminUserId)}`,
+  );
+}
+
+export async function deleteHrStaff(adminUserId: string, id: string) {
+  return request<{ ok: true }>(
+    `/admin/hr/staff/${encodeURIComponent(id)}?userId=${encodeURIComponent(adminUserId)}`,
+    { method: "DELETE" },
   );
 }
 
