@@ -128,7 +128,9 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   async function onSave(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form, scope, shown);
+    const problem = validateHrProfileForm(form, scope, shown, {
+      requireCompany: scope === "stl",
+    });
     if (problem) {
       toast(problem, "info");
       return;
@@ -326,7 +328,9 @@ function RecordDocuments({
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (!user?.id) return;
-    const problem = validateHrProfileForm(form, scope, shown);
+    const problem = validateHrProfileForm(form, scope, shown, {
+      requireCompany: showCompany,
+    });
     if (problem) {
       toast(problem, "info");
       return;

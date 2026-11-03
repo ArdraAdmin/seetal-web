@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { SelectField } from "@/components/StlFeatureUi";
+import { useAuth } from "@/components/AuthProvider";
 import { FieldLabel, TextField } from "@/components/ui";
+import { companyLabel, getCompanies, type CompanyRecord } from "@/lib/api";
+import { filterCompaniesForModule } from "@/lib/custom-users";
 import { stlTotalSalary, type HrProfileFormState, type HrSalaryScope } from "@/lib/hr-profile";
 import type { HrFileRef } from "@/lib/stl-features-api";
 
@@ -77,6 +81,89 @@ function FileField({
   );
 }
 
+function CompanyField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { user } = useAuth();
+  const [companies, setCompanies] = useState<CompanyRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCompanies()
+      .then((rows) => {
+        if (!cancelled) setCompanies(rows);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setCompanies([]);
+          setError(err instanceof Error ? err.message : "Could not load companies");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const options = useMemo(
+    () => filterCompaniesForModule(companies, user?.customAccess, "hr"),
+    [companies, user?.customAccess],
+  );
+  const known = options.some((company) => company._id === value);
+  const matched = useMemo(() => {
+    if (!value || known) return null;
+    const needle = value.trim().toLowerCase();
+    return (
+      options.find((company) =>
+        [company.name, company.prefix, companyLabel(company)].some(
+          (part) => part?.trim().toLowerCase() === needle,
+        ),
+      ) ?? null
+    );
+  }, [known, options, value]);
+
+  useEffect(() => {
+    if (matched && matched._id !== value) onChange(matched._id);
+  }, [matched, onChange, value]);
+
+  const selected = known ? value : matched?._id || value;
+  const showCurrent = Boolean(value) && !known && !matched && !loading;
+
+  return (
+    <div>
+      <SelectField
+        label="Company"
+        required
+        disabled={disabled || loading}
+        value={selected}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{loading ? "Loading companies…" : "Select company"}</option>
+        {showCurrent ? <option value={value}>{value}</option> : null}
+        {options.map((company) => (
+          <option key={company._id} value={company._id}>
+            {companyLabel(company)}
+          </option>
+        ))}
+      </SelectField>
+      {error ? <p className="mt-1 text-xs text-red-700">{error}</p> : null}
+      {!loading && !error && options.length === 0 ? (
+        <p className="mt-1 text-xs text-slate-500">No companies are available for this account.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export type HrFieldVisibility = {
   salary?: boolean;
   passport?: boolean;
@@ -140,6 +227,13 @@ export function HrProfileFields({
       <section className="grid gap-3 sm:grid-cols-2">
         <TextField label="Name as per visa" required value={form.visaName} disabled={disabled} onChange={text("visaName")} />
         <TextField label="Designation as per visa" required value={form.visaDesignation} disabled={disabled} onChange={text("visaDesignation")} />
+        {showCompany ? (
+          <CompanyField
+            value={form.company}
+            disabled={disabled}
+            onChange={(company) => set("company", company)}
+          />
+        ) : null}
         {showSalary ? (
         <>
         <TextField
@@ -250,11 +344,6 @@ export function HrProfileFields({
       </section>
       ) : null}
 
-      {showCompany ? (
-        <section className="grid gap-3 sm:grid-cols-2">
-          <TextField label="Company" optional value={form.company} disabled={disabled} onChange={text("company")} />
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -65,6 +65,15 @@ describe("HR profile form", () => {
     assert.equal(validateHrProfileForm(form, "stl"), "Other benefits is required");
     form.otherBenefits = "800";
     assert.equal(validateHrProfileForm(form, "stl"), null);
+    assert.equal(
+      validateHrProfileForm(form, "stl", undefined, { requireCompany: true }),
+      "Company is required",
+    );
+    form.company = "stl-id";
+    assert.equal(
+      validateHrProfileForm(form, "stl", undefined, { requireCompany: true }),
+      null,
+    );
   });
 
   it("derives STL other benefits and auto-sums total salary", () => {

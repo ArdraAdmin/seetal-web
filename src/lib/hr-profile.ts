@@ -205,9 +205,11 @@ export function validateHrProfileForm(
     visa?: boolean;
     insurance?: boolean;
   },
+  options?: { requireCompany?: boolean },
 ): string | null {
   if (!form.visaName.trim()) return "Name as per visa is required";
   if (!form.visaDesignation.trim()) return "Designation as per visa is required";
+  if (options?.requireCompany && !form.company.trim()) return "Company is required";
   if (shown?.passport !== false) {
     if (!form.passportNumber.trim()) return "Passport number is required";
     if (!form.passportExpiry) return "Passport expiry is required";
