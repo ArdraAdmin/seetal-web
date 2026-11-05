@@ -15,7 +15,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { SharjahPermitFields } from "@/components/HrProfileFields";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
-import { fmtDateOnly } from "@/components/StlFeatureUi";
+import { HrStaffDetails } from "@/components/HrStaffDetails";
+import { formatHrDate } from "@/lib/hr-profile";
 import { isSupervisor } from "@/lib/auth";
 import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { addedHrStaffOnly } from "@/lib/hr-scope";
@@ -86,6 +87,7 @@ export default function ShmpHrPage() {
   const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -284,7 +286,7 @@ export default function ShmpHrPage() {
             ) : null}
             {!supervisor && show("salary") ? (
               <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/payroll")}>
-                Payroll settings
+                Payroll
               </SecondaryButton>
             ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
@@ -319,6 +321,7 @@ export default function ShmpHrPage() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-line bg-[#f7f5f0] text-xs text-slate-500 uppercase">
               <tr>
+                <th className="px-4 py-2">No.</th>
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Role</th>
                 <th className="px-4 py-2">Joined</th>
@@ -328,20 +331,27 @@ export default function ShmpHrPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {rows.map((s) => (
+              {rows.map((s, index) => (
                 <tr key={`${s.kind}-${s.id}`}>
+                  <td className="px-4 py-2 tabular-nums text-slate-500">{index + 1}</td>
                   <td className="px-4 py-2">
-                    <p className="font-medium">{s.name}</p>
+                    <button
+                      type="button"
+                      className="text-left font-medium text-brand-dark underline"
+                      onClick={() => setViewingId(s.id)}
+                    >
+                      {s.name}
+                    </button>
                     <p className="text-xs text-slate-500">{s.email || "—"}</p>
                   </td>
                   <td className="px-4 py-2">{s.role}</td>
-                  <td className="px-4 py-2">{fmtDateOnly(s.joiningDate)}</td>
+                  <td className="px-4 py-2">{formatHrDate(s.joiningDate)}</td>
                   <td className="px-4 py-2 text-right">{s.yearsOfService ?? "-"}</td>
                   {show("visa") ? (
                   <td
                     className={`px-4 py-2 ${visaSoon(s.visaExpiry) ? "font-medium text-red-700" : ""}`}
                   >
-                    {fmtDateOnly(s.visaExpiry)}
+                    {formatHrDate(s.visaExpiry)}
                   </td>
                   ) : null}
                   <td className="px-4 py-2 text-right">
@@ -538,6 +548,9 @@ export default function ShmpHrPage() {
             )}
           </div>
         </div>
+      ) : null}
+      {viewingId ? (
+        <HrStaffDetails staffId={viewingId} scope="shmp" onClose={() => setViewingId(null)} />
       ) : null}
     </div>
   );

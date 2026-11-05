@@ -18,16 +18,22 @@ import {
 async function loadVehicles(): Promise<ShmpDeliveryVehicle[]> {
   try {
     const list = await shmpDeliveryVehicles();
-    if (Array.isArray(list) && list.length) return list;
+    const shmp = (Array.isArray(list) ? list : []).filter(
+      (vehicle) => vehicle.scope === "shmp",
+    );
+    if (shmp.length) return shmp;
   } catch {
-    /* Shared vehicle list is the fallback when this API is not deployed yet. */
+    /* Fall through to the SHMP vehicle list. */
   }
   try {
-    const list = await getVehicles();
-    return (Array.isArray(list) ? list : []).map((vehicle) => ({
-      _id: vehicle._id,
-      value: vehicle.value,
-    }));
+    const list = await getVehicles("shmp");
+    return (Array.isArray(list) ? list : [])
+      .filter((vehicle) => vehicle.scope === "shmp")
+      .map((vehicle) => ({
+        _id: vehicle._id,
+        value: vehicle.value,
+        scope: vehicle.scope,
+      }));
   } catch {
     return [];
   }

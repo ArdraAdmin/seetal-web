@@ -4,6 +4,7 @@ import { readCustomAccess } from "./custom-users";
 import { mulkyaAlertsFromVehicles } from "./expiry-window";
 import type {
   Driver,
+  FleetScope,
   GrvLine,
   GrvOrder,
   PaymentRecord,
@@ -342,38 +343,108 @@ export const changeOwnPassword = (
     body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
   });
 
+function rowsForScope<T extends { scope?: string | null }>(
+  rows: T[],
+  scope: FleetScope,
+) {
+  return rows.filter((row) => (row.scope === "shmp" ? "shmp" : "stl") === scope);
+}
+
 // —— Drivers ——
-export const getDrivers = () => request<Driver[]>("/admin/driver/read");
-export const addDriver = (driverName: string, driverPhoneNo: string) =>
-  request<Driver>("/admin/driver/add", {
+export const getDrivers = async (scope: FleetScope = "stl") => {
+  const rows = await request<Driver[]>(`/admin/driver/read?scope=${scope}`);
+  return rowsForScope(Array.isArray(rows) ? rows : [], scope);
+};
+export type DriverWriteInput = {
+  driverName: string;
+  driverPhoneNo: string;
+  scope?: FleetScope;
+  photos?: File[];
+  removePhotoIds?: string[];
+};
+
+function driverFormData(input: DriverWriteInput, driverId?: string) {
+  const body = new FormData();
+  if (driverId) body.set("driverId", driverId);
+  body.set("driverName", input.driverName);
+  body.set("driverPhoneNo", input.driverPhoneNo);
+  body.set("scope", input.scope || "stl");
+  for (const id of input.removePhotoIds ?? []) {
+    body.append("removePhotoId", id);
+  }
+  for (const file of input.photos ?? []) {
+    body.append("photo", file);
+  }
+  return body;
+}
+
+function driverHasPhotoChanges(input: DriverWriteInput) {
+  return (input.photos?.length ?? 0) > 0 || (input.removePhotoIds?.length ?? 0) > 0;
+}
+
+export const addDriver = (
+  driverName: string,
+  driverPhoneNo: string,
+  scope: FleetScope = "stl",
+  photos: File[] = [],
+) => {
+  const input = { driverName, driverPhoneNo, scope, photos };
+  if (!driverHasPhotoChanges(input)) {
+    return request<Driver>("/admin/driver/add", {
+      method: "POST",
+      body: JSON.stringify({ driverName, driverPhoneNo, scope }),
+    });
+  }
+  return request<Driver>("/admin/driver/add", {
     method: "POST",
-    body: JSON.stringify({ driverName, driverPhoneNo }),
+    body: driverFormData(input),
   });
+};
 export const editDriver = (
   driverId: string,
   driverName: string,
   driverPhoneNo: string,
-) =>
-  request<string>("/admin/driver/edit", {
+  scope: FleetScope = "stl",
+  photos: File[] = [],
+  removePhotoIds: string[] = [],
+) => {
+  const input = { driverName, driverPhoneNo, scope, photos, removePhotoIds };
+  if (!driverHasPhotoChanges(input)) {
+    return request<string>("/admin/driver/edit", {
+      method: "POST",
+      body: JSON.stringify({ driverId, driverName, driverPhoneNo, scope }),
+    });
+  }
+  return request<string>("/admin/driver/edit", {
     method: "POST",
-    body: JSON.stringify({ driverId, driverName, driverPhoneNo }),
+    body: driverFormData(input, driverId),
   });
-export const deleteDriver = (driverId: string) =>
+};
+export const deleteDriver = (driverId: string, scope: FleetScope = "stl") =>
   request<string>("/admin/driver/delete", {
     method: "POST",
-    body: JSON.stringify({ driverId }),
+    body: JSON.stringify({ driverId, scope }),
   });
 
 // —— Vehicles ——
-export const getVehicles = () => request<Vehicle[]>("/admin/vehicle/read");
-export const addVehicle = (vehicleNumber: number) =>
+export const getVehicles = async (scope: FleetScope = "stl") => {
+  const rows = await request<Vehicle[]>(`/admin/vehicle/read?scope=${scope}`);
+  return rowsForScope(Array.isArray(rows) ? rows : [], scope);
+};
+export const addVehicle = (
+  vehicleNumber: number,
+  driverId: string,
+  scope: FleetScope = "stl",
+) =>
   request<string>("/admin/vehicle/add", {
     method: "POST",
-    body: JSON.stringify({ vehicleNumber }),
+    body: JSON.stringify({ vehicleNumber, driverId, scope }),
   });
 
 export type VehicleWriteInput = {
   vehicleNumber: string;
+  driverId: string;
+  scope?: FleetScope;
   purchaseYear: string;
   price: string;
   purchaseFrom: string;
@@ -381,11 +452,15 @@ export type VehicleWriteInput = {
   insurancePremium: string;
   documents?: Array<{ name: string; file: File }>;
   removeDocumentIds?: string[];
+  photos?: File[];
+  removePhotoIds?: string[];
 };
 
 function vehicleFormData(input: VehicleWriteInput, vehicleId?: string) {
   const body = new FormData();
   if (vehicleId) body.set("vehicleId", vehicleId);
+  body.set("scope", input.scope || "stl");
+  body.set("driverId", input.driverId);
   body.set("vehicleNumber", input.vehicleNumber);
   body.set("purchaseYear", input.purchaseYear);
   body.set("price", input.price);
@@ -398,6 +473,12 @@ function vehicleFormData(input: VehicleWriteInput, vehicleId?: string) {
   for (const document of input.documents ?? []) {
     body.append("documentName", document.name);
     body.append("documentFile", document.file);
+  }
+  for (const id of input.removePhotoIds ?? []) {
+    body.append("removePhotoId", id);
+  }
+  for (const file of input.photos ?? []) {
+    body.append("photo", file);
   }
   return body;
 }
@@ -413,25 +494,28 @@ export const editVehicle = (vehicleId: string, input: VehicleWriteInput) =>
     method: "POST",
     body: vehicleFormData(input, vehicleId),
   });
-export const deleteVehicle = (vehicleId: string) =>
+export const deleteVehicle = (vehicleId: string, scope: FleetScope = "stl") =>
   request<string>("/admin/vehicle/delete", {
     method: "POST",
-    body: JSON.stringify({ vehicleId }),
+    body: JSON.stringify({ vehicleId, scope }),
   });
-export const getVehicleDetails = (vehicleId: string) =>
+export const getVehicleDetails = (
+  vehicleId: string,
+  scope: FleetScope = "stl",
+) =>
   request<{ extras: VehicleExtras; maintenance: VehicleMaintenance[] }>(
-    `/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}`,
+    `/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}&scope=${scope}`,
   );
-export const getVehicleExtrasMap = (ids: string[]) => {
+export const getVehicleExtrasMap = (ids: string[], scope: FleetScope = "stl") => {
   if (ids.length === 0) {
     return Promise.resolve({ extras: {} as Record<string, VehicleExtras> });
   }
   return request<{ extras: Record<string, VehicleExtras> }>(
-    `/admin/vehicle/details?ids=${ids.map(encodeURIComponent).join(",")}`,
+    `/admin/vehicle/details?scope=${scope}&ids=${ids.map(encodeURIComponent).join(",")}`,
   );
 };
-export async function getMulkyaAlerts() {
-  const vehicles = await getVehicles();
+export async function getMulkyaAlerts(scope: FleetScope = "stl") {
+  const vehicles = await getVehicles(scope);
   return {
     vehicles: mulkyaAlertsFromVehicles(Array.isArray(vehicles) ? vehicles : []),
   };
@@ -444,10 +528,12 @@ export const addVehicleMaintenance = (
     description: string;
     date: string;
     invoice: File;
+    scope?: FleetScope;
   },
 ) => {
   const body = new FormData();
   body.set("vehicleId", vehicleId);
+  body.set("scope", payload.scope || "stl");
   body.set("title", payload.title);
   body.set("amount", payload.amount);
   body.set("description", payload.description);
@@ -459,17 +545,14 @@ export const addVehicleMaintenance = (
   });
 };
 
-async function fetchVehicleFile(fileId: string): Promise<Blob> {
+async function fetchFleetFile(path: string): Promise<Blob> {
   const headers = new Headers();
   const user = getStoredAuth();
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
   }
-  const res = await fetch(
-    `${apiBase()}/admin/vehicle/files/${encodeURIComponent(fileId)}`,
-    { headers, cache: "no-store" },
-  );
+  const res = await fetch(`${apiBase()}${path}`, { headers, cache: "no-store" });
   if (!res.ok) {
     const text = await res.text();
     let message = text;
@@ -491,8 +574,8 @@ function vehicleFileObjectUrl(blob: Blob, fileName: string) {
   return URL.createObjectURL(file);
 }
 
-export async function downloadVehicleFile(fileId: string, fileName: string) {
-  const blob = await fetchVehicleFile(fileId);
+async function downloadFleetFile(path: string, fileName: string) {
+  const blob = await fetchFleetFile(path);
   const url = vehicleFileObjectUrl(blob, fileName);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -504,8 +587,8 @@ export async function downloadVehicleFile(fileId: string, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export async function previewVehicleFile(fileId: string, fileName: string) {
-  const blob = await fetchVehicleFile(fileId);
+async function previewFleetFile(path: string, fileName: string) {
+  const blob = await fetchFleetFile(path);
   const name = fileName.trim() || "document";
   const type = viewableVehicleFileType(blob.type, name);
   return {
@@ -513,6 +596,34 @@ export async function previewVehicleFile(fileId: string, fileName: string) {
     name,
     type,
   };
+}
+
+export function downloadVehicleFile(fileId: string, fileName: string) {
+  return downloadFleetFile(
+    `/admin/vehicle/files/${encodeURIComponent(fileId)}`,
+    fileName,
+  );
+}
+
+export function previewVehicleFile(fileId: string, fileName: string) {
+  return previewFleetFile(
+    `/admin/vehicle/files/${encodeURIComponent(fileId)}`,
+    fileName,
+  );
+}
+
+export function downloadDriverFile(fileId: string, fileName: string) {
+  return downloadFleetFile(
+    `/admin/driver/files/${encodeURIComponent(fileId)}`,
+    fileName,
+  );
+}
+
+export function previewDriverFile(fileId: string, fileName: string) {
+  return previewFleetFile(
+    `/admin/driver/files/${encodeURIComponent(fileId)}`,
+    fileName,
+  );
 }
 
 // —— Stores ——

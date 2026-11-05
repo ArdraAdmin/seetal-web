@@ -8,7 +8,7 @@ export default function ShmpDriversVehiclesLandingPage() {
     <div>
       <PageHeader
         title="Drivers and vehicles"
-        subtitle="The same driver and vehicle records used in STL. Edit vehicle details and keep maintenance history here."
+        subtitle="SHMP drivers and vehicles. These records are separate from STL."
       />
       <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
         <Link
@@ -18,7 +18,7 @@ export default function ShmpDriversVehiclesLandingPage() {
           <div>
             <p className="text-sm font-medium text-ink">Drivers</p>
             <p className="mt-0.5 text-sm text-slate-500">
-              Add, update, and remove shared driver records
+              Add, update, and remove SHMP driver records
             </p>
           </div>
           <span className="text-xs font-medium text-ink">Open</span>
@@ -30,7 +30,7 @@ export default function ShmpDriversVehiclesLandingPage() {
           <div>
             <p className="text-sm font-medium text-ink">Vehicles</p>
             <p className="mt-0.5 text-sm text-slate-500">
-              Shared vehicle list, purchase details, documents, and maintenance
+              SHMP vehicles, assigned drivers, documents, and maintenance
             </p>
           </div>
           <span className="text-xs font-medium text-ink">Open</span>

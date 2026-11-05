@@ -6,13 +6,20 @@ import {
   createVehicle,
   deleteVehicle,
   getVehicleExtrasMap,
+  getDrivers,
   getVehicles,
 } from "@/lib/api";
-import type { Vehicle, VehicleExtras } from "@/lib/types";
+import type { Driver, FleetScope, Vehicle, VehicleExtras } from "@/lib/types";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { salesMoney } from "@/lib/sales";
 import { vehicleFormError } from "@/lib/vehicle-records";
+import {
+  photoDrafts,
+  PhotoFields,
+  selectedPhotoFiles,
+  type PhotoDraft,
+} from "@/components/PhotoFields";
 import {
   documentDrafts,
   documentUploads,
@@ -51,23 +58,30 @@ function extraLine(extras?: VehicleExtras) {
   const documents = extras.documents?.length ?? 0;
   if (documents === 1) bits.push("1 document");
   else if (documents > 1) bits.push(`${documents} documents`);
+  const photos = extras.photos?.length ?? 0;
+  if (photos === 1) bits.push("1 photograph");
+  else if (photos > 1) bits.push(`${photos} photographs`);
   return bits.length ? bits.join(" · ") : null;
 }
 
 export function VehiclesManager({
   driversHref,
   vehicleHref,
+  scope,
 }: {
   driversHref: string;
   vehicleHref: (id: string) => string;
+  scope: FleetScope;
 }) {
   const { toast } = useToast();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [extras, setExtras] = useState<Record<string, VehicleExtras>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleFormState>(EMPTY_VEHICLE_FORM);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -76,11 +90,18 @@ export function VehiclesManager({
     setLoading(true);
     setError(null);
     try {
-      const data = await getVehicles();
+      const [data, driverList] = await Promise.all([
+        getVehicles(scope),
+        getDrivers(scope),
+      ]);
       const list = Array.isArray(data) ? data : [];
       setVehicles(list);
+      setDrivers(Array.isArray(driverList) ? driverList : []);
       try {
-        const extraData = await getVehicleExtrasMap(list.map((v) => v._id));
+        const extraData = await getVehicleExtrasMap(
+          list.map((v) => v._id),
+          scope,
+        );
         setExtras(extraData.extras || {});
       } catch {
         setExtras({});
@@ -90,7 +111,7 @@ export function VehiclesManager({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void load();
@@ -100,12 +121,14 @@ export function VehiclesManager({
     e.preventDefault();
     const problem = vehicleFormError({
       vehicleNumber: form.number,
+      driverId: form.driverId,
       purchaseYear: form.purchaseYear,
       price: form.price,
       purchaseFrom: form.purchaseFrom,
       mulkyaExpiry: form.mulkyaExpiry,
       insurancePremium: form.insurancePremium,
       documents: documentDrafts(documents),
+      photos: photoDrafts(photos),
     });
     if (problem) {
       toast(problem, "error");
@@ -115,12 +138,15 @@ export function VehiclesManager({
     try {
       await createVehicle({
         vehicleNumber: form.number,
+        driverId: form.driverId,
+        scope,
         purchaseYear: form.purchaseYear,
         price: form.price,
         purchaseFrom: form.purchaseFrom,
         mulkyaExpiry: form.mulkyaExpiry,
         insurancePremium: form.insurancePremium,
         documents: documentUploads(documents),
+        photos: selectedPhotoFiles(photos),
       });
       toast("Vehicle added", "success");
       closeForm();
@@ -135,6 +161,7 @@ export function VehiclesManager({
   function closeForm() {
     setForm(EMPTY_VEHICLE_FORM);
     setDocuments([]);
+    setPhotos([]);
     setShowForm(false);
   }
 
@@ -142,7 +169,7 @@ export function VehiclesManager({
     if (!confirm("Delete this vehicle?")) return;
     setDeletingId(id);
     try {
-      await deleteVehicle(id);
+      await deleteVehicle(id, scope);
       toast("Vehicle deleted", "success");
       await load();
     } catch (err) {
@@ -156,7 +183,11 @@ export function VehiclesManager({
     <div>
       <PageHeader
         title="Vehicles"
-        subtitle="Shared vehicle records used by both STL and SHMP. Mulkya expiry and insurance premium are required. Documents are optional."
+        subtitle={
+          scope === "shmp"
+            ? "SHMP vehicles only. Each vehicle needs a driver from the SHMP driver list."
+            : "STL vehicles only. Each vehicle needs a driver from the STL driver list."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -175,11 +206,21 @@ export function VehiclesManager({
       {showForm ? (
         <Card className="mb-5">
           <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
-            <VehicleProfileFields form={form} disabled={saving} onChange={setForm} />
+            <VehicleProfileFields
+              form={form}
+              drivers={drivers}
+              disabled={saving}
+              onChange={setForm}
+            />
             <VehicleDocumentFields
               rows={documents}
               disabled={saving}
               onChangeRows={setDocuments}
+            />
+            <PhotoFields
+              files={photos}
+              disabled={saving}
+              onChangeFiles={setPhotos}
             />
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="submit" disabled={saving}>
@@ -220,6 +261,9 @@ export function VehiclesManager({
                 <Link href={vehicleHref(v._id)} className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-900">
                     {vehicleLabel(v)}
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    {v.driverName ? `Driver: ${v.driverName}` : "No driver selected"}
                   </p>
                   {summary ? (
                     <p className="mt-0.5 text-sm text-slate-500">{summary}</p>

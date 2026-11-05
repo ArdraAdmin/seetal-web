@@ -12,6 +12,26 @@ export function salesmanBreakdownHref(
   return `/admin/salesmen/${encodeURIComponent(salesId)}?company=${encodeURIComponent(companyKey)}`;
 }
 
+/**
+ * STL dashboard users are sales, warehouse, and the portal admins.
+ * Supervisors stay on SHMP, and other Admin-role logins are not counted here.
+ */
+export function stlDashboardUsers(
+  users: AdminKpiDashboard["users"],
+): AdminKpiDashboard["users"] {
+  const salesmen = users.salesmen || 0;
+  const warehouse = users.warehouse || 0;
+  const admins = users.admins || 0;
+  return {
+    ...users,
+    salesmen,
+    warehouse,
+    admins,
+    supervisors: 0,
+    total: salesmen + warehouse + admins,
+  };
+}
+
 export function opsStatsFromDashboard(
   kpi: AdminKpiDashboard | null,
 ): Partial<DashboardStats> {

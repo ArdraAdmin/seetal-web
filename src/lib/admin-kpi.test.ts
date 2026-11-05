@@ -4,6 +4,7 @@ import {
   monthlySalesHref,
   opsStatsFromDashboard,
   salesmanBreakdownHref,
+  stlDashboardUsers,
 } from "./admin-kpi.ts";
 import type { AdminKpiDashboard } from "./stl-features-api.ts";
 
@@ -42,6 +43,37 @@ function kpi(
     ...overrides,
   };
 }
+
+describe("stlDashboardUsers", () => {
+  it("drops SHMP supervisors from the STL user total", () => {
+    assert.deepEqual(stlDashboardUsers(kpi().users), {
+      total: 38,
+      salesmen: 20,
+      warehouse: 12,
+      admins: 6,
+      supervisors: 0,
+    });
+  });
+
+  it("counts only the portal admins returned by the API", () => {
+    assert.deepEqual(
+      stlDashboardUsers({
+        total: 48,
+        salesmen: 19,
+        warehouse: 19,
+        admins: 2,
+        supervisors: 2,
+      }),
+      {
+        total: 40,
+        salesmen: 19,
+        warehouse: 19,
+        admins: 2,
+        supervisors: 0,
+      },
+    );
+  });
+});
 
 describe("opsStatsFromDashboard", () => {
   it("maps dashboard counts so the homepage does not fetch full lists", () => {

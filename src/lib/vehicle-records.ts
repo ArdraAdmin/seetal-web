@@ -1,10 +1,14 @@
 export const MAX_VEHICLE_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_VEHICLE_DOCUMENTS = 20;
+export const MAX_FLEET_PHOTOS = 20;
 export const VEHICLE_FILE_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/jpeg,image/png,image/webp";
+export const PHOTO_FILE_ACCEPT =
+  ".png,.jpg,.jpeg,.webp,image/jpeg,image/png,image/webp";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const FILE_EXT = /\.(pdf|jpe?g|png|webp)$/i;
+const PHOTO_EXT = /\.(jpe?g|png|webp)$/i;
 
 export type VehicleFieldInput = {
   vehicleNumber: unknown;
@@ -36,8 +40,11 @@ export type DocumentDraft = {
 };
 
 export type VehicleFormCheck = VehicleFieldInput & {
+  driverId?: unknown;
   documents?: DocumentDraft[];
   savedDocumentCount?: number;
+  photos?: UploadDraft[];
+  savedPhotoCount?: number;
 };
 
 export type MaintenanceFormCheck = {
@@ -109,6 +116,14 @@ function requiredMoney(raw: unknown, label: string, emptyMessage: string): numbe
   return value;
 }
 
+export function isAllowedPhoto(type: string, filename: string) {
+  const mime = String(type || "").split(";")[0].trim().toLowerCase();
+  if (mime === "image/jpeg" || mime === "image/png" || mime === "image/webp") {
+    return true;
+  }
+  return PHOTO_EXT.test(filename);
+}
+
 export function isAllowedVehicleFile(type: string, filename: string) {
   const mime = String(type || "").toLowerCase();
   if (
@@ -163,6 +178,27 @@ export function isVehicleObjectKey(key: string) {
   );
 }
 
+export function photoObjectKey(originalName: string) {
+  const base = String(originalName || "photo").split(/[/\\]/).pop();
+  const safe =
+    String(base || "photo")
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 80) || "photo";
+  return `fleet-photos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+}
+
+export function isFleetPhotoKey(key: string) {
+  return (
+    /^fleet-photos\/\d+-[a-z0-9]+-[A-Za-z0-9._-]+$/.test(key) &&
+    !key.includes("..")
+  );
+}
+
+export function isStoredFleetFileKey(key: string) {
+  return isVehicleObjectKey(key) || isFleetPhotoKey(key);
+}
+
 function fileRuleError(
   file: UploadDraft | null,
   messages: { missing: string; tooLarge: string; wrongType: string },
@@ -190,6 +226,33 @@ export function documentFileError(
     tooLarge: `${name} must be 10 MB or smaller`,
     wrongType: `${name} must be a PDF, JPEG, PNG, or WebP file`,
   });
+}
+
+export function photoFileError(file: UploadDraft | null): string | null {
+  if (!file || file.size <= 0) return "Choose a photograph";
+  if (file.size > MAX_VEHICLE_FILE_BYTES) {
+    return "Each photograph must be 10 MB or smaller";
+  }
+  if (!isAllowedPhoto(file.type, file.name)) {
+    return "Photographs must be JPEG, PNG, or WebP";
+  }
+  return null;
+}
+
+export function photosFormError(
+  files: UploadDraft[] | undefined,
+  savedCount = 0,
+  recordLabel = "record",
+): string | null {
+  const uploads = files ?? [];
+  if (savedCount + uploads.length > MAX_FLEET_PHOTOS) {
+    return `A ${recordLabel} can have at most 20 photographs`;
+  }
+  for (const file of uploads) {
+    const error = photoFileError(file);
+    if (error) return error;
+  }
+  return null;
 }
 
 export function parseDocumentName(raw: unknown): string {
@@ -250,6 +313,9 @@ export function vehicleFormError(
   now = new Date(),
 ): string | null {
   try {
+    if (!String(input.driverId ?? "").trim()) {
+      throw new Error("Select a driver");
+    }
     parseVehicleFields(input, now);
     const drafts = activeDocumentDrafts(input.documents);
     const saved = input.savedDocumentCount ?? 0;
@@ -261,6 +327,12 @@ export function vehicleFormError(
       const fileError = documentFileError(row.file, name);
       if (fileError) throw new Error(fileError);
     }
+    const photoError = photosFormError(
+      input.photos,
+      input.savedPhotoCount ?? 0,
+      "vehicle",
+    );
+    if (photoError) throw new Error(photoError);
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : "Check the vehicle details";

@@ -7,6 +7,7 @@ export default function ShmpVehiclesPage() {
     <VehiclesManager
       driversHref="/shmp/drivers"
       vehicleHref={(id) => `/shmp/vehicles/${id}`}
+      scope="shmp"
     />
   );
 }

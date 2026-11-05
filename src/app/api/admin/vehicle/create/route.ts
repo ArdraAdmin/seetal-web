@@ -5,8 +5,8 @@ import {
   parseVehicleExtras,
   requireVehicleUser,
 } from "@/lib/server/vehicles";
-import { deleteVehicleFiles, saveVehicleFile } from "@/lib/server/vehicle-files";
-import { formText, readDocumentUploads } from "@/lib/server/vehicle-uploads";
+import { deleteVehicleFiles, saveFleetPhoto, saveVehicleFile } from "@/lib/server/vehicle-files";
+import { formText, readDocumentUploads, readPhotoUploads } from "@/lib/server/vehicle-uploads";
 
 export const runtime = "nodejs";
 
@@ -44,6 +44,7 @@ export async function POST(req: Request) {
       formText(form, "vehicleNumber"),
     );
     const uploads = await readDocumentUploads(form);
+    const photoUploads = await readPhotoUploads(form);
     const documents = [];
     for (const upload of uploads) {
       const key = await saveVehicleFile({
@@ -60,10 +61,25 @@ export async function POST(req: Request) {
         key,
       });
     }
+    const photos = [];
+    for (const upload of photoUploads) {
+      const key = await saveFleetPhoto({
+        buffer: upload.buffer,
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+      });
+      uploaded.push(key);
+      photos.push({
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+        key,
+      });
+    }
     const id = await createVehicleRecord({
       vehicleNumber,
       extras: fields,
       documents,
+      photos,
     });
     return json({ id }, 201);
   } catch (error) {

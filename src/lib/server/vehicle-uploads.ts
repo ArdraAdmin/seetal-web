@@ -3,6 +3,7 @@ import {
   documentFileError,
   invoiceFileError,
   parseDocumentName,
+  photoFileError,
 } from "../vehicle-records";
 
 export type StoredUpload = {
@@ -39,6 +40,17 @@ export async function readInvoiceUpload(
   entry: FormDataEntryValue | null,
 ): Promise<Omit<StoredUpload, "name">> {
   return readFile(entry, invoiceFileError);
+}
+
+export async function readPhotoUploads(
+  form: FormData,
+): Promise<Omit<StoredUpload, "name">[]> {
+  const uploads: Omit<StoredUpload, "name">[] = [];
+  for (const entry of form.getAll("photo")) {
+    if (!(entry instanceof File) || entry.size <= 0) continue;
+    uploads.push(await readFile(entry, photoFileError));
+  }
+  return uploads;
 }
 
 export async function readDocumentUploads(form: FormData): Promise<StoredUpload[]> {

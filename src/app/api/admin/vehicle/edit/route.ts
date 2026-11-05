@@ -5,13 +5,15 @@ import {
   requireVehicleUser,
   updateVehicleDocuments,
   updateVehicleExtras,
+  updateVehiclePhotos,
   updateVehicleRecord,
 } from "@/lib/server/vehicles";
-import { deleteVehicleFiles, saveVehicleFile } from "@/lib/server/vehicle-files";
+import { deleteVehicleFiles, saveFleetPhoto, saveVehicleFile } from "@/lib/server/vehicle-files";
 import {
   formIdList,
   formText,
   readDocumentUploads,
+  readPhotoUploads,
 } from "@/lib/server/vehicle-uploads";
 
 export const runtime = "nodejs";
@@ -55,7 +57,9 @@ async function saveJson(req: Request) {
 }
 
 async function saveForm(req: Request) {
-  const uploaded: string[] = [];
+  const uploadedDocuments: string[] = [];
+  const uploadedPhotos: string[] = [];
+  let documentsSaved = false;
   try {
     requireVehicleUser(
       req.headers.get("authorization") || req.headers.get("Authorization"),
@@ -72,7 +76,9 @@ async function saveForm(req: Request) {
       insurancePremium: formText(form, "insurancePremium"),
     });
     const uploads = await readDocumentUploads(form);
+    const photoUploads = await readPhotoUploads(form);
     const removeIds = formIdList(form, "removeDocumentId");
+    const removePhotoIds = formIdList(form, "removePhotoId");
     await updateVehicleRecord(vehicleId, vehicleNumber);
     await updateVehicleExtras(vehicleId, extras);
     const documents = [];
@@ -84,9 +90,24 @@ async function saveForm(req: Request) {
         kind: "document",
         vehicleId,
       });
-      uploaded.push(key);
+      uploadedDocuments.push(key);
       documents.push({
         name: upload.name,
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+        key,
+      });
+    }
+    const photos = [];
+    for (const upload of photoUploads) {
+      const key = await saveFleetPhoto({
+        buffer: upload.buffer,
+        fileName: upload.fileName,
+        contentType: upload.contentType,
+        ownerId: vehicleId,
+      });
+      uploadedPhotos.push(key);
+      photos.push({
         fileName: upload.fileName,
         contentType: upload.contentType,
         key,
@@ -96,11 +117,18 @@ async function saveForm(req: Request) {
       add: documents,
       removeIds,
     });
-    await deleteVehicleFiles(removed);
+    documentsSaved = true;
+    const removedPhotos = await updateVehiclePhotos(vehicleId, {
+      add: photos,
+      removeIds: removePhotoIds,
+    });
+    await deleteVehicleFiles([...removed, ...removedPhotos]);
     return new Response("Done", { status: 200 });
   } catch (error) {
     try {
-      await deleteVehicleFiles(uploaded);
+      await deleteVehicleFiles(
+        documentsSaved ? uploadedPhotos : [...uploadedDocuments, ...uploadedPhotos],
+      );
     } catch {
       // Keep the original save error if cleanup also fails.
     }

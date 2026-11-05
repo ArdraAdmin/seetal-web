@@ -123,7 +123,7 @@ const NAV: NavItem[] = [
   { href: "/admin/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/admin/hr/payroll",
-    label: "Payroll settings",
+    label: "Payroll",
     icon: Banknote,
     moduleId: "hr",
     fieldId: "salary",

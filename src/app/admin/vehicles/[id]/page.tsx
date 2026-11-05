@@ -3,5 +3,5 @@
 import { VehicleDetailView } from "@/components/VehicleDetailView";
 
 export default function AdminVehicleDetailPage() {
-  return <VehicleDetailView listHref="/admin/vehicles" />;
+  return <VehicleDetailView listHref="/admin/vehicles" scope="stl" />;
 }

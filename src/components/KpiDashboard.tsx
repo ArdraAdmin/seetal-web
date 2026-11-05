@@ -27,7 +27,11 @@ import { CompanySwitcher } from "@/components/StlFeatureUi";
 import { ErrorState, SecondaryButton } from "@/components/ui";
 import { portalFieldVisible } from "@/lib/custom-users";
 import type { DashboardStats } from "@/lib/api";
-import { monthlySalesHref, salesmanBreakdownHref } from "@/lib/admin-kpi";
+import {
+  monthlySalesHref,
+  salesmanBreakdownHref,
+  stlDashboardUsers,
+} from "@/lib/admin-kpi";
 import {
   EID_ALERT_DAYS,
   EXPIRY_ALERT_DAYS,
@@ -61,7 +65,6 @@ const MIX = [
   { key: "salesmen" as const, label: "Sales", color: "bg-ink" },
   { key: "warehouse" as const, label: "Warehouse", color: "bg-brand" },
   { key: "admins" as const, label: "Admin", color: "bg-[#2a6f62]" },
-  { key: "supervisors" as const, label: "Supervisors", color: "bg-[#c9840f]" },
 ];
 
 function formatCount(value: number) {
@@ -147,7 +150,10 @@ export function KpiDashboard({
     1,
     ...(kpi?.salesmanGraph ?? []).map((row) => row.delivered),
   );
-  const users = kpi?.users;
+  const users = useMemo(
+    () => (kpi?.users ? stlDashboardUsers(kpi.users) : null),
+    [kpi],
+  );
   const thisMonth = month ? moneyLines(month.current.total) : null;
   const inventory = kpi ? moneyLines(kpi.inventoryValue) : null;
   const lost = kpi ? moneyLines(kpi.salesLost.totalLost) : null;
@@ -426,14 +432,13 @@ export function KpiDashboard({
             label="Users"
             icon={Users}
             value={users ? formatCount(users.total) : undefined}
-            href={user?.customAccess ? undefined : "/admin/users?group=sales"}
+            href={user?.customAccess ? undefined : "/admin/users?group=admins"}
           >
             {users ? (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 <Chip>{users.salesmen} sales</Chip>
                 <Chip>{users.warehouse} warehouse</Chip>
                 <Chip>{users.admins} admin</Chip>
-                <Chip>{users.supervisors} supervisors</Chip>
               </div>
             ) : null}
           </CountCard>

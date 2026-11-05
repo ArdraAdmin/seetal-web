@@ -32,6 +32,7 @@ export type HrProfileFormState = {
   offerLetter: HrFileValue;
   sharjahPermitExpiry: string;
   sharjahPermitCopy: HrFileValue;
+  foodServed: boolean;
 };
 
 const FILE_KEYS = [
@@ -74,7 +75,28 @@ export function emptyHrProfileForm(): HrProfileFormState {
     offerLetter: null,
     sharjahPermitExpiry: "",
     sharjahPermitCopy: null,
+    foodServed: false,
   };
+}
+
+export function formatHrDate(value?: string | Date | null): string {
+  const iso = toDateInput(value);
+  if (!iso) return "-";
+  const [year, month, day] = iso.split("-");
+  if (!year || !month || !day) return "-";
+  return `${day}/${month}/${year}`;
+}
+
+export function displayedTotalSalary(
+  profile?: HrProfile | null,
+  scope?: HrSalaryScope,
+): string {
+  const total = hrProfileToForm(profile, "", scope).totalSalary.trim();
+  return total === "" ? "0" : total;
+}
+
+export function dubaiTodayInput(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(now);
 }
 
 export function toDateInput(value?: string | Date | null): string {
@@ -155,6 +177,7 @@ export function hrProfileToForm(
   form.visaExpiry = form.eidExpiry || toDateInput(source.visaExpiry);
   form.insuranceExpiry = toDateInput(source.insuranceExpiry);
   form.sharjahPermitExpiry = toDateInput(source.sharjahPermitExpiry);
+  form.foodServed = source.foodServed === true;
   for (const key of FILE_KEYS) form[key] = fileFrom(source[key]);
   return form;
 }
@@ -186,6 +209,7 @@ export function hrProfilePayload(
     eidExpiry: form.eidExpiry,
     insuranceExpiry: form.insuranceExpiry,
     sharjahPermitExpiry: form.sharjahPermitExpiry,
+    foodServed: form.foodServed === true,
   };
   for (const key of FILE_KEYS) {
     const file = form[key];

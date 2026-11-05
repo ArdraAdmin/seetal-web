@@ -4,7 +4,13 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { isVehicleObjectKey, vehicleObjectKey } from "../vehicle-records";
+import {
+  isFleetPhotoKey,
+  isStoredFleetFileKey,
+  isVehicleObjectKey,
+  photoObjectKey,
+  vehicleObjectKey,
+} from "../vehicle-records";
 
 const DEFAULT_BUCKET = "production-bucket-seetal";
 
@@ -53,8 +59,32 @@ export async function saveVehicleFile(input: {
   return key;
 }
 
+export async function saveFleetPhoto(input: {
+  buffer: Buffer;
+  fileName: string;
+  contentType: string;
+  ownerId?: string;
+}): Promise<string> {
+  const key = photoObjectKey(input.fileName);
+  if (!isFleetPhotoKey(key)) throw new Error("Unable to store file");
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: mediaBucket(),
+      Key: key,
+      Body: input.buffer,
+      ContentType: input.contentType || "image/jpeg",
+      ServerSideEncryption: "AES256",
+      Metadata: {
+        kind: "photo",
+        ownerid: input.ownerId ?? "",
+      },
+    }),
+  );
+  return key;
+}
+
 export async function readVehicleFile(key: string): Promise<Buffer | null> {
-  if (!isVehicleObjectKey(key)) return null;
+  if (!isStoredFleetFileKey(key)) return null;
   try {
     const object = await s3().send(
       new GetObjectCommand({ Bucket: mediaBucket(), Key: key }),
@@ -73,7 +103,7 @@ export async function readVehicleFile(key: string): Promise<Buffer | null> {
 }
 
 export async function deleteVehicleFiles(keys: string[]): Promise<void> {
-  const unique = [...new Set(keys.filter((key) => isVehicleObjectKey(key)))];
+  const unique = [...new Set(keys.filter((key) => isStoredFleetFileKey(key)))];
   if (unique.length === 0) return;
   await Promise.all(
     unique.map(async (Key) => {

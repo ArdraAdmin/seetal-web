@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  isFleetPhotoKey,
   isVehicleObjectKey,
   maintenanceFormError,
+  photoObjectKey,
+  photosFormError,
   vehicleFormError,
   vehicleObjectKey,
   viewableVehicleFileType,
@@ -12,6 +15,7 @@ const NOW = new Date("2026-10-31T00:00:00Z");
 
 const validVehicle = {
   vehicleNumber: "1234",
+  driverId: "507f1f77bcf86cd799439011",
   purchaseYear: "2022",
   price: "45000",
   purchaseFrom: "Dealer",
@@ -20,13 +24,18 @@ const validVehicle = {
 };
 
 const pdf = { name: "scan.pdf", type: "application/pdf", size: 1200 };
+const photo = { name: "van.jpg", type: "image/jpeg", size: 2400 };
 
 describe("vehicle form", () => {
   it("accepts a complete vehicle without documents", () => {
     assert.equal(vehicleFormError(validVehicle, NOW), null);
   });
 
-  it("requires mulkya expiry and insurance premium", () => {
+  it("requires a driver, mulkya expiry, and insurance premium", () => {
+    assert.equal(
+      vehicleFormError({ ...validVehicle, driverId: " " }, NOW),
+      "Select a driver",
+    );
     assert.equal(
       vehicleFormError({ ...validVehicle, mulkyaExpiry: "" }, NOW),
       "Enter a mulkya expiry",
@@ -163,6 +172,35 @@ describe("vehicle form", () => {
     );
   });
 
+  it("keeps photographs optional and rejects anything that is not an image", () => {
+    assert.equal(vehicleFormError({ ...validVehicle, photos: [] }, NOW), null);
+    assert.equal(
+      vehicleFormError({ ...validVehicle, photos: [photo] }, NOW),
+      null,
+    );
+    assert.equal(
+      vehicleFormError(
+        {
+          ...validVehicle,
+          photos: [{ name: "notes.pdf", type: "application/pdf", size: 40 }],
+        },
+        NOW,
+      ),
+      "Photographs must be JPEG, PNG, or WebP",
+    );
+    assert.equal(
+      vehicleFormError(
+        {
+          ...validVehicle,
+          savedPhotoCount: 20,
+          photos: [photo],
+        },
+        NOW,
+      ),
+      "A vehicle can have at most 20 photographs",
+    );
+  });
+
   it("counts saved documents toward the limit", () => {
     assert.equal(
       vehicleFormError(
@@ -175,6 +213,31 @@ describe("vehicle form", () => {
       ),
       "A vehicle can have at most 20 documents",
     );
+  });
+});
+
+describe("photographs", () => {
+  it("allows an empty set and rejects a file that is too large", () => {
+    assert.equal(photosFormError([], 0, "driver"), null);
+    assert.equal(
+      photosFormError(
+        [{ name: "cab.png", type: "image/png", size: 10 * 1024 * 1024 + 1 }],
+        0,
+        "driver",
+      ),
+      "Each photograph must be 10 MB or smaller",
+    );
+  });
+});
+
+describe("fleet photo keys", () => {
+  it("builds an S3 key and rejects anything else", () => {
+    const key = photoObjectKey("front left.JPG");
+    assert.equal(isFleetPhotoKey(key), true);
+    assert.equal(key.startsWith("fleet-photos/"), true);
+    assert.equal(key.endsWith("-front_left.JPG"), true);
+    assert.equal(isFleetPhotoKey("vehicle-files/1-ab-file.pdf"), false);
+    assert.equal(isFleetPhotoKey("../fleet-photos/1-ab-file.jpg"), false);
   });
 });
 

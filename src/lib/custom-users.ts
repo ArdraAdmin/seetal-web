@@ -162,7 +162,6 @@ export const SELLING_MODULE_FIELDS: Record<string, ModuleField[]> = {
     { id: "eid", label: "Emirates ID" },
     { id: "visa", label: "Visa" },
     { id: "insurance", label: "Insurance and contract" },
-    { id: "sharjah", label: "Sharjah permit" },
   ],
 };
 
@@ -302,11 +301,18 @@ export function sanitizeCustomAccess(
       ),
     ];
     const turnedOn = new Set(next.filter((id) => allowed.has(id)));
-    modules[company] = next.filter((id) => {
+    const kept = next.filter((id) => {
       if (allowed.has(id)) return true;
       const moduleId = id.slice(0, id.indexOf(":"));
       return turnedOn.has(moduleId);
     });
+    for (const moduleId of turnedOn) {
+      const prefix = `${moduleId}:`;
+      const hadFieldTokens = picked.some((id) => id.startsWith(prefix));
+      const keptFieldTokens = kept.some((id) => id.startsWith(prefix));
+      if (hadFieldTokens && !keptFieldTokens) kept.push(`${moduleId}:${FIELD_NONE}`);
+    }
+    modules[company] = kept;
     enabled += turnedOn.size;
   }
   if (enabled === 0) {

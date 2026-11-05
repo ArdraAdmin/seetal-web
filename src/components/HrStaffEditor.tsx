@@ -6,17 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import { HrProfileFields, type HrFieldVisibility } from "@/components/HrProfileFields";
 import { portalFieldVisible, type CustomAccess, type PortalSide } from "@/lib/custom-users";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { SalaryIncrementCard } from "@/components/SalaryIncrementCard";
 import { SalarySlipCard } from "@/components/SalarySlipCard";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { fmtDateOnly } from "@/components/StlFeatureUi";
 import {
   Card,
   ErrorState,
   LoadingState,
   PageHeader,
   PrimaryButton,
-  SecondaryButton,
   TextField,
 } from "@/components/ui";
 import {
@@ -28,11 +27,11 @@ import {
   validateHrProfileForm,
   type HrProfileFormState,
 } from "@/lib/hr-profile";
-import { salesMoney } from "@/lib/sales";
 import {
   addHrStaffIncrement,
   createHrStaff,
   deleteHrStaff,
+  deleteHrStaffIncrement,
   getEmployeeHr,
   getHrLinkCandidates,
   getHrStaffMember,
@@ -264,10 +263,12 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
         </form>
       )}
       {!creating && staff && user?.id && shown.salary ? (
-        <IncrementCard
+        <SalaryIncrementCard
           staff={staff}
-          onAdded={load}
+          scope={scope}
+          onChanged={load}
           add={(payload) => addHrStaffIncrement(user.id, id, { ...payload, scope })}
+          remove={(entryId) => deleteHrStaffIncrement(user.id, id, entryId)}
         />
       ) : null}
       {!creating && staff && shown.salary ? <SalarySlipCard kind="staff" personId={id} /> : null}
@@ -279,16 +280,19 @@ export function HrUserDocuments({
   personId,
   showCompany = false,
   scope,
+  reloadKey = 0,
 }: {
   personId: string;
   showCompany?: boolean;
   scope: "stl" | "shmp";
+  reloadKey?: number;
 }) {
   return (
     <RecordDocuments
       personId={personId}
       showCompany={showCompany}
       scope={scope}
+      reloadKey={reloadKey}
       loadRecord={getHrStaffMember}
       saveRecord={(adminId, recordId, hrProfile) =>
         updateHrStaff(adminId, recordId, hrProfile, { enforceDocuments: true, scope })
@@ -312,12 +316,14 @@ function RecordDocuments({
   personId,
   showCompany = false,
   scope,
+  reloadKey = 0,
   loadRecord,
   saveRecord,
 }: {
   personId: string;
   showCompany?: boolean;
   scope: "stl" | "shmp";
+  reloadKey?: number;
   loadRecord: (adminId: string, id: string) => Promise<HrStaff>;
   saveRecord: (
     adminId: string,
@@ -345,7 +351,7 @@ function RecordDocuments({
     } finally {
       setLoading(false);
     }
-  }, [user, personId, loadRecord, scope]);
+  }, [user, personId, loadRecord, scope, reloadKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,93 +409,5 @@ function RecordDocuments({
         </PrimaryButton>
       </div>
     </form>
-  );
-}
-
-function IncrementCard({
-  staff,
-  onAdded,
-  add,
-}: {
-  staff: HrStaff;
-  onAdded: () => Promise<void>;
-  add: (payload: {
-    amount: number;
-    effectiveDate?: string;
-    notes?: string;
-    setAsBasic?: boolean;
-  }) => Promise<unknown>;
-}) {
-  const { toast } = useToast();
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [setBasic, setSetBasic] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const increments = [...(staff.hrProfile?.salaryIncrements ?? [])].sort((a, b) =>
-    String(b.effectiveDate).localeCompare(String(a.effectiveDate)),
-  );
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    const value = Number(amount);
-    if (!Number.isFinite(value) || value <= 0) {
-      toast("Enter an increment amount", "info");
-      return;
-    }
-    setBusy(true);
-    try {
-      await add({
-        amount: value,
-        effectiveDate: date || undefined,
-        notes: notes.trim() || undefined,
-        setAsBasic: setBasic,
-      });
-      toast("Increment added", "success");
-      setAmount("");
-      setDate("");
-      setNotes("");
-      await onAdded();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Failed to add increment", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Add salary increment</h2>
-        <form className="space-y-3" onSubmit={onSubmit}>
-          <TextField label="Amount (AED)" type="number" min={0} step="0.01" required value={amount} onChange={(event) => setAmount(event.target.value)} />
-          <TextField label="Effective date" type="date" optional value={date} onChange={(event) => setDate(event.target.value)} />
-          <TextField label="Notes" optional value={notes} onChange={(event) => setNotes(event.target.value)} />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={setBasic} onChange={(event) => setSetBasic(event.target.checked)} />
-            Set as new basic salary
-          </label>
-          <SecondaryButton type="submit" disabled={busy}>Add increment</SecondaryButton>
-        </form>
-      </Card>
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Increment history</h2>
-        {increments.length === 0 ? (
-          <p className="text-sm text-slate-500">No increments recorded.</p>
-        ) : (
-          <ul className="divide-y divide-line text-sm">
-            {increments.map((inc, index) => (
-              <li key={`${inc.effectiveDate}-${index}`} className="flex items-start justify-between gap-2 py-2">
-                <div>
-                  <p className="font-medium">{fmtDateOnly(inc.effectiveDate)}</p>
-                  {inc.notes ? <p className="text-xs text-slate-500">{inc.notes}</p> : null}
-                </div>
-                <span className="font-medium">{salesMoney(inc.amount)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </div>
   );
 }

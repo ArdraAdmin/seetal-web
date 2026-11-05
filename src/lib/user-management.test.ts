@@ -4,6 +4,7 @@ import {
   parseReturnTo,
   parseUserGroup,
   readAccessPeople,
+  readPortalAdmins,
   readWorkers,
   userManagementPath,
   withReturnTo,
@@ -21,6 +22,8 @@ describe("user management groups", () => {
     assert.equal(parseUserGroup("admin", "supervisor"), "sales");
     assert.equal(parseUserGroup("shmp", "sales"), "supervisor");
     assert.equal(parseUserGroup("admin", "custom"), "custom");
+    assert.equal(parseUserGroup("admin", "admins"), "admins");
+    assert.equal(parseUserGroup("shmp", "admins"), "supervisor");
   });
 
   it("allows only user-management return paths", () => {
@@ -46,6 +49,47 @@ describe("user management groups", () => {
       withReturnTo("/shmp/hr/user/1?edit=1", "/shmp/users?group=supervisor"),
       "/shmp/hr/user/1?edit=1&returnTo=%2Fshmp%2Fusers%3Fgroup%3Dsupervisor",
     );
+  });
+});
+
+describe("portal admins", () => {
+  it("keeps only the two STL admin emails", () => {
+    const people = readPortalAdmins({
+      users: [
+        {
+          _id: "1",
+          name: "Lav",
+          email: "lav@shrseetal.com",
+          role: "Admin",
+          field: { admin: { isSuperAdmin: true } },
+        },
+        {
+          _id: "2",
+          name: "Admin",
+          email: "Admin@gmail.com",
+          mobileNumber: "050",
+          role: "Admin",
+        },
+        { _id: "3", name: "Assign Master", email: "assign@gmail.com", role: "Admin" },
+        { _id: "4", name: "Manpreet", email: "office@shrseetal.com", role: "Admin" },
+      ],
+    });
+    assert.deepEqual(people, [
+      {
+        id: "2",
+        name: "Admin",
+        email: "Admin@gmail.com",
+        mobile: "050",
+        detail: "Admin",
+      },
+      {
+        id: "1",
+        name: "Lav",
+        email: "lav@shrseetal.com",
+        mobile: "",
+        detail: "Super admin",
+      },
+    ]);
   });
 });
 

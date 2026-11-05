@@ -7,6 +7,7 @@ export default function VehiclesPage() {
     <VehiclesManager
       driversHref="/admin/drivers"
       vehicleHref={(id) => `/admin/vehicles/${id}`}
+      scope="stl"
     />
   );
 }

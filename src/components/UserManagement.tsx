@@ -13,11 +13,12 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
-import { getSalesProfiles, getWarehouseProfiles } from "@/lib/api";
+import { getAdminProfiles, getSalesProfiles, getWarehouseProfiles } from "@/lib/api";
 import { shmpAccessUsers, shmpEmployees } from "@/lib/shmp-api";
 import {
   parseUserGroup,
   readAccessPeople,
+  readPortalAdmins,
   readWorkers,
   userGroupsForSide,
   userManagementPath,
@@ -58,7 +59,9 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
               href: withReturnTo("/admin/profiles/warehouse/new", returnTo),
               label: "Add",
             }
-          : { href: `${pathname}/new`, label: "Create user" }
+          : group === "custom"
+            ? { href: `${pathname}/new`, label: "Create user" }
+            : null
       : group === "custom"
         ? { href: `${pathname}/new`, label: "Create user" }
         : { href: "/shmp/hr", label: "Add in HR" };
@@ -69,7 +72,7 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
         title="User management"
         subtitle={
           side === "admin"
-            ? "Sales accounts, warehouse accounts, and custom users."
+            ? "Sales accounts, warehouse accounts, admins, and custom users."
             : "Supervisors, factory workers, and custom users."
         }
         actions={
@@ -80,9 +83,11 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
             >
               Refresh
             </SecondaryButton>
-            <Link href={add.href} className={ADD_CLASS}>
-              {add.label}
-            </Link>
+            {add ? (
+              <Link href={add.href} className={ADD_CLASS}>
+                {add.label}
+              </Link>
+            ) : null}
           </div>
         }
       />
@@ -133,6 +138,14 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
           fetcher={getWarehouseProfiles}
         />
       ) : null}
+      {side === "admin" && group === "admins" ? (
+        <PeopleList
+          key={`admins-${reloadKey}`}
+          emptyTitle="No admins yet"
+          emptyDescription="STL admin accounts show up here."
+          load={loadAdmins}
+        />
+      ) : null}
       {group === "custom" ? (
         <CustomUserList
           key={`custom-${reloadKey}`}
@@ -167,6 +180,10 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
   );
 }
 
+async function loadAdmins() {
+  return readPortalAdmins(await getAdminProfiles());
+}
+
 async function loadSupervisors() {
   return readAccessPeople(await shmpAccessUsers("Supervisor"), "Supervisor");
 }
@@ -184,7 +201,7 @@ function PeopleList({
   emptyTitle: string;
   emptyDescription: string;
   load: () => Promise<DirectoryPerson[]>;
-  hrefFor: (person: DirectoryPerson) => string;
+  hrefFor?: (person: DirectoryPerson) => string;
 }) {
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,7 +275,7 @@ function PeopleList({
                 <th className="px-4 py-2">Email</th>
                 <th className="px-4 py-2">Phone</th>
                 <th className="px-4 py-2">Details</th>
-                <th className="px-4 py-2" />
+                {hrefFor ? <th className="px-4 py-2" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -268,14 +285,16 @@ function PeopleList({
                   <td className="px-4 py-3 text-slate-600">{person.email || "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{person.mobile || "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{person.detail}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={hrefFor(person)}
-                      className="font-medium text-brand-dark hover:underline"
-                    >
-                      Edit
-                    </Link>
-                  </td>
+                  {hrefFor ? (
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={hrefFor(person)}
+                        className="font-medium text-brand-dark hover:underline"
+                      >
+                        Edit
+                      </Link>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

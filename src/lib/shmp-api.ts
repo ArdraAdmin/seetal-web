@@ -371,7 +371,11 @@ export const shmpDeliveries = (params?: Record<string, string>) => {
   return shmpRequest(`/deliveries?${q}`);
 };
 
-export type ShmpDeliveryVehicle = { _id: string; value?: number | string };
+export type ShmpDeliveryVehicle = {
+  _id: string;
+  value?: number | string;
+  scope?: string;
+};
 
 export const shmpDeliveryVehicles = () =>
   shmpRequest<ShmpDeliveryVehicle[]>("/deliveries/vehicles");

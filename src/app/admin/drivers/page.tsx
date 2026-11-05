@@ -3,5 +3,5 @@
 import { DriversManager } from "@/components/DriversManager";
 
 export default function DriversPage() {
-  return <DriversManager vehiclesHref="/admin/vehicles" />;
+  return <DriversManager vehiclesHref="/admin/vehicles" scope="stl" />;
 }

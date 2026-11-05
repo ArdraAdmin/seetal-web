@@ -2,10 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { fmtDateOnly } from "@/components/StlFeatureUi";
+import { useToast } from "@/components/Toast";
 import { Card, ErrorState, LoadingState, TextField } from "@/components/ui";
+import { formatHrDate } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
-import { getSalarySlip, type SalarySlip } from "@/lib/stl-features-api";
+import {
+  deleteStoredSalarySlip,
+  getSalarySlip,
+  getStoredSalarySlips,
+  saveStoredSalarySlip,
+  uploadHrFile,
+  type SalarySlip,
+  type StoredSalarySlip,
+} from "@/lib/stl-features-api";
 
 function dubaiMonthValue(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -53,10 +62,15 @@ export function SalarySlipCard({
   personId: string;
 }) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [month, setMonth] = useState(() => dubaiMonthValue());
   const [slip, setSlip] = useState<SalarySlip | null>(null);
+  const [stored, setStored] = useState<StoredSalarySlip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [storedError, setStoredError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -113,6 +127,80 @@ export function SalarySlipCard({
       cancelled = true;
     };
   }, [user, personId, kind, month]);
+
+  const loadStored = useCallback(async () => {
+    if (!user?.id || !personId) return;
+    try {
+      const result = await getStoredSalarySlips(user.id, kind, personId);
+      setStored(result.slips || []);
+      setStoredError(null);
+    } catch (err) {
+      setStoredError(err instanceof Error ? err.message : "Failed to load uploaded slips");
+    }
+  }, [user, personId, kind]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id || !personId) return undefined;
+    void getStoredSalarySlips(user.id, kind, personId)
+      .then((result) => {
+        if (!cancelled) {
+          setStored(result.slips || []);
+          setStoredError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setStoredError(err instanceof Error ? err.message : "Failed to load uploaded slips");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, personId, kind]);
+
+  const period = parseMonth(month);
+  const uploaded = period
+    ? stored.find((item) => item.year === period.year && item.month === period.month)
+    : undefined;
+
+  async function onUploadSlip(file: File) {
+    if (!user?.id || !period) return;
+    setUploading(true);
+    try {
+      const saved = await uploadHrFile(user.id, file);
+      const result = await saveStoredSalarySlip(
+        user.id,
+        kind,
+        personId,
+        period.year,
+        period.month,
+        saved,
+      );
+      setStored(result.slips || []);
+      setStoredError(null);
+      toast("Salary slip uploaded", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Upload failed", "error");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function onRemoveSlip() {
+    if (!user?.id || !period || !uploaded) return;
+    if (!confirm(`Remove the salary slip for ${String(period.month).padStart(2, "0")}/${period.year}?`)) return;
+    setRemoving(true);
+    try {
+      const result = await deleteStoredSalarySlip(user.id, kind, personId, period.year, period.month);
+      setStored(result.slips || []);
+      toast("Salary slip removed", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to remove salary slip", "error");
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   const rates = slip?.rates;
   const showAllowanceDays =
@@ -204,7 +292,7 @@ export function SalarySlipCard({
             Public holiday overtime is the full working day at {rates.publicHolidayMultiplier}×
             {slip.holidayLines.length
               ? `, except ${slip.holidayLines
-                  .map((line) => `${line.name} on ${fmtDateOnly(line.date)} at ${line.multiplier}×`)
+                  .map((line) => `${line.name} on ${formatHrDate(line.date)} at ${line.multiplier}×`)
                   .join(", ")}`
               : ""}
             . Other benefits is the predefined total monthly salary minus basic salary and statutory overtime.
@@ -214,6 +302,61 @@ export function SalarySlipCard({
           </p>
         </div>
       ) : null}
+      <section className="mt-5 border-t border-line pt-4">
+        <h3 className="text-sm font-semibold text-ink">Previous salary slip</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Upload a slip for this month. The file is stored privately.
+        </p>
+        {storedError ? <p className="mt-2 text-xs text-red-700">{storedError}</p> : null}
+        {uploaded ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+            {uploaded.file.url ? (
+              <a
+                href={uploaded.file.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-brand-dark underline"
+              >
+                {uploaded.file.fileName}
+              </a>
+            ) : (
+              <span className="font-medium text-ink">{uploaded.file.fileName}</span>
+            )}
+            <button
+              type="button"
+              className="text-xs text-red-700 underline disabled:opacity-50"
+              disabled={removing || uploading}
+              onClick={() => void onRemoveSlip()}
+            >
+              {removing ? "Removing…" : "Remove"}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">No slip uploaded for this month.</p>
+        )}
+        <label className="mt-3 block">
+          <span className="mb-1.5 block text-[13px] font-medium text-slate-700">
+            {uploaded ? "Replace slip" : "Upload slip"}
+          </span>
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+            disabled={!period || uploading || removing}
+            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-line file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium"
+            onChange={(event) => {
+              const selected = event.target.files?.[0];
+              event.target.value = "";
+              if (selected) void onUploadSlip(selected);
+            }}
+          />
+        </label>
+        {uploading ? <p className="mt-1 text-xs text-slate-500">Uploading…</p> : null}
+        {storedError ? (
+          <button type="button" className="mt-2 text-xs underline" onClick={() => void loadStored()}>
+            Retry
+          </button>
+        ) : null}
+      </section>
     </Card>
   );
 }

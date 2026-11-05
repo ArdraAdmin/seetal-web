@@ -5,19 +5,29 @@ import {
   mulkyaAlertsFromVehicles,
   type ExpiryAlertRow,
 } from "../expiry-window";
-import type { VehicleDocument, VehicleExtras, VehicleMaintenance } from "../types";
+import type { FleetPhoto, VehicleDocument, VehicleExtras, VehicleMaintenance } from "../types";
 import {
+  MAX_FLEET_PHOTOS,
   MAX_VEHICLE_DOCUMENTS,
+  isFleetPhotoKey,
+  isVehicleObjectKey,
   parseMaintenanceFields,
   parseVehicleFields,
   parseVehicleNumber,
 } from "../vehicle-records";
-import { isVehicleObjectKey } from "../vehicle-records";
 import { deleteVehicleFiles } from "./vehicle-files";
 
 type StoredDocument = {
   _id: ObjectId;
   name: string;
+  fileName: string;
+  contentType: string;
+  key: string;
+  uploadedAt: Date;
+};
+
+type StoredPhoto = {
+  _id: ObjectId;
   fileName: string;
   contentType: string;
   key: string;
@@ -33,6 +43,7 @@ type VehicleDoc = {
   mulkyaExpiry?: string | null;
   insurancePremium?: number | null;
   documents?: StoredDocument[];
+  photos?: StoredPhoto[];
 };
 
 type MaintenanceDoc = {
@@ -81,6 +92,26 @@ function asDocument(doc: StoredDocument): VehicleDocument {
   };
 }
 
+function asPhoto(photo: StoredPhoto): FleetPhoto {
+  return {
+    _id: String(photo._id),
+    fileName: photo.fileName,
+    contentType: photo.contentType,
+    fileId: String(photo._id),
+    uploadedAt: photo.uploadedAt?.toISOString?.() ?? undefined,
+  };
+}
+
+function photosFrom(raw: unknown): FleetPhoto[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const photo = item as StoredPhoto;
+    if (!photo._id || !isFleetPhotoKey(String(photo.key || ""))) return [];
+    return [asPhoto(photo)];
+  });
+}
+
 function documentsFrom(raw: unknown): VehicleDocument[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
@@ -100,6 +131,7 @@ function extrasFromDoc(doc: VehicleDoc | null): VehicleExtras {
       mulkyaExpiry: null,
       insurancePremium: null,
       documents: [],
+      photos: [],
     };
   }
   return {
@@ -109,6 +141,7 @@ function extrasFromDoc(doc: VehicleDoc | null): VehicleExtras {
     mulkyaExpiry: doc.mulkyaExpiry ?? null,
     insurancePremium: doc.insurancePremium ?? null,
     documents: documentsFrom(doc.documents),
+    photos: photosFrom(doc.photos),
   };
 }
 
@@ -129,9 +162,10 @@ function asMaintenance(doc: MaintenanceDoc): VehicleMaintenance {
 }
 
 function keysFromVehicle(doc: VehicleDoc | null): string[] {
-  return (doc?.documents ?? [])
-    .map((item) => item.key)
-    .filter((key) => isVehicleObjectKey(String(key || "")));
+  return [
+    ...(doc?.documents ?? []).map((item) => item.key),
+    ...(doc?.photos ?? []).map((item) => item.key),
+  ].filter((key) => isVehicleObjectKey(String(key || "")) || isFleetPhotoKey(String(key || "")));
 }
 
 export function requireVehicleUser(token: string | null): string {
@@ -211,6 +245,23 @@ function storedDocuments(
   }));
 }
 
+function storedPhotos(
+  photos: Array<{
+    fileName: string;
+    contentType: string;
+    key: string;
+  }>,
+): StoredPhoto[] {
+  const uploadedAt = new Date();
+  return photos.map((photo) => ({
+    _id: new ObjectId(),
+    fileName: photo.fileName,
+    contentType: photo.contentType,
+    key: photo.key,
+    uploadedAt,
+  }));
+}
+
 export async function assertVehicleNumberAvailable(
   vehicleNumber: unknown,
   exceptId?: unknown,
@@ -234,9 +285,18 @@ export async function createVehicleRecord(input: {
     contentType: string;
     key: string;
   }>;
+  photos?: Array<{
+    fileName: string;
+    contentType: string;
+    key: string;
+  }>;
 }): Promise<string> {
   if (input.documents.length > MAX_VEHICLE_DOCUMENTS) {
     throw new Error("A vehicle can have at most 20 documents");
+  }
+  const photos = input.photos ?? [];
+  if (photos.length > MAX_FLEET_PHOTOS) {
+    throw new Error("A vehicle can have at most 20 photographs");
   }
   const col = await vehicles();
   const duplicate = await col.findOne({ value: input.vehicleNumber });
@@ -251,6 +311,7 @@ export async function createVehicleRecord(input: {
     mulkyaExpiry: input.extras.mulkyaExpiry ?? null,
     insurancePremium: input.extras.insurancePremium ?? null,
     documents: storedDocuments(input.documents),
+    photos: storedPhotos(photos),
   });
   return String(_id);
 }
@@ -284,6 +345,34 @@ export async function updateVehicleDocuments(
   return removedFiles;
 }
 
+export async function updateVehiclePhotos(
+  vehicleId: unknown,
+  change: {
+    add: Array<{
+      fileName: string;
+      contentType: string;
+      key: string;
+    }>;
+    removeIds: string[];
+  },
+): Promise<string[]> {
+  const id = asObjectId(vehicleId);
+  const col = await vehicles();
+  const existing = await col.findOne({ _id: id });
+  if (!existing) throw new Error("No vehicle found");
+  const remove = new Set(change.removeIds.map((value) => value.trim()).filter(Boolean));
+  const kept = (existing.photos ?? []).filter((photo) => !remove.has(String(photo._id)));
+  const removedFiles = (existing.photos ?? [])
+    .filter((photo) => remove.has(String(photo._id)))
+    .map((photo) => photo.key);
+  const next = [...kept, ...storedPhotos(change.add)];
+  if (next.length > MAX_FLEET_PHOTOS) {
+    throw new Error("A vehicle can have at most 20 photographs");
+  }
+  await col.updateOne({ _id: id }, { $set: { photos: next } });
+  return removedFiles;
+}
+
 export async function getLinkedVehicleFile(fileId: unknown): Promise<{
   key: string;
   fileName: string;
@@ -294,8 +383,8 @@ export async function getLinkedVehicleFile(fileId: unknown): Promise<{
   const objectId = new ObjectId(id);
   const vehicleCol = await vehicles();
   const vehicle = await vehicleCol.findOne(
-    { "documents._id": objectId },
-    { projection: { documents: 1 } },
+    { $or: [{ "documents._id": objectId }, { "photos._id": objectId }] },
+    { projection: { documents: 1, photos: 1 } },
   );
   const document = (vehicle?.documents ?? []).find(
     (item) => String(item._id) === id,
@@ -305,6 +394,14 @@ export async function getLinkedVehicleFile(fileId: unknown): Promise<{
       key: document.key,
       fileName: document.fileName,
       contentType: document.contentType || "application/octet-stream",
+    };
+  }
+  const photo = (vehicle?.photos ?? []).find((item) => String(item._id) === id);
+  if (photo && isFleetPhotoKey(String(photo.key || ""))) {
+    return {
+      key: photo.key,
+      fileName: photo.fileName,
+      contentType: photo.contentType || "image/jpeg",
     };
   }
   const maintCol = await maintenance();
@@ -382,6 +479,7 @@ export async function getVehicleExtrasMap(
           mulkyaExpiry: 1,
           insurancePremium: 1,
           documents: 1,
+          photos: 1,
         },
       },
     )

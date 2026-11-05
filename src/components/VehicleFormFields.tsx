@@ -1,11 +1,12 @@
 "use client";
 
 import { FieldLabel, SecondaryButton, TextField } from "@/components/ui";
-import type { VehicleDocument } from "@/lib/types";
+import type { Driver, VehicleDocument } from "@/lib/types";
 import { VEHICLE_FILE_ACCEPT } from "@/lib/vehicle-records";
 
 export type VehicleFormState = {
   number: string;
+  driverId: string;
   purchaseYear: string;
   price: string;
   purchaseFrom: string;
@@ -15,6 +16,7 @@ export type VehicleFormState = {
 
 export const EMPTY_VEHICLE_FORM: VehicleFormState = {
   number: "",
+  driverId: "",
   purchaseYear: "",
   price: "",
   purchaseFrom: "",
@@ -93,10 +95,12 @@ function UploadField({
 
 export function VehicleProfileFields({
   form,
+  drivers,
   disabled,
   onChange,
 }: {
   form: VehicleFormState;
+  drivers: Driver[];
   disabled?: boolean;
   onChange: (form: VehicleFormState) => void;
 }) {
@@ -114,6 +118,25 @@ export function VehicleProfileFields({
         disabled={disabled}
         placeholder="e.g. 1234"
       />
+      <label className="block space-y-1.5">
+        <FieldLabel label="Driver" required />
+        <select
+          required
+          disabled={disabled}
+          value={form.driverId}
+          onChange={(event) => set("driverId", event.target.value)}
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        >
+          <option value="">
+            {drivers.length === 0 ? "No drivers yet" : "Select a driver"}
+          </option>
+          {drivers.map((driver) => (
+            <option key={driver._id} value={driver._id}>
+              {driver.name} · {driver.phoneNo}
+            </option>
+          ))}
+        </select>
+      </label>
       <TextField
         label="Purchase year"
         type="number"

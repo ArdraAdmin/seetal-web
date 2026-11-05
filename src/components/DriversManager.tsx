@@ -1,9 +1,24 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { addDriver, deleteDriver, editDriver, getDrivers } from "@/lib/api";
-import type { Driver } from "@/lib/types";
+import {
+  addDriver,
+  deleteDriver,
+  downloadDriverFile,
+  editDriver,
+  getDrivers,
+  previewDriverFile,
+} from "@/lib/api";
+import type { Driver, FleetPhoto, FleetScope } from "@/lib/types";
+import { photosFormError } from "@/lib/vehicle-records";
+import { FilePreviewDialog } from "@/components/FilePreviewDialog";
+import {
+  photoDrafts,
+  PhotoFields,
+  selectedPhotoFiles,
+  type PhotoDraft,
+} from "@/components/PhotoFields";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -18,8 +33,10 @@ import {
 
 export function DriversManager({
   vehiclesHref,
+  scope,
 }: {
   vehiclesHref: string;
+  scope: FleetScope;
 }) {
   const { toast } = useToast();
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -28,40 +45,117 @@ export function DriversManager({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [editing, setEditing] = useState<Driver | null>(null);
+  const [photos, setPhotos] = useState<PhotoDraft[]>([]);
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [openingFile, setOpeningFile] = useState(false);
+  const [preview, setPreview] = useState<{
+    url: string;
+    name: string;
+    type: string;
+  } | null>(null);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getDrivers();
+      const data = await getDrivers(scope);
       setDrivers(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load drivers");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    return () => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current.url);
+    };
+  }, []);
+
+  const savedPhotos = editing?.photos ?? [];
+  const visiblePhotos = savedPhotos.filter(
+    (photo) => !removedPhotoIds.includes(photo._id),
+  );
+  const removedPhotos = savedPhotos.filter((photo) =>
+    removedPhotoIds.includes(photo._id),
+  );
+
+  function resetForm() {
+    setEditing(null);
+    setName("");
+    setPhone("");
+    setPhotos([]);
+    setRemovedPhotoIds([]);
+  }
+
+  function closePreview() {
+    setPreview((current) => {
+      if (current) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }
+
+  async function onDownload(fileId: string, fileName: string) {
+    try {
+      await downloadDriverFile(fileId, fileName);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Download failed", "error");
+    }
+  }
+
+  async function onView(fileId: string, fileName: string) {
+    setOpeningFile(true);
+    try {
+      const next = await previewDriverFile(fileId, fileName);
+      setPreview((current) => {
+        if (current) URL.revokeObjectURL(current.url);
+        return next;
+      });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to open photograph", "error");
+    } finally {
+      setOpeningFile(false);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return;
+    const problem = photosFormError(
+      photoDrafts(photos),
+      visiblePhotos.length,
+      "driver",
+    );
+    if (problem) {
+      toast(problem, "error");
+      return;
+    }
     setSaving(true);
     try {
+      const files = selectedPhotoFiles(photos);
       if (editing) {
-        await editDriver(editing._id, name.trim(), phone.trim());
+        await editDriver(
+          editing._id,
+          name.trim(),
+          phone.trim(),
+          scope,
+          files,
+          removedPhotoIds,
+        );
         toast("Driver updated", "success");
       } else {
-        await addDriver(name.trim(), phone.trim());
+        await addDriver(name.trim(), phone.trim(), scope, files);
         toast("Driver added", "success");
       }
-      setName("");
-      setPhone("");
-      setEditing(null);
+      resetForm();
       await load();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Save failed", "error");
@@ -73,7 +167,7 @@ export function DriversManager({
   async function onDelete(id: string) {
     if (!confirm("Delete this driver?")) return;
     try {
-      await deleteDriver(id);
+      await deleteDriver(id, scope);
       toast("Driver deleted", "success");
       await load();
     } catch (err) {
@@ -85,13 +179,26 @@ export function DriversManager({
     setEditing(d);
     setName(d.name);
     setPhone(d.phoneNo);
+    setPhotos([]);
+    setRemovedPhotoIds([]);
+  }
+
+  function photoSummary(rows: FleetPhoto[] | undefined) {
+    const count = rows?.length ?? 0;
+    if (count === 1) return "1 photograph";
+    if (count > 1) return `${count} photographs`;
+    return null;
   }
 
   return (
     <div>
       <PageHeader
         title="Drivers"
-        subtitle="Shared driver records used by both STL and SHMP."
+        subtitle={
+          scope === "shmp"
+            ? "SHMP drivers only. These records are separate from STL."
+            : "STL drivers only. These records are separate from SHMP."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -108,15 +215,13 @@ export function DriversManager({
       />
 
       <Card className="mb-5">
-        <form
-          onSubmit={onSubmit}
-          className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto]"
-        >
+        <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
           <TextField
             label="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
+            disabled={saving}
             placeholder="Driver name"
           />
           <TextField
@@ -124,21 +229,32 @@ export function DriversManager({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
+            disabled={saving}
             placeholder="Phone number"
           />
-          <div className="flex items-end gap-2 sm:col-span-2">
+          <PhotoFields
+            files={photos}
+            saved={visiblePhotos}
+            removed={removedPhotos}
+            disabled={saving || openingFile}
+            onChangeFiles={setPhotos}
+            onRemoveSaved={(photoId) =>
+              setRemovedPhotoIds((current) =>
+                current.includes(photoId) ? current : [...current, photoId],
+              )
+            }
+            onRestoreSaved={(photoId) =>
+              setRemovedPhotoIds((current) => current.filter((item) => item !== photoId))
+            }
+            onDownload={(fileId, fileName) => void onDownload(fileId, fileName)}
+            onView={(fileId, fileName) => void onView(fileId, fileName)}
+          />
+          <div className="flex items-end gap-2">
             <PrimaryButton type="submit" disabled={saving}>
               {editing ? "Update" : "Add driver"}
             </PrimaryButton>
             {editing ? (
-              <SecondaryButton
-                type="button"
-                onClick={() => {
-                  setEditing(null);
-                  setName("");
-                  setPhone("");
-                }}
-              >
+              <SecondaryButton type="button" disabled={saving} onClick={resetForm}>
                 Cancel
               </SecondaryButton>
             ) : null}
@@ -154,14 +270,19 @@ export function DriversManager({
         <EmptyState title="No drivers yet" description="Add a driver above." />
       ) : (
         <div className="space-y-3">
-          {drivers.map((d) => (
+          {drivers.map((d) => {
+            const photosLabel = photoSummary(d.photos);
+            return (
             <Card
               key={d._id}
               className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
                 <p className="font-semibold text-slate-900">{d.name}</p>
-                <p className="text-sm text-slate-500">{d.phoneNo}</p>
+                <p className="text-sm text-slate-500">
+                  {d.phoneNo}
+                  {photosLabel ? ` · ${photosLabel}` : ""}
+                </p>
               </div>
               <div className="flex gap-2">
                 <SecondaryButton type="button" onClick={() => startEdit(d)}>
@@ -176,9 +297,13 @@ export function DriversManager({
                 </SecondaryButton>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
+      {preview ? (
+        <FilePreviewDialog preview={preview} onClose={closePreview} />
+      ) : null}
     </div>
   );
 }

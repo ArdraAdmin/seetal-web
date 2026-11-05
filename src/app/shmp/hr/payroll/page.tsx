@@ -1,7 +1,5 @@
-"use client";
+import { PayrollRegister } from "@/components/PayrollRegister";
 
-import { PayrollSettings } from "@/components/PayrollSettings";
-
-export default function ShmpPayrollSettingsPage() {
-  return <PayrollSettings />;
+export default function ShmpPayrollPage() {
+  return <PayrollRegister />;
 }

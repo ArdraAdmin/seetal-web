@@ -49,7 +49,7 @@ const NAV: NavItem[] = [
   { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/shmp/hr/payroll",
-    label: "Payroll settings",
+    label: "Payroll",
     icon: Banknote,
     moduleId: "hr",
     fieldId: "salary",

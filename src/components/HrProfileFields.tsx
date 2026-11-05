@@ -6,7 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { FieldLabel, TextField } from "@/components/ui";
 import { companyLabel, getCompanies, type CompanyRecord } from "@/lib/api";
 import { filterCompaniesForModule } from "@/lib/custom-users";
-import { stlTotalSalary, type HrProfileFormState, type HrSalaryScope } from "@/lib/hr-profile";
+import { formatHrDate, stlTotalSalary, type HrProfileFormState, type HrSalaryScope } from "@/lib/hr-profile";
 import type { HrFileRef } from "@/lib/stl-features-api";
 
 function FileField({
@@ -227,6 +227,31 @@ export function HrProfileFields({
       <section className="grid gap-3 sm:grid-cols-2">
         <TextField label="Name as per visa" required value={form.visaName} disabled={disabled} onChange={text("visaName")} />
         <TextField label="Designation as per visa" required value={form.visaDesignation} disabled={disabled} onChange={text("visaDesignation")} />
+        <div className="sm:col-span-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.foodServed}
+            aria-label="Food served"
+            disabled={disabled}
+            onClick={() => set("foodServed", !form.foodServed)}
+            className="inline-flex items-center gap-2 text-sm font-medium text-ink disabled:opacity-60"
+          >
+            <span
+              className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-out ${
+                form.foodServed ? "bg-brand" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
+                  form.foodServed ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </span>
+            Food served
+            <span className="text-xs font-normal text-slate-500">{form.foodServed ? "On" : "Off"}</span>
+          </button>
+        </div>
         {showCompany ? (
           <CompanyField
             value={form.company}
@@ -337,7 +362,7 @@ export function HrProfileFields({
           <FileField label="Employment contract copy" required value={form.employmentContractCopy} disabled={disabled} onUpload={onUpload} onChange={(file) => set("employmentContractCopy", file)} />
           <div className="text-sm text-slate-600">
             <p className="font-medium text-ink">Contract expiry</p>
-            <p className="mt-1">Same as the EID expiry{form.eidExpiry ? `: ${form.eidExpiry}` : ""}.</p>
+            <p className="mt-1">Same as the EID expiry{form.eidExpiry ? `: ${formatHrDate(form.eidExpiry)}` : ""}.</p>
           </div>
           <FileField label="Offer letter" optional value={form.offerLetter} disabled={disabled} onUpload={onUpload} onChange={(file) => set("offerLetter", file)} />
         </div>

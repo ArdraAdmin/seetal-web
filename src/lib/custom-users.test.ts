@@ -10,6 +10,7 @@ import {
   firstAllowedPath,
   portalFieldVisible,
   readCustomAccess,
+  moduleFields,
   sanitizeCustomAccess,
   sellingModuleVisible,
   sideModuleCount,
@@ -141,6 +142,27 @@ describe("custom user access", () => {
     if (!fields.ok) return;
     assert.deepEqual(fields.access.modules.stl, ["dashboard", "dashboard:this-month"]);
     assert.deepEqual(fields.access.modules.shmp, ["hr", "hr:salary", "hr:__none__"]);
+    assert.deepEqual(moduleFields("stl", "hr").map((field) => field.id), [
+      "salary",
+      "passport",
+      "eid",
+      "visa",
+      "insurance",
+    ]);
+    const droppedPermit = sanitizeCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["hr", "hr:salary", "hr:sharjah"] },
+    });
+    assert.equal(droppedPermit.ok, true);
+    if (!droppedPermit.ok) return;
+    assert.deepEqual(droppedPermit.access.modules.stl, ["hr", "hr:salary"]);
+    const onlyPermit = sanitizeCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["hr", "hr:sharjah"] },
+    });
+    assert.equal(onlyPermit.ok, true);
+    if (!onlyPermit.ok) return;
+    assert.deepEqual(onlyPermit.access.modules.stl, ["hr", "hr:__none__"]);
     assert.equal(portalFieldVisible(fields.access, "selling", "dashboard", "this-month"), true);
     assert.equal(portalFieldVisible(fields.access, "selling", "dashboard", "visa"), false);
     assert.equal(portalFieldVisible(null, "selling", "dashboard", "visa"), true);

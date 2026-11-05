@@ -7,15 +7,23 @@ import {
   addVehicleMaintenance,
   downloadVehicleFile,
   editVehicle,
+  getDrivers,
   previewVehicleFile,
   getVehicleDetails,
   getVehicles,
 } from "@/lib/api";
-import type { Vehicle, VehicleDocument, VehicleExtras, VehicleMaintenance } from "@/lib/types";
+import type { Driver, FleetPhoto, FleetScope, Vehicle, VehicleDocument, VehicleExtras, VehicleMaintenance } from "@/lib/types";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { salesMoney } from "@/lib/sales";
 import { maintenanceFormError, vehicleFormError } from "@/lib/vehicle-records";
+import { FilePreviewDialog } from "@/components/FilePreviewDialog";
+import {
+  photoDrafts,
+  PhotoFields,
+  selectedPhotoFiles,
+  type PhotoDraft,
+} from "@/components/PhotoFields";
 import {
   documentDrafts,
   documentUploads,
@@ -41,6 +49,7 @@ type FormState = VehicleFormState;
 
 const EMPTY_FORM: FormState = {
   number: "",
+  driverId: "",
   purchaseYear: "",
   price: "",
   purchaseFrom: "",
@@ -51,6 +60,7 @@ const EMPTY_FORM: FormState = {
 function asForm(vehicle: Vehicle, extras: VehicleExtras): FormState {
   return {
     number: vehicle.value == null ? "" : String(vehicle.value),
+    driverId: vehicle.driverId || "",
     purchaseYear:
       extras.purchaseYear == null ? "" : String(extras.purchaseYear),
     price: extras.price == null ? "" : String(extras.price),
@@ -63,16 +73,26 @@ function asForm(vehicle: Vehicle, extras: VehicleExtras): FormState {
   };
 }
 
-export function VehicleDetailView({ listHref }: { listHref: string }) {
+export function VehicleDetailView({
+  listHref,
+  scope,
+}: {
+  listHref: string;
+  scope: FleetScope;
+}) {
   const params = useParams<{ id: string }>();
   const id = String(params?.id || "");
   const { toast } = useToast();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [maintenance, setMaintenance] = useState<VehicleMaintenance[]>([]);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [savedDocuments, setSavedDocuments] = useState<VehicleDocument[]>([]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [newDocuments, setNewDocuments] = useState<DocumentRow[]>([]);
+  const [savedPhotos, setSavedPhotos] = useState<FleetPhoto[]>([]);
+  const [removedPhotoIds, setRemovedPhotoIds] = useState<string[]>([]);
+  const [newPhotos, setNewPhotos] = useState<PhotoDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -97,11 +117,13 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [list, details] = await Promise.all([
-        getVehicles(),
-        getVehicleDetails(id),
+      const [list, details, driverList] = await Promise.all([
+        getVehicles(scope),
+        getVehicleDetails(id, scope),
+        getDrivers(scope),
       ]);
       const found = (Array.isArray(list) ? list : []).find((v) => v._id === id);
+      setDrivers(Array.isArray(driverList) ? driverList : []);
       if (!found) {
         setVehicle(null);
         setError("Vehicle not found");
@@ -112,13 +134,16 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
       setSavedDocuments(details.extras?.documents ?? []);
       setRemovedIds([]);
       setNewDocuments([]);
+      setSavedPhotos(details.extras?.photos ?? found.photos ?? []);
+      setRemovedPhotoIds([]);
+      setNewPhotos([]);
       setMaintenance(details.maintenance || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load vehicle");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, scope]);
 
   useEffect(() => {
     void load();
@@ -135,6 +160,12 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
   );
   const removedDocuments = savedDocuments.filter((document) =>
     removedIds.includes(document._id),
+  );
+  const visiblePhotos = savedPhotos.filter(
+    (photo) => !removedPhotoIds.includes(photo._id),
+  );
+  const removedPhotos = savedPhotos.filter((photo) =>
+    removedPhotoIds.includes(photo._id),
   );
 
   async function onDownload(fileId: string, fileName: string) {
@@ -172,6 +203,7 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
     if (!vehicle) return;
     const problem = vehicleFormError({
       vehicleNumber: form.number,
+      driverId: form.driverId,
       purchaseYear: form.purchaseYear,
       price: form.price,
       purchaseFrom: form.purchaseFrom,
@@ -179,6 +211,8 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
       insurancePremium: form.insurancePremium,
       documents: documentDrafts(newDocuments),
       savedDocumentCount: visibleDocuments.length,
+      photos: photoDrafts(newPhotos),
+      savedPhotoCount: visiblePhotos.length,
     });
     if (problem) {
       toast(problem, "error");
@@ -188,6 +222,8 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
     try {
       await editVehicle(vehicle._id, {
         vehicleNumber: form.number,
+        driverId: form.driverId,
+        scope,
         purchaseYear: form.purchaseYear,
         price: form.price,
         purchaseFrom: form.purchaseFrom,
@@ -195,6 +231,8 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
         insurancePremium: form.insurancePremium,
         documents: documentUploads(newDocuments),
         removeDocumentIds: removedIds,
+        photos: selectedPhotoFiles(newPhotos),
+        removePhotoIds: removedPhotoIds,
       });
       toast("Vehicle updated", "success");
       await load();
@@ -230,6 +268,7 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
         description: description.trim(),
         date,
         invoice,
+        scope,
       });
       toast("Maintenance added", "success");
       setTitle("");
@@ -281,7 +320,11 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
     <div>
       <PageHeader
         title={`Vehicle #${vehicle.value}`}
-        subtitle="Edit purchase details, attach documents, and keep a maintenance history for this vehicle."
+        subtitle={
+          vehicle.driverName
+            ? `Driver: ${vehicle.driverName}. Update the assignment, purchase details, documents, photographs, and maintenance here.`
+            : "Choose a driver, then update purchase details, documents, photographs, and maintenance."
+        }
         actions={
           <Link
             href={listHref}
@@ -294,7 +337,12 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
 
       <Card className="mb-6">
         <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-2">
-          <VehicleProfileFields form={form} disabled={saving} onChange={setForm} />
+          <VehicleProfileFields
+            form={form}
+            drivers={drivers}
+            disabled={saving}
+            onChange={setForm}
+          />
           <VehicleDocumentFields
             rows={newDocuments}
             saved={visibleDocuments}
@@ -308,6 +356,23 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
             }
             onRestoreSaved={(documentId) =>
               setRemovedIds((current) => current.filter((item) => item !== documentId))
+            }
+            onDownload={(fileId, fileName) => void onDownload(fileId, fileName)}
+            onView={(fileId, fileName) => void onView(fileId, fileName)}
+          />
+          <PhotoFields
+            files={newPhotos}
+            saved={visiblePhotos}
+            removed={removedPhotos}
+            disabled={saving || openingFile}
+            onChangeFiles={setNewPhotos}
+            onRemoveSaved={(photoId) =>
+              setRemovedPhotoIds((current) =>
+                current.includes(photoId) ? current : [...current, photoId],
+              )
+            }
+            onRestoreSaved={(photoId) =>
+              setRemovedPhotoIds((current) => current.filter((item) => item !== photoId))
             }
             onDownload={(fileId, fileName) => void onDownload(fileId, fileName)}
             onView={(fileId, fileName) => void onView(fileId, fileName)}
@@ -446,42 +511,7 @@ export function VehicleDetailView({ listHref }: { listHref: string }) {
       )}
 
       {preview ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-label={preview.name}
-          onClick={closePreview}
-        >
-          <div
-            className="flex h-[min(90vh,840px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-              <p className="min-w-0 truncate text-sm font-medium text-ink">
-                {preview.name}
-              </p>
-              <SecondaryButton type="button" onClick={closePreview}>
-                Close
-              </SecondaryButton>
-            </div>
-            <div className="min-h-0 flex-1 bg-slate-100">
-              {preview.type.startsWith("image/") ? (
-                <img
-                  src={preview.url}
-                  alt={preview.name}
-                  className="mx-auto h-full max-w-full object-contain"
-                />
-              ) : (
-                <iframe
-                  title={preview.name}
-                  src={preview.url}
-                  className="h-full w-full bg-white"
-                />
-              )}
-            </div>
-          </div>
-        </div>
+        <FilePreviewDialog preview={preview} onClose={closePreview} />
       ) : null}
     </div>
   );

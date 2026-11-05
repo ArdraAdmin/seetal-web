@@ -344,6 +344,17 @@ export type SalarySlip = {
   holidayLines: Array<{ date: string; name: string; multiplier: number }>;
 };
 
+export type StoredSalarySlip = {
+  year: number;
+  month: number;
+  file: {
+    key: string;
+    fileName: string;
+    contentType?: string;
+    url?: string;
+  };
+};
+
 export async function getSalarySlip(
   userId: string,
   kind: "user" | "staff" | "employee",
@@ -357,6 +368,52 @@ export async function getSalarySlip(
     month: String(month),
   });
   return request<SalarySlip>(`/admin/hr/salary-slip/${kind}/${encodeURIComponent(id)}?${qs}`);
+}
+
+export async function getStoredSalarySlips(
+  userId: string,
+  kind: "user" | "staff" | "employee",
+  id: string,
+) {
+  const qs = new URLSearchParams({ userId });
+  return request<{ slips: StoredSalarySlip[] }>(
+    `/admin/hr/salary-slips/${kind}/${encodeURIComponent(id)}?${qs}`,
+  );
+}
+
+export async function saveStoredSalarySlip(
+  userId: string,
+  kind: "user" | "staff" | "employee",
+  id: string,
+  year: number,
+  month: number,
+  file: { key: string; fileName: string; contentType?: string },
+) {
+  return request<{ slips: StoredSalarySlip[] }>(
+    `/admin/hr/salary-slips/${kind}/${encodeURIComponent(id)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId, year, month, file }),
+    },
+  );
+}
+
+export async function deleteStoredSalarySlip(
+  userId: string,
+  kind: "user" | "staff" | "employee",
+  id: string,
+  year: number,
+  month: number,
+) {
+  const qs = new URLSearchParams({
+    userId,
+    year: String(year),
+    month: String(month),
+  });
+  return request<{ slips: StoredSalarySlip[] }>(
+    `/admin/hr/salary-slips/${kind}/${encodeURIComponent(id)}?${qs}`,
+    { method: "DELETE" },
+  );
 }
 
 export type PayrollConfig = {
@@ -419,6 +476,46 @@ export async function deletePublicHoliday(userId: string, id: string) {
     `/admin/payroll/holidays/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`,
     { method: "DELETE" },
   );
+}
+
+export type PayrollRegisterRow = {
+  id: string;
+  kind: "staff" | "employee";
+  name: string;
+  absentDays: number;
+  presentDays: number;
+  leaveDays: number;
+  basicSalary: number;
+  otherBenefits: number;
+  otSundays: number;
+  totalSalary: number;
+  food: number;
+  finalPay: number;
+};
+
+export type PayrollRegister = {
+  scope: "stl" | "shmp";
+  year: number;
+  month: number;
+  label: string;
+  calendarDays: number;
+  foodPerMonth: number;
+  rows: PayrollRegisterRow[];
+};
+
+export async function getPayrollRegister(
+  userId: string,
+  scope: "stl" | "shmp",
+  year: number,
+  month: number,
+) {
+  const qs = new URLSearchParams({
+    userId,
+    scope,
+    year: String(year),
+    month: String(month),
+  });
+  return request<PayrollRegister>(`/admin/payroll/register?${qs}`);
 }
 
 export async function getModuleAccessMe(userId: string) {
@@ -563,10 +660,19 @@ export type HrProfile = {
   otherBenefits?: number;
   totalSalary?: number;
   sundayAllowance?: number;
+  foodServed?: boolean;
+  salarySlips?: Array<{
+    year: number;
+    month: number;
+    file?: HrFileRef | null;
+  }>;
   salaryIncrements?: Array<{
+    entryId?: string;
     effectiveDate: string;
     amount: number;
+    previousSalary?: number;
     notes?: string;
+    applied?: boolean;
   }>;
   company?: string;
   passportNumber?: string;
@@ -729,6 +835,22 @@ export async function addHrStaffIncrement(
     method: "POST",
     body: JSON.stringify({ userId: adminUserId, ...payload }),
   });
+}
+
+export async function deleteHrIncrement(adminUserId: string, id: string, entryId: string) {
+  const qs = new URLSearchParams({ userId: adminUserId });
+  return request<HrStaff>(
+    `/admin/hr/${encodeURIComponent(id)}/increments/${encodeURIComponent(entryId)}?${qs}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function deleteHrStaffIncrement(adminUserId: string, id: string, entryId: string) {
+  const qs = new URLSearchParams({ userId: adminUserId });
+  return request<HrStaff>(
+    `/admin/hr/staff/${encodeURIComponent(id)}/increments/${encodeURIComponent(entryId)}?${qs}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getDriverDeliveriesToday(opts: {

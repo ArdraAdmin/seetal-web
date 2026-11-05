@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  displayedTotalSalary,
   emptyHrProfileForm,
+  formatHrDate,
   hrProfilePayload,
   hrProfileToForm,
   joiningDateError,
@@ -116,5 +118,21 @@ describe("HR profile form", () => {
     const payload = hrProfilePayload({ ...form, eidExpiry: "2029-06-01", visaExpiry: "2020-01-01" });
     assert.equal(payload.visaExpiry, "2029-06-01");
     assert.equal(payload.eidExpiry, "2029-06-01");
+  });
+
+  it("formats HR dates as dd/mm/yyyy and keeps the food served switch", () => {
+    assert.equal(formatHrDate("2025-05-18"), "18/05/2025");
+    assert.equal(formatHrDate("2026-10-26T20:30:00.000Z"), "27/10/2026");
+    assert.equal(formatHrDate(""), "-");
+    assert.equal(hrProfilePayload(emptyHrProfileForm()).foodServed, false);
+    const form = emptyHrProfileForm();
+    form.foodServed = true;
+    assert.equal(hrProfilePayload(form).foodServed, true);
+    assert.equal(hrProfileToForm({ foodServed: true }).foodServed, true);
+    assert.equal(hrProfileToForm({}).foodServed, false);
+    assert.equal(displayedTotalSalary({ basicSalary: 800, otherBenefits: 200 }, "stl"), "1000");
+    assert.equal(displayedTotalSalary({ basicSalary: 800, totalSalary: 2000 }, "stl"), "2000");
+    assert.equal(displayedTotalSalary({ totalSalary: 2000 }, "shmp"), "2000");
+    assert.equal(displayedTotalSalary(undefined, "shmp"), "0");
   });
 });

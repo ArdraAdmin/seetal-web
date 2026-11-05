@@ -25,10 +25,22 @@ export interface AuthUser {
   customAccess?: CustomAccess;
 }
 
+export type FleetScope = "stl" | "shmp";
+
 export interface Driver {
   _id: string;
   name: string;
   phoneNo: string;
+  scope?: FleetScope;
+  photos?: FleetPhoto[];
+}
+
+export interface FleetPhoto {
+  _id: string;
+  fileName: string;
+  contentType?: string;
+  fileId: string;
+  uploadedAt?: string;
 }
 
 export interface VehicleDocument {
@@ -47,11 +59,15 @@ export interface VehicleExtras {
   mulkyaExpiry?: string | null;
   insurancePremium?: number | null;
   documents?: VehicleDocument[];
+  photos?: FleetPhoto[];
 }
 
 export interface Vehicle extends VehicleExtras {
   _id: string;
   value: number | string;
+  scope?: FleetScope;
+  driverId?: string | null;
+  driverName?: string | null;
 }
 
 export interface VehicleMaintenance {

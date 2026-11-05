@@ -1,4 +1,7 @@
-export const ADMIN_USER_GROUPS = ["sales", "warehouse", "custom"] as const;
+export const ADMIN_USER_GROUPS = ["sales", "warehouse", "admins", "custom"] as const;
+
+/** STL portal admins. Other Admin-role logins are not listed or counted here. */
+export const PORTAL_ADMIN_EMAILS = ["lav@shrseetal.com", "admin@gmail.com"] as const;
 export const SHMP_USER_GROUPS = ["supervisor", "workers", "custom"] as const;
 
 export type UserManagementSide = "admin" | "shmp";
@@ -9,6 +12,7 @@ export type UserGroup = AdminUserGroup | ShmpUserGroup;
 export const USER_GROUP_LABELS: Record<UserGroup, string> = {
   sales: "Sales",
   warehouse: "Warehouse",
+  admins: "Admins",
   custom: "Custom",
   supervisor: "Supervisors",
   workers: "Workers",
@@ -72,6 +76,34 @@ function peopleList(data: unknown): unknown[] {
   if (record && Array.isArray(record.users)) return record.users;
   if (record && Array.isArray(record.employees)) return record.employees;
   return [];
+}
+
+export function isPortalAdminEmail(email: string | null | undefined) {
+  const value = String(email || "").trim().toLowerCase();
+  return (PORTAL_ADMIN_EMAILS as readonly string[]).includes(value);
+}
+
+export function readPortalAdmins(data: unknown): DirectoryPerson[] {
+  const rows: DirectoryPerson[] = [];
+  for (const item of peopleList(data)) {
+    const row = asRecord(item);
+    if (!row) continue;
+    const id = text(row._id);
+    const email = text(row.email);
+    if (!id || !isPortalAdminEmail(email)) continue;
+    const rowRole = text(row.role);
+    if (rowRole && rowRole !== "Admin") continue;
+    const field = asRecord(row.field);
+    const admin = field ? asRecord(field.admin) : null;
+    rows.push({
+      id,
+      name: text(row.name) || "Unnamed",
+      email,
+      mobile: text(row.mobileNumber),
+      detail: admin?.isSuperAdmin === true ? "Super admin" : "Admin",
+    });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function readAccessPeople(data: unknown, role: string): DirectoryPerson[] {
