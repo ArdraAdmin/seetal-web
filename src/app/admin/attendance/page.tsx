@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getAdminAttendance,
@@ -15,8 +15,17 @@ import {
   warehouseStaffLabel,
 } from "@/lib/hr-scope";
 import { warehouseField } from "@/lib/profiles";
-import { getHrStaff, type HrStaff } from "@/lib/stl-features-api";
+import {
+  getHrStaff,
+  getHrStaffAttendance,
+  markHrStaffAttendance,
+  overrideSalesAttendance,
+  type HrStaff,
+  type HrStaffAttendanceMark,
+} from "@/lib/stl-features-api";
 import { useAuth } from "@/components/AuthProvider";
+import { useToast } from "@/components/Toast";
+import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
 import {
   Card,
   EmptyState,
@@ -32,7 +41,24 @@ type HrPerson = {
   email?: string;
   roleLabel: string;
   loginId: string;
+  kind: "staff" | "user";
 };
+
+function dubaiToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
+}
+
+function markStatusLabel(mark: HrStaffAttendanceMark) {
+  if (mark.status === "present") return "Present";
+  if (mark.status === "absent") return "Absent";
+  return mark.leaveType === "sick" ? "Sick leave" : "Annual leave";
+}
+
+function markTarget(person: HrPerson) {
+  if (person.loginId) return `portal:${person.loginId}`;
+  if (person.kind === "staff") return `staff:${person.key}`;
+  return "";
+}
 
 function fmtDateTime(value?: string) {
   if (!value) return "-";
@@ -51,12 +77,21 @@ function roleLabel(row: HrStaff, managerIds: Set<string>) {
 
 export default function AdminAttendancePage() {
   const { user, loading: authLoading } = useAuth();
+  const { toast } = useToast();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<HrPerson[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [staffMarks, setStaffMarks] = useState<HrStaffAttendanceMark[]>([]);
   const [todayOnly, setTodayOnly] = useState(true);
+  const [markOpen, setMarkOpen] = useState(false);
+  const [savingMark, setSavingMark] = useState(false);
+  const [markPerson, setMarkPerson] = useState("");
+  const [markStatus, setMarkStatus] = useState("present");
+  const [markLeaveType, setMarkLeaveType] = useState<"annual" | "sick">("annual");
+  const [markReason, setMarkReason] = useState("");
+  const [markDate, setMarkDate] = useState(dubaiToday);
 
   useEffect(() => {
     if (authLoading) return;
@@ -70,13 +105,22 @@ export default function AdminAttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [hr, warehouse, data] = await Promise.all([
+      const to = dubaiToday();
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 30);
+      const from = todayOnly
+        ? to
+        : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(fromDate);
+      const [hr, warehouse, data, marks] = await Promise.all([
         getHrStaff(user.id, { role: "Warehouse", scope: "stl" }),
         getWarehouseProfiles().catch(() => []),
         getAdminAttendance({
           userId: user.id,
           today: todayOnly,
         }),
+        getHrStaffAttendance(user.id, "stl", from, to).catch(() => ({
+          marks: [] as HrStaffAttendanceMark[],
+        })),
       ]);
       const managerIds = new Set(
         warehouse
@@ -89,12 +133,13 @@ export default function AdminAttendancePage() {
       );
       setPeople(
         roster
-          .map((row) => ({
+          .map((row): HrPerson => ({
             key: row.id,
             name: row.name || "Unnamed",
             email: row.email,
             roleLabel: roleLabel(row, managerIds),
             loginId: stlAttendanceLoginId(row),
+            kind: row.kind === "staff" ? "staff" : "user",
           }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
@@ -103,6 +148,7 @@ export default function AdminAttendancePage() {
           loginIds.has(attendanceRecordUserId(row.sales)),
         ),
       );
+      setStaffMarks(marks.marks || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load attendance");
     } finally {
@@ -111,7 +157,13 @@ export default function AdminAttendancePage() {
   }, [user, todayOnly]);
 
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) void load();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   const cards = useMemo(() => {
@@ -129,6 +181,10 @@ export default function AdminAttendancePage() {
         const record = person.loginId
           ? byLogin.get(person.loginId)?.[0]
           : undefined;
+        const marked = staffMarks
+          .filter((mark) => mark.staffId === person.key)
+          .map((mark) => markStatusLabel(mark))
+          .join(", ");
         return {
           key: person.key,
           name: person.name,
@@ -137,11 +193,9 @@ export default function AdminAttendancePage() {
           checkInAt: record?.checkInAt,
           checkOutAt: record?.checkOutAt,
           report: record?.report,
-          empty: person.loginId
-            ? record
-              ? undefined
-              : "Not checked in"
-            : "No portal login",
+          empty: record
+            ? undefined
+            : marked || (person.loginId ? "Not checked in" : "Not marked"),
         };
       });
     }
@@ -165,18 +219,88 @@ export default function AdminAttendancePage() {
     });
     const missing = people
       .filter((person) => !person.loginId || !seen.has(person.loginId))
-      .map((person) => ({
-        key: person.key,
-        name: person.name,
-        email: person.email,
-        roleLabel: person.roleLabel,
-        checkInAt: undefined as string | undefined,
-        checkOutAt: undefined as string | undefined,
-        report: undefined as string | undefined,
-        empty: person.loginId ? "No check-in recorded" : "No portal login",
-      }));
+      .map((person) => {
+        const marked = staffMarks
+          .filter((mark) => mark.staffId === person.key)
+          .map((mark) => `${mark.date}: ${markStatusLabel(mark)}`)
+          .join(", ");
+        return {
+          key: person.key,
+          name: person.name,
+          email: person.email,
+          roleLabel: person.roleLabel,
+          checkInAt: undefined as string | undefined,
+          checkOutAt: undefined as string | undefined,
+          report: undefined as string | undefined,
+          empty: marked || (person.loginId ? "No check-in recorded" : "Not marked"),
+        };
+      });
     return [...fromRecords, ...missing];
-  }, [people, records, todayOnly]);
+  }, [people, records, staffMarks, todayOnly]);
+
+  const markPeople = useMemo(
+    () =>
+      people
+        .map((person) => ({
+          id: markTarget(person),
+          label: `${person.name} (${person.roleLabel})`,
+        }))
+        .filter((person) => person.id),
+    [people],
+  );
+
+  function openMark(person?: HrPerson) {
+    setMarkPerson(person ? markTarget(person) : "");
+    setMarkStatus("present");
+    setMarkLeaveType("annual");
+    setMarkReason("");
+    setMarkDate(dubaiToday());
+    setMarkOpen(true);
+  }
+
+  function closeMark() {
+    if (savingMark) return;
+    setMarkOpen(false);
+    setMarkReason("");
+  }
+
+  async function onMark(event: FormEvent) {
+    event.preventDefault();
+    if (!user?.id || !markPerson || !markReason.trim()) {
+      toast("Person and reason are required", "info");
+      return;
+    }
+    const [kind, id] = markPerson.split(":");
+    const status = markStatus === "leave" ? "leave" : markStatus === "absent" ? "absent" : "present";
+    setSavingMark(true);
+    try {
+      if (kind === "staff") {
+        await markHrStaffAttendance(user.id, id, {
+          date: markDate,
+          status,
+          ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+          reason: markReason.trim(),
+        });
+      } else {
+        await overrideSalesAttendance({
+          userId: user.id,
+          salesId: id,
+          date: markDate,
+          status,
+          ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+          reason: markReason.trim(),
+        });
+      }
+      toast("Attendance saved", "success");
+      setMarkOpen(false);
+      setMarkReason("");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Attendance save failed", "error");
+    } finally {
+      setSavingMark(false);
+    }
+  }
 
   if (authLoading || !isSuperAdmin(user)) {
     return <LoadingState label="Checking access…" />;
@@ -186,11 +310,16 @@ export default function AdminAttendancePage() {
     <div>
       <PageHeader
         title="Attendance"
-        subtitle="Check-in and check-out for everyone listed in HR."
+        subtitle="Check-in, check-out, and manual attendance for everyone listed in HR."
         actions={
-          <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
-            Refresh
-          </SecondaryButton>
+          <div className="flex flex-wrap gap-2">
+            <SecondaryButton type="button" disabled={loading || people.length === 0} onClick={() => openMark()}>
+              Mark attendance
+            </SecondaryButton>
+            <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
+              Refresh
+            </SecondaryButton>
+          </div>
         }
       />
 
@@ -225,7 +354,19 @@ export default function AdminAttendancePage() {
         <div className="space-y-2">
           {cards.map((row) => (
             <Card key={row.key} className="p-4">
-              <p className="font-semibold text-slate-900">{row.name}</p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-semibold text-slate-900">{row.name}</p>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-brand-dark underline"
+                  onClick={() => {
+                    const person = people.find((item) => item.key === row.key || item.name === row.name);
+                    if (person) openMark(person);
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
               <p className="mt-1 text-xs text-slate-500">
                 {row.roleLabel}
                 {row.email ? ` · ${row.email}` : ""}
@@ -249,6 +390,29 @@ export default function AdminAttendancePage() {
           ))}
         </div>
       )}
+      <MarkAttendanceDialog
+        open={markOpen}
+        description="Record present, absent, or annual/sick leave for someone listed in HR."
+        people={markPeople}
+        person={markPerson}
+        date={markDate}
+        status={markStatus}
+        leaveType={markLeaveType}
+        reason={markReason}
+        saving={savingMark}
+        statusOptions={[
+          { value: "present", label: "Present" },
+          { value: "absent", label: "Absent" },
+          { value: "leave", label: "Leave" },
+        ]}
+        onClose={closeMark}
+        onPerson={setMarkPerson}
+        onDate={setMarkDate}
+        onStatus={setMarkStatus}
+        onLeaveType={setMarkLeaveType}
+        onReason={setMarkReason}
+        onSubmit={onMark}
+      />
     </div>
   );
 }

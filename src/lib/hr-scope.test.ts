@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   attendanceRecordUserId,
   addedHrStaffOnly,
+  hrPeopleMissingFromAttendance,
   isShmpAttendancePortalRole,
   isStlHrRole,
   presentRowVisibleToCaller,
@@ -31,6 +32,25 @@ describe("HR people filters", () => {
     assert.deepEqual(
       rows.map((row) => row.id),
       ["staff"],
+    );
+  });
+
+  it("adds HR people who are not already on the attendance list", () => {
+    const missing = hrPeopleMissingFromAttendance(
+      [
+        { id: "staff-supervisor", name: "Amina", linkedUserId: "user-1" },
+        { id: "staff-sales", name: "Ravi", linkedUserId: "user-2" },
+        { id: "staff-only", name: "Noor", linkedUserId: null },
+        { id: "staff-same-name", name: "Worker One", linkedUserId: null },
+      ],
+      [
+        { id: "user-1", name: "Amina" },
+        { id: "worker-1", name: "Worker One" },
+      ],
+    );
+    assert.deepEqual(
+      missing.map((row) => row.id),
+      ["staff-sales", "staff-only"],
     );
   });
 

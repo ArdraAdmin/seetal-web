@@ -35,6 +35,33 @@ export function stlAttendanceLoginId(row: StlHrRosterRow) {
   return String(row.id || "");
 }
 
+export type AttendanceListRef = {
+  id: string;
+  name?: string | null;
+  linkedUserId?: string | null;
+};
+
+/** HR people who are not already listed by login id, staff id, or name. */
+export function hrPeopleMissingFromAttendance<T extends AttendanceListRef>(
+  hrPeople: T[],
+  listed: Array<{ id?: string | null; name?: string | null }>,
+) {
+  const ids = new Set(
+    listed.map((row) => String(row.id || "")).filter(Boolean),
+  );
+  const names = new Set(
+    listed
+      .map((row) => (row.name || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return hrPeople.filter((person) => {
+    if (person.linkedUserId && ids.has(String(person.linkedUserId))) return false;
+    if (ids.has(person.id)) return false;
+    const name = (person.name || "").trim().toLowerCase();
+    return !name || !names.has(name);
+  });
+}
+
 /** Supervisors may see factory workers and other supervisors, not sales. */
 export function presentRowVisibleToSupervisor(row: {
   kind?: string | null;

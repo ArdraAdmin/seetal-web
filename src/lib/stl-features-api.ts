@@ -518,6 +518,45 @@ export async function getPayrollRegister(
   return request<PayrollRegister>(`/admin/payroll/register?${qs}`);
 }
 
+export type HrStaffAttendanceMark = {
+  staffId: string;
+  date: string;
+  status: "present" | "absent" | "leave" | string;
+  leaveType?: string | null;
+  reason?: string;
+};
+
+export async function getHrStaffAttendance(
+  userId: string,
+  scope: "stl" | "shmp",
+  from: string,
+  to: string,
+) {
+  const qs = new URLSearchParams({ userId, scope, from, to });
+  return request<{ marks: HrStaffAttendanceMark[] }>(
+    `/admin/hr/staff-attendance?${qs}`,
+  );
+}
+
+export async function markHrStaffAttendance(
+  adminUserId: string,
+  staffId: string,
+  payload: {
+    date: string;
+    status: "present" | "absent" | "leave";
+    leaveType?: "annual" | "sick";
+    reason: string;
+  },
+) {
+  return request<HrStaffAttendanceMark>(
+    `/admin/hr/staff/${encodeURIComponent(staffId)}/attendance`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: adminUserId, ...payload }),
+    },
+  );
+}
+
 export async function getModuleAccessMe(userId: string) {
   return request<{
     modules: string[];
@@ -557,7 +596,8 @@ export async function overrideSalesAttendance(payload: {
   userId: string;
   salesId: string;
   date: string;
-  status: "present" | "absent";
+  status: "present" | "absent" | "leave";
+  leaveType?: "annual" | "sick";
   reason?: string;
   companyId?: string;
 }) {
