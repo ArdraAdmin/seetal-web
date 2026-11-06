@@ -33,6 +33,7 @@ import {
   storeDocumentError,
   tradeLicenseDateInput,
 } from "@/lib/store-documents";
+import { storeEidRequiredError } from "@/lib/store-eid";
 
 type StoreForm = {
   storeName: string;
@@ -46,12 +47,18 @@ type StoreForm = {
   country: string;
   uid: string;
   tradeLicenseExpiry: string;
+  eidNumber: string;
   salesPersonIds: string[];
   trnDocument: File | null;
   tradeLicenseDocument: File | null;
+  eidDocument: File | null;
   existingTrnUrl?: string;
   existingTradeLicenseUrl?: string;
+  existingEidUrl?: string;
+  existingEidFile?: boolean;
 };
+
+type StoreFileKey = "trnDocument" | "tradeLicenseDocument" | "eidDocument";
 
 const EMPTY_FORM: StoreForm = {
   storeName: "",
@@ -65,9 +72,11 @@ const EMPTY_FORM: StoreForm = {
   country: "",
   uid: "",
   tradeLicenseExpiry: "",
+  eidNumber: "",
   salesPersonIds: [],
   trnDocument: null,
   tradeLicenseDocument: null,
+  eidDocument: null,
 };
 
 function text(value: unknown) {
@@ -94,6 +103,11 @@ function salesIdsFromStore(store: ShmpStore): string[] {
   return primary ? [primary] : [];
 }
 
+function eidDraft(file: File | null) {
+  if (!(file instanceof File)) return null;
+  return { name: file.name, type: file.type, size: file.size };
+}
+
 function tradeLicensePayload(value: string) {
   const day = tradeLicenseDateInput(value);
   return day || undefined;
@@ -112,11 +126,17 @@ function formFrom(store: ShmpStore): StoreForm {
     country: text(store.country),
     uid: text(store.uid),
     tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
+    eidNumber: text(store.eidNumber),
     salesPersonIds: salesIdsFromStore(store),
     trnDocument: null,
     tradeLicenseDocument: null,
+    eidDocument: null,
     existingTrnUrl: store.trnDocumentUrl,
     existingTradeLicenseUrl: store.tradeLicenseDocumentUrl,
+    existingEidUrl: store.eidDocumentUrl,
+    existingEidFile: Boolean(
+      text(store.eidDocumentFileName) || text(store.eidDocumentUrl),
+    ),
   };
 }
 
@@ -288,7 +308,7 @@ function StoreFields({
 }: {
   form: StoreForm;
   setField: (key: keyof StoreForm, value: string) => void;
-  setFile: (key: "trnDocument" | "tradeLicenseDocument", file: File | null) => void;
+  setFile: (key: StoreFileKey, file: File | null) => void;
   setSalesPersonIds: (ids: string[]) => void;
   salesPeople: ShmpStorePerson[];
   mode: "create" | "edit";
@@ -297,6 +317,8 @@ function StoreFields({
     mode === "create" || !String(form.existingTrnUrl ?? "").trim();
   const requireLicenseDoc =
     mode === "create" || !String(form.existingTradeLicenseUrl ?? "").trim();
+  const requireEidDoc =
+    mode === "create" || !(form.existingEidUrl || form.existingEidFile);
   return (
     <>
       <TextField
@@ -371,6 +393,20 @@ function StoreFields({
         hint="PDF or image · stored in S3"
         onChange={(file) => setFile("tradeLicenseDocument", file)}
       />
+      <TextField
+        label="EID number"
+        required
+        value={form.eidNumber}
+        onChange={(e) => setField("eidNumber", e.target.value)}
+      />
+      <StoreDocumentField
+        label="EID document"
+        required={requireEidDoc}
+        file={form.eidDocument}
+        existingUrl={form.existingEidUrl}
+        hint="PDF or image · stored in S3"
+        onChange={(file) => setFile("eidDocument", file)}
+      />
       <SalesmenPicker
         form={form}
         salesPeople={salesPeople}
@@ -410,6 +446,15 @@ function validateForm(
     toast(documentError, "info");
     return false;
   }
+  const eidError = storeEidRequiredError({
+    eidNumber: form.eidNumber,
+    file: eidDraft(form.eidDocument),
+    hasExistingDocument: mode === "edit" && Boolean(form.existingEidUrl || form.existingEidFile),
+  });
+  if (eidError) {
+    toast(eidError, "info");
+    return false;
+  }
   if (form.salesPersonIds.length === 0) {
     toast("Assign at least one salesman", "info");
     return false;
@@ -433,12 +478,18 @@ function payloadFromForm(form: StoreForm) {
     salesPerson: form.salesPersonIds[0],
     location: "—",
     tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
+    eidNumber: form.eidNumber.trim(),
   };
-  if (form.trnDocument instanceof File || form.tradeLicenseDocument instanceof File) {
+  if (
+    form.trnDocument instanceof File ||
+    form.tradeLicenseDocument instanceof File ||
+    form.eidDocument instanceof File
+  ) {
     return {
       ...base,
       trnDocument: form.trnDocument,
       tradeLicenseDocument: form.tradeLicenseDocument,
+      eidDocument: form.eidDocument,
     };
   }
   return base;
@@ -493,6 +544,7 @@ export default function ShmpStoresPage() {
         store.city,
         store.contactNumber,
         store.uid,
+        store.eidNumber,
         names,
       ]
         .map((part) => text(part).toLowerCase())
@@ -505,10 +557,7 @@ export default function ShmpStoresPage() {
     setAddForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function setAddFile(
-    key: "trnDocument" | "tradeLicenseDocument",
-    file: File | null,
-  ) {
+  function setAddFile(key: StoreFileKey, file: File | null) {
     setAddForm((prev) => ({ ...prev, [key]: file }));
   }
 
@@ -676,10 +725,7 @@ function StoreCard({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function setFile(
-    key: "trnDocument" | "tradeLicenseDocument",
-    file: File | null,
-  ) {
+  function setFile(key: StoreFileKey, file: File | null) {
     setForm((prev) => ({ ...prev, [key]: file }));
   }
 
@@ -770,6 +816,20 @@ function StoreCard({
             ) : (
               "—"
             )}
+            {text(store.eidNumber) ? ` · EID: ${text(store.eidNumber)}` : ""}
+            {text(store.eidDocumentUrl) ? (
+              <>
+                {" · EID doc: "}
+                <a
+                  href={text(store.eidDocumentUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-brand-dark underline"
+                >
+                  View
+                </a>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex flex-col items-start gap-2">
@@ -833,6 +893,8 @@ function StoreCard({
               label: "Trade license expiry",
               value: formatTradeLicenseDate(store.tradeLicenseExpiry) || "—",
             },
+            { label: "EID number", value: text(store.eidNumber) || "—" },
+            { label: "EID document", value: docLink(store.eidDocumentUrl) },
             { label: "TRN document", value: docLink(store.trnDocumentUrl) },
             {
               label: "Trade license document",

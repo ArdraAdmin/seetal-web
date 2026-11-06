@@ -513,6 +513,10 @@ export type ShmpStore = {
   tradeLicenseDocumentKey?: string;
   trnDocumentUrl?: string;
   tradeLicenseDocumentUrl?: string;
+  eidNumber?: string;
+  eidDocumentKey?: string;
+  eidDocumentFileName?: string;
+  eidDocumentUrl?: string;
   salesPerson?: string | ShmpStorePerson;
   salesPersons?: Array<string | ShmpStorePerson>;
   orderBlocked?: boolean;
@@ -535,8 +539,10 @@ export type ShmpStoreWriteInput = {
   salesPerson?: string;
   location?: string;
   tradeLicenseExpiry?: string;
+  eidNumber?: string;
   trnDocument?: File | null;
   tradeLicenseDocument?: File | null;
+  eidDocument?: File | null;
 };
 
 function appendStoreFormData(body: ShmpStoreWriteInput) {
@@ -555,6 +561,7 @@ function appendStoreFormData(body: ShmpStoreWriteInput) {
     "trnNo",
     "location",
     "tradeLicenseExpiry",
+    "eidNumber",
     "salesPerson",
   ];
   for (const key of scalarKeys) {
@@ -567,6 +574,7 @@ function appendStoreFormData(body: ShmpStoreWriteInput) {
   if (body.tradeLicenseDocument) {
     fd.append("tradeLicenseDocument", body.tradeLicenseDocument);
   }
+  if (body.eidDocument) fd.append("eidDocument", body.eidDocument);
   return fd;
 }
 
@@ -579,7 +587,7 @@ export const shmpStoreSalesmen = () =>
 
 export const shmpStoreDocumentUrl = (
   id: string,
-  kind: "trn" | "tradeLicense",
+  kind: "trn" | "tradeLicense" | "eid",
 ) =>
   shmpRequest<{ kind: string; key: string; url: string }>(
     `/stores/${id}/documents/${kind}`,
@@ -615,7 +623,8 @@ function storeBodyHasFiles(body: unknown): body is ShmpStoreWriteInput {
   const row = body as ShmpStoreWriteInput;
   return (
     row.trnDocument instanceof File ||
-    row.tradeLicenseDocument instanceof File
+    row.tradeLicenseDocument instanceof File ||
+    row.eidDocument instanceof File
   );
 }
 
