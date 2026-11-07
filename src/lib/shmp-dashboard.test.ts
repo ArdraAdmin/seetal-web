@@ -6,6 +6,7 @@ import {
   parseHrDayFilter,
   shmpSalesCategoryRows,
   shmpSalesTotal,
+  shmpStockSnapshot,
 } from "./shmp-dashboard.ts";
 
 describe("parseHrDayFilter", () => {
@@ -63,5 +64,29 @@ describe("shmpSalesCategoryRows", () => {
   it("does not fall back to empty or missing category rows", () => {
     assert.deepEqual(shmpSalesCategoryRows(undefined, true), []);
     assert.deepEqual(shmpSalesCategoryRows([], true), []);
+  });
+});
+
+describe("shmpStockSnapshot", () => {
+  it("returns an empty snapshot for no products", () => {
+    assert.deepEqual(shmpStockSnapshot([]), { skus: 0, value: 0 });
+  });
+
+  it("values own stock as price times cartons and loose units", () => {
+    assert.deepEqual(
+      shmpStockSnapshot([
+        {
+          sellingPrice: 12.5,
+          ratio: 4,
+          inQty: { amountInCartons: 2, amountInUnits: 3 },
+        },
+        {
+          sellingPrice: 8,
+          ratio: 0,
+          inQty: { amountInCartons: 1, amountInUnits: 0 },
+        },
+      ]),
+      { skus: 2, value: 12.5 * (2 * 4 + 3) + 8 },
+    );
   });
 });

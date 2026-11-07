@@ -23,11 +23,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { ExpiryAlertDialog } from "@/components/ExpiryAlertDialog";
-import { CompanySwitcher } from "@/components/StlFeatureUi";
 import { ErrorState, SecondaryButton } from "@/components/ui";
 import { portalFieldVisible } from "@/lib/custom-users";
 import type { DashboardStats } from "@/lib/api";
 import {
+  dashboardCardsForSide,
+  dashboardInventoryHref,
+  dashboardStoresHref,
   monthlySalesHref,
   salesmanBreakdownHref,
   stlDashboardUsers,
@@ -83,8 +85,8 @@ function monthLabel(month: number, year: number) {
 
 export function KpiDashboard({
   dubai,
-  companyKey,
-  onCompanyKey,
+  side = "stl",
+  showHeader = true,
   loading,
   onRefresh,
   kpi,
@@ -93,12 +95,17 @@ export function KpiDashboard({
   stats,
   statsError,
   onRetryStats,
-  mulkyaAlerts,
-  mulkyaLoading,
+  mulkyaAlerts = [],
+  mulkyaLoading = false,
+  afterPerformance,
+  insightExtra,
+  inventoryValue,
+  storeCount,
+  skuCount,
 }: {
-  dubai: { date: string; time: string };
-  companyKey: CompanyKey;
-  onCompanyKey: (key: CompanyKey) => void;
+  dubai?: { date: string; time: string };
+  side?: CompanyKey;
+  showHeader?: boolean;
   loading: boolean;
   onRefresh: () => void;
   kpi: AdminKpiDashboard | null;
@@ -107,12 +114,27 @@ export function KpiDashboard({
   stats: Partial<DashboardStats>;
   statsError: string | null;
   onRetryStats: () => void;
-  mulkyaAlerts: ExpiryAlertRow[];
-  mulkyaLoading: boolean;
+  mulkyaAlerts?: ExpiryAlertRow[];
+  mulkyaLoading?: boolean;
+  afterPerformance?: ReactNode;
+  insightExtra?: ReactNode;
+  /** null means the figure could not be loaded. Omit to use the KPI payload. */
+  inventoryValue?: number | null;
+  storeCount?: number | null;
+  skuCount?: number | null;
 }) {
+  const companyKey: CompanyKey = side;
+  const cards = dashboardCardsForSide(side);
+  const inventoryHref = dashboardInventoryHref(side);
+  const storesHref = dashboardStoresHref(side);
   const { user } = useAuth();
   const show = (fieldId: string) =>
-    portalFieldVisible(user?.customAccess, "selling", "dashboard", fieldId);
+    portalFieldVisible(
+      user?.customAccess,
+      side === "shmp" ? "shmp" : "selling",
+      "dashboard",
+      fieldId,
+    );
   const [openAlert, setOpenAlert] = useState<
     "mulkya" | "visa" | "passport" | "eid" | "insurance" | "sharjah" | null
   >(null);
@@ -155,7 +177,14 @@ export function KpiDashboard({
     [kpi],
   );
   const thisMonth = month ? moneyLines(month.current.total) : null;
-  const inventory = kpi ? moneyLines(kpi.inventoryValue) : null;
+  const inventoryAmount =
+    inventoryValue === undefined ? kpi?.inventoryValue : inventoryValue;
+  const inventory =
+    inventoryAmount != null && Number.isFinite(inventoryAmount)
+      ? moneyLines(inventoryAmount)
+      : null;
+  const storeTotal = storeCount === undefined ? stats.totalStores : storeCount;
+  const skuTotal = skuCount === undefined ? stats.totalInventory : skuCount;
   const lost = kpi ? moneyLines(kpi.salesLost.totalLost) : null;
   const salesmanHint = kpi?.topSalesman
     ? `${compactMoney(kpi.topSalesman.delivered)}${
@@ -169,13 +198,39 @@ export function KpiDashboard({
     ? salesmanBreakdownHref(String(kpi.topSalesman.salesId), companyKey)
     : undefined;
 
+  const showThisMonth = cards.thisMonth && show("this-month");
+  const showInventoryValue = cards.inventoryValue && show("inventory-value");
+  const showTopSalesman = cards.topSalesman && show("top-salesman");
+  const showSalesLost = cards.salesLost && show("sales-lost");
+  const showUsers = cards.users && show("users");
+  const showStores = cards.stores && show("stores");
+  const showWarehouseUsers = cards.warehouseUsers && show("warehouse-users");
+  const showInventorySkus = cards.inventorySkus && show("inventory-skus");
+  const showMonthlySales = cards.monthlySales && show("monthly-sales");
+  const showUserMix = cards.userMix && show("user-mix");
+  const showTopProducts = cards.topProducts && show("top-products");
+  const showSalesBySalesman = cards.salesBySalesman && show("sales-by-salesman");
+  const showAttention =
+    cards.attention &&
+    (show("mulkiya") ||
+      show("visa") ||
+      show("passport") ||
+      show("eid") ||
+      show("insurance") ||
+      show("sharjah") ||
+      show("trade-license") ||
+      show("pending-approvals"));
+  const kpiMissing = Boolean(kpiError && !kpi);
+
   return (
     <div className="space-y-8">
+      {showHeader ? (
       <header className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-ink">
             KPI dashboard
           </h1>
+          {dubai ? (
           <p className="mt-1 text-sm text-slate-500">
             <span className="font-medium text-ink">{dubai.date}</span>
             <span className="mx-1.5 text-slate-400">·</span>
@@ -183,12 +238,9 @@ export function KpiDashboard({
             <span className="mx-1.5 text-slate-400">·</span>
             Dubai time
           </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <CompanySwitcher
-            value={companyKey}
-            onChange={(key) => key !== "all" && onCompanyKey(key)}
-          />
           <SecondaryButton
             type="button"
             disabled={loading}
@@ -203,23 +255,26 @@ export function KpiDashboard({
           </SecondaryButton>
         </div>
       </header>
+      ) : null}
 
       {kpiError && !kpi ? (
         <ErrorState message={kpiError} onRetry={onRetryKpi} />
       ) : null}
 
-      {show("this-month") ||
-      show("inventory-value") ||
-      show("top-salesman") ||
-      show("sales-lost") ? (
+      {!kpiMissing &&
+      (showThisMonth || showInventoryValue || showTopSalesman || showSalesLost) ? (
       <section className="space-y-3">
         <SectionLabel>Performance</SectionLabel>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div
+          className={`grid gap-4 sm:grid-cols-2 ${
+            showSalesLost ? "xl:grid-cols-4" : "xl:grid-cols-3"
+          }`}
+        >
           {kpi && thisMonth && month ? (
             <>
-              {show("this-month") ? (
+              {showThisMonth ? (
               <HeroCard
-                label="This month"
+                label={side === "shmp" ? "Sales this month" : "This month"}
                 icon={TrendingUp}
                 value={thisMonth.compact}
                 detail={thisMonth.abbreviated ? thisMonth.full : undefined}
@@ -237,16 +292,27 @@ export function KpiDashboard({
                 </p>
               </HeroCard>
               ) : null}
-              {show("inventory-value") ? (
+              {showInventoryValue ? (
+                inventory ? (
               <HeroCard
                 label="Inventory value"
                 icon={Warehouse}
-                value={inventory?.compact ?? "—"}
-                detail={inventory?.abbreviated ? inventory.full : undefined}
-                href="/admin/inventory"
+                value={inventory.compact}
+                detail={inventory.abbreviated ? inventory.full : undefined}
+                href={inventoryHref}
               />
+                ) : loading ? (
+                  <HeroSkeleton />
+                ) : (
+              <HeroCard
+                label="Inventory value"
+                icon={Warehouse}
+                value="—"
+                href={inventoryHref}
+              />
+                )
               ) : null}
-              {show("top-salesman") ? (
+              {showTopSalesman ? (
               <HeroCard
                 label="Top salesman"
                 icon={Trophy}
@@ -264,7 +330,7 @@ export function KpiDashboard({
                 ) : null}
               </HeroCard>
               ) : null}
-              {show("sales-lost") ? (
+              {showSalesLost ? (
               <HeroCard
                 label="Sales lost"
                 icon={PackageX}
@@ -281,24 +347,19 @@ export function KpiDashboard({
             </>
           ) : (
             <>
-              {show("this-month") ? <HeroSkeleton /> : null}
-              {show("inventory-value") ? <HeroSkeleton /> : null}
-              {show("top-salesman") ? <HeroSkeleton /> : null}
-              {show("sales-lost") ? <HeroSkeleton /> : null}
+              {showThisMonth ? <HeroSkeleton /> : null}
+              {showInventoryValue ? <HeroSkeleton /> : null}
+              {showTopSalesman ? <HeroSkeleton /> : null}
+              {showSalesLost ? <HeroSkeleton /> : null}
             </>
           )}
         </div>
       </section>
       ) : null}
 
-      {show("mulkiya") ||
-      show("visa") ||
-      show("passport") ||
-      show("eid") ||
-      show("insurance") ||
-      show("sharjah") ||
-      show("trade-license") ||
-      show("pending-approvals") ? (
+      {afterPerformance}
+
+      {showAttention ? (
       <section className="space-y-3">
         <SectionLabel>Needs attention</SectionLabel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -423,11 +484,12 @@ export function KpiDashboard({
         <ErrorState message={statsError} onRetry={onRetryStats} />
       ) : null}
 
-      {show("users") || show("stores") || show("warehouse-users") || show("inventory-skus") ? (
+      {(!kpiMissing || storeCount !== undefined || skuCount !== undefined) &&
+      (showUsers || showStores || showWarehouseUsers || showInventorySkus) ? (
       <section className="space-y-3">
         <SectionLabel>Operations</SectionLabel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {show("users") ? (
+          {showUsers ? (
           <CountCard
             label="Users"
             icon={Users}
@@ -443,19 +505,21 @@ export function KpiDashboard({
             ) : null}
           </CountCard>
           ) : null}
-          {show("stores") ? (
+          {showStores ? (
           <CountCard
-            label="Stores"
+            label={side === "shmp" ? "Total stores" : "Stores"}
             icon={Store}
             value={
-              stats.totalStores != null
-                ? formatCount(stats.totalStores)
-                : undefined
+              storeTotal == null
+                ? loading
+                  ? undefined
+                  : "—"
+                : formatCount(storeTotal)
             }
-            href="/admin/stores"
+            href={storesHref}
           />
           ) : null}
-          {show("warehouse-users") ? (
+          {showWarehouseUsers ? (
           <CountCard
             label="Warehouse users"
             icon={UserCog}
@@ -469,31 +533,35 @@ export function KpiDashboard({
             href={user?.customAccess ? undefined : "/admin/users?group=warehouse"}
           />
           ) : null}
-          {show("inventory-skus") ? (
+          {showInventorySkus ? (
           <CountCard
             label="Inventory SKUs"
             icon={Package}
             value={
-              stats.totalInventory != null
-                ? formatCount(stats.totalInventory)
-                : undefined
+              skuTotal == null
+                ? loading
+                  ? undefined
+                  : "—"
+                : formatCount(skuTotal)
             }
-            href="/admin/inventory"
+            href={inventoryHref}
           />
           ) : null}
         </div>
       </section>
       ) : null}
 
-      {show("monthly-sales") ||
-      show("user-mix") ||
-      show("top-products") ||
-      show("sales-by-salesman") ? (
+      {(showMonthlySales ||
+        showUserMix ||
+        showTopProducts ||
+        showSalesBySalesman ||
+        insightExtra) &&
+      (!kpiMissing || insightExtra) ? (
       <section className="space-y-3">
         <SectionLabel>Insights</SectionLabel>
         {kpi ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            {show("monthly-sales") ? (
+            {showMonthlySales ? (
             <Panel title="Monthly sales" href={monthHref}>
               {month ? (
                 <ul className="mt-5 space-y-4">
@@ -514,7 +582,7 @@ export function KpiDashboard({
               )}
             </Panel>
             ) : null}
-            {show("user-mix") ? (
+            {showUserMix ? (
             <Panel title="User mix">
               {users && users.total > 0 ? (
                 <UserMix users={users} />
@@ -523,7 +591,7 @@ export function KpiDashboard({
               )}
             </Panel>
             ) : null}
-            {show("top-products") ? (
+            {showTopProducts ? (
             <Panel title="Top products">
               {kpi.topProducts.length === 0 ? (
                 <EmptyNote>No product sales this month.</EmptyNote>
@@ -543,7 +611,7 @@ export function KpiDashboard({
               )}
             </Panel>
             ) : null}
-            {show("sales-by-salesman") ? (
+            {showSalesBySalesman ? (
             <Panel title="Sales by salesman">
               {kpi.salesmanGraph.length === 0 ? (
                 <EmptyNote>No salesman totals this month.</EmptyNote>
@@ -582,13 +650,17 @@ export function KpiDashboard({
               )}
             </Panel>
             ) : null}
+            {insightExtra}
           </div>
+        ) : kpiMissing ? (
+          <div className="grid gap-4 lg:grid-cols-2">{insightExtra}</div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {show("monthly-sales") ? <PanelSkeleton /> : null}
-            {show("user-mix") ? <PanelSkeleton /> : null}
-            {show("top-products") ? <PanelSkeleton /> : null}
-            {show("sales-by-salesman") ? <PanelSkeleton /> : null}
+            {showMonthlySales ? <PanelSkeleton /> : null}
+            {showUserMix ? <PanelSkeleton /> : null}
+            {showTopProducts ? <PanelSkeleton /> : null}
+            {showSalesBySalesman ? <PanelSkeleton /> : null}
+            {insightExtra}
           </div>
         )}
       </section>

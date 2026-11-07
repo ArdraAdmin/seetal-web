@@ -9,6 +9,11 @@ import { canAccessEnvironment, isSuperAdmin } from "@/lib/auth";
 import { normalizeEnvironments } from "@/lib/environment";
 import type { AppEnvironment } from "@/lib/types";
 
+const ENVIRONMENT_NAMES: Record<AppEnvironment, string> = {
+  stl: "Seetal",
+  shmp: "SH Milly Pack",
+};
+
 export default function SelectEnvironmentPage() {
   const { user, loading, selectEnvironment } = useAuth();
   const router = useRouter();
@@ -38,7 +43,7 @@ export default function SelectEnvironmentPage() {
   function onSelect(env: AppEnvironment) {
     if (!user || busy) return;
     if (!canAccessEnvironment(user, env)) {
-      setError(`Your account cannot open ${env.toUpperCase()}.`);
+      setError(`Your account cannot open ${ENVIRONMENT_NAMES[env]}.`);
       return;
     }
     setBusy(env);
@@ -65,14 +70,14 @@ export default function SelectEnvironmentPage() {
         <BrandLogo size="sm" />
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-dark">
-            Seetal / Shamk
+            Seetal / SH Milly Pack
           </p>
           <h1 className="text-2xl font-bold text-ink">Select environment</h1>
         </div>
       </div>
       <p className="max-w-xl text-sm text-slate-600">
-        Signed in as {user.name}. Choose STL for selling operations or SHMP for
-        manufacturing.
+        Signed in as {user.name}. Choose Seetal for selling operations or SH
+        Milly Pack for manufacturing.
       </p>
       {error ? (
         <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -82,7 +87,7 @@ export default function SelectEnvironmentPage() {
       <div className="mt-10 grid flex-1 content-center gap-4 sm:grid-cols-2">
         {canAccessEnvironment(user, "stl") ? (
           <EnvCard
-            title="STL"
+            title={ENVIRONMENT_NAMES.stl}
             subtitle="Selling side"
             icon={Building2}
             loading={busy === "stl"}
@@ -92,7 +97,7 @@ export default function SelectEnvironmentPage() {
         ) : null}
         {canAccessEnvironment(user, "shmp") ? (
           <EnvCard
-            title="SHMP"
+            title={ENVIRONMENT_NAMES.shmp}
             subtitle="Manufacturing"
             icon={Factory}
             loading={busy === "shmp"}

@@ -1,6 +1,7 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 import type { ShmpProductionLog } from "./shmp-production";
+import type { ProductArtworkFile } from "./types";
 
 export type { ShmpProductionLog };
 
@@ -698,6 +699,7 @@ export type ShmpInventoryProduct = {
   company?: string | { _id?: string; name?: string; prefix?: string };
   imagePath?: string | string[];
   imageCount?: number;
+  artwork?: ProductArtworkFile[];
   inQty?: { amountInCartons?: number; amountInUnits?: number };
   storeProfileList?: ShmpStoreProfile[];
   source?: string;

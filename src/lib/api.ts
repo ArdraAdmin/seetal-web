@@ -11,6 +11,7 @@ import type {
   PdcRecord,
   PendingOrder,
   Product,
+  ProductArtworkFile,
   ProfileUser,
   StoreProfile,
   Vehicle,
@@ -25,6 +26,7 @@ import type {
   SalesCartLine,
 } from "./types";
 import { isObjectId } from "./approval";
+import { normalizeArtwork } from "./product-artwork";
 import { asProductList, asStoreList, cartTotals, cartUnitPriceEdited, lineAggregate } from "./sales";
 import { companyIds, salesField } from "./profiles";
 import {
@@ -1396,6 +1398,33 @@ export function deleteProductImage(productId: string, index: number) {
     method: "POST",
     body: JSON.stringify({ productId, index }),
   });
+}
+
+export type ProductArtworkUploadResult = {
+  artwork: ProductArtworkFile[];
+};
+
+function asArtworkResult(data: unknown): ProductArtworkUploadResult {
+  const record = data && typeof data === "object" ? (data as { artwork?: unknown }) : {};
+  return { artwork: normalizeArtwork(record.artwork) };
+}
+
+export async function uploadProductArtwork(productId: string, file: File) {
+  const body = new FormData();
+  body.append("productId", productId);
+  body.append("artwork", file, file.name);
+  return asArtworkResult(
+    await request<unknown>("/admin/product/artwork", { method: "POST", body }),
+  );
+}
+
+export async function deleteProductArtwork(productId: string, index: number) {
+  return asArtworkResult(
+    await request<unknown>("/admin/product/artwork/delete", {
+      method: "POST",
+      body: JSON.stringify({ productId, index }),
+    }),
+  );
 }
 
 export function createdProductId(data: unknown): string {

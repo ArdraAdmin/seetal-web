@@ -10,13 +10,11 @@ import { opsStatsFromDashboard } from "@/lib/admin-kpi";
 import {
   getAdminKpiDashboard,
   type AdminKpiDashboard,
-  type CompanyKey,
 } from "@/lib/stl-features-api";
 
 export default function AdminDashboardPage() {
   const { user } = useAuth();
   const dubai = useDubaiNow();
-  const [companyKey, setCompanyKey] = useState<CompanyKey>("stl");
   const [kpi, setKpi] = useState<AdminKpiDashboard | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [kpiError, setKpiError] = useState<string | null>(null);
@@ -32,7 +30,7 @@ export default function AdminDashboardPage() {
 
     void (async () => {
       try {
-        const data = await getAdminKpiDashboard(userId, { companyKey });
+        const data = await getAdminKpiDashboard(userId, { companyKey: "stl" });
         if (cancelled) return;
         setKpi(data);
         setKpiError(null);
@@ -47,7 +45,7 @@ export default function AdminDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, companyKey, kpiEpoch]);
+  }, [user, kpiEpoch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,11 +70,6 @@ export default function AdminDashboardPage() {
   return (
     <KpiDashboard
       dubai={dubai}
-      companyKey={companyKey}
-      onCompanyKey={(key) => {
-        setCompanyKey(key);
-        setKpiLoading(true);
-      }}
       loading={kpiLoading}
       onRefresh={() => {
         setKpiLoading(true);

@@ -12,6 +12,7 @@ import {
 import {
   getCategories,
   getCompanies,
+  uploadProductArtwork,
   uploadProductImage,
   type CompanyRecord,
 } from "@/lib/api";
@@ -31,6 +32,7 @@ import {
   type ShmpInventoryProduct,
   type ShmpStore,
 } from "@/lib/shmp-api";
+import { ProductArtworkField } from "@/components/ProductArtwork";
 import { ProductImageField, ProductThumb } from "@/components/ProductImage";
 import { useToast } from "@/components/Toast";
 import {
@@ -78,6 +80,7 @@ export default function ShmpInventoryPage() {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [pendingArtwork, setPendingArtwork] = useState<File[]>([]);
 
   const loadMeta = useCallback(async () => {
     setLoadingCategories(true);
@@ -199,8 +202,26 @@ export default function ShmpInventoryPage() {
           );
         }
       }
+      if (pendingArtwork.length > 0 && created?._id) {
+        try {
+          let savedArtwork = created.artwork;
+          for (const file of pendingArtwork) {
+            const saved = await uploadProductArtwork(created._id, file);
+            savedArtwork = saved.artwork;
+          }
+          created.artwork = savedArtwork;
+        } catch (artworkError) {
+          toast(
+            artworkError instanceof Error
+              ? `Product saved, but the artwork upload failed: ${artworkError.message}`
+              : "Product saved, but the artwork upload failed",
+            "error",
+          );
+        }
+      }
       toast("Product created", "success");
       setPendingImages([]);
+      setPendingArtwork([]);
       setAddForm(blankForm(shmpCompanyId));
       setAdding(false);
       await load();
@@ -245,6 +266,8 @@ export default function ShmpInventoryPage() {
               type="button"
               onClick={() => {
                 setAdding((open) => {
+                  setPendingImages([]);
+                  setPendingArtwork([]);
                   if (!open) setAddForm(blankForm(shmpCompanyId));
                   return !open;
                 });
@@ -280,6 +303,7 @@ export default function ShmpInventoryPage() {
               itemName={addForm.itemName}
               onPendingFiles={setPendingImages}
             />
+            <ProductArtworkField onPendingFiles={setPendingArtwork} />
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="submit" disabled={creating}>
                 {creating ? "Creating…" : "Create product"}
@@ -290,6 +314,7 @@ export default function ShmpInventoryPage() {
                 onClick={() => {
                   setAddForm(blankForm(shmpCompanyId));
                   setPendingImages([]);
+                  setPendingArtwork([]);
                   setAdding(false);
                 }}
               >

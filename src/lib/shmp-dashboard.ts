@@ -60,3 +60,27 @@ export function shmpSalesCategoryRows(
 export function shmpSalesTotal(rows: SalesCategorySlice[]): number {
   return rows.reduce((sum, row) => sum + row.value, 0);
 }
+
+export type ShmpStockProduct = {
+  _id?: string;
+  productId?: string;
+  source?: unknown;
+  ownInventory?: unknown;
+  sellingPrice?: number;
+  ratio?: number;
+  inQty?: { amountInCartons?: number; amountInUnits?: number };
+};
+
+/** SKU count and stock value. Pass SHMP production products only. */
+export function shmpStockSnapshot(products: ShmpStockProduct[]) {
+  let value = 0;
+  for (const product of products) {
+    const price = Number(product.sellingPrice) || 0;
+    const ratio = Number(product.ratio);
+    const piecesPerCarton = ratio > 0 ? ratio : 1;
+    const cartons = Number(product.inQty?.amountInCartons) || 0;
+    const loose = Number(product.inQty?.amountInUnits) || 0;
+    value += price * (cartons * piecesPerCarton + loose);
+  }
+  return { skus: products.length, value };
+}

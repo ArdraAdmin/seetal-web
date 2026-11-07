@@ -9,7 +9,9 @@ import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import { productImageUrls } from "@/lib/product-image";
+import { ProductArtworkGallery } from "@/components/ProductArtwork";
 import { ProductImageGallery } from "@/components/ProductImage";
+import { normalizeArtwork } from "@/lib/product-artwork";
 import {
   Card,
   ErrorState,
@@ -91,6 +93,7 @@ export default function InventoryItemPage() {
   }, [id, applyProduct, applyError]);
 
   const imageCount = product ? productImageUrls(product.imagePath).length : 0;
+  const artworkCount = product ? normalizeArtwork(product.artwork).length : 0;
 
   return (
     <div>
@@ -98,7 +101,7 @@ export default function InventoryItemPage() {
         title={product?.itemName || "Inventory item"}
         subtitle={
           product
-            ? `Ref ${product.itemRef || "—"} · ${imageCount} image${imageCount === 1 ? "" : "s"}`
+            ? `Ref ${product.itemRef || "—"} · ${imageCount} image${imageCount === 1 ? "" : "s"} · ${artworkCount} artwork file${artworkCount === 1 ? "" : "s"}`
             : "Product details"
         }
         actions={
@@ -146,6 +149,14 @@ export default function InventoryItemPage() {
               name={product.itemName || "Product"}
               imagePath={product.imagePath}
             />
+          </Card>
+          <Card>
+            <h2 className="mb-1 text-sm font-semibold text-ink">Artwork</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Design files for this product. These stay separate from the
+              catalog photos. Open Edit to add or remove artwork.
+            </p>
+            <ProductArtworkGallery artwork={product.artwork} />
           </Card>
           <Card>
             <h2 className="mb-4 text-sm font-semibold text-ink">

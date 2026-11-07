@@ -16,6 +16,10 @@ import {
   getCompanies,
   type CompanyRecord,
 } from "@/lib/api";
+import {
+  ProductArtworkField,
+  ProductArtworkGallery,
+} from "@/components/ProductArtwork";
 import { ProductImageField, ProductImageGallery } from "@/components/ProductImage";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useAuth } from "@/components/AuthProvider";
@@ -250,6 +254,15 @@ function InventoryItemDetail() {
                 )
               }
             />
+            <ProductArtworkField
+              artwork={product.artwork}
+              productId={product._id}
+              onChange={(artwork) =>
+                setProduct((current) =>
+                  current ? { ...current, artwork } : current,
+                )
+              }
+            />
             <ProductFields
               form={editForm}
               setForm={(next: SetStateAction<ProductFormState>) => {
@@ -290,6 +303,14 @@ function InventoryItemDetail() {
               name={product.itemName || "Product"}
               imagePath={product.imagePath}
             />
+          </Card>
+          <Card>
+            <h2 className="mb-1 text-sm font-semibold text-ink">Artwork</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Design files for this product. These stay separate from the
+              catalog photos. Open Edit to add or remove artwork.
+            </p>
+            <ProductArtworkGallery artwork={product.artwork} />
           </Card>
           <Card>
             <h2 className="mb-4 text-sm font-semibold text-ink">

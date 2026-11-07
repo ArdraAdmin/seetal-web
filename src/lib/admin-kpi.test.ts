@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  dashboardCardsForSide,
+  dashboardInventoryHref,
+  dashboardStoresHref,
   monthlySalesHref,
   opsStatsFromDashboard,
   salesmanBreakdownHref,
@@ -94,6 +97,10 @@ describe("opsStatsFromDashboard", () => {
       salesmanBreakdownHref("abc 1", "shmp"),
       "/admin/salesmen/abc%201?company=shmp",
     );
+    assert.equal(dashboardStoresHref("stl"), "/admin/stores");
+    assert.equal(dashboardStoresHref("shmp"), "/shmp/stores");
+    assert.equal(dashboardInventoryHref("stl"), "/admin/inventory");
+    assert.equal(dashboardInventoryHref("shmp"), "/shmp/inventory");
   });
 
   it("leaves ops tiles empty when the API has not sent counts yet", () => {
@@ -105,5 +112,41 @@ describe("opsStatsFromDashboard", () => {
       totalWarehouseUsers: 12,
     });
     assert.deepEqual(opsStatsFromDashboard(null), {});
+  });
+});
+
+describe("dashboardCardsForSide", () => {
+  it("keeps STL fleet and portal cards, with no company switcher data", () => {
+    const cards = dashboardCardsForSide("stl");
+    assert.equal(cards.thisMonth, true);
+    assert.equal(cards.inventoryValue, true);
+    assert.equal(cards.topSalesman, true);
+    assert.equal(cards.salesLost, true);
+    assert.equal(cards.attention, true);
+    assert.equal(cards.users, true);
+    assert.equal(cards.stores, true);
+    assert.equal(cards.warehouseUsers, true);
+    assert.equal(cards.inventorySkus, true);
+    assert.equal(cards.monthlySales, true);
+    assert.equal(cards.userMix, true);
+    assert.equal(cards.topProducts, true);
+    assert.equal(cards.salesBySalesman, true);
+  });
+
+  it("shows SHMP sales, inventory, stores, and insights without STL-only cards", () => {
+    const cards = dashboardCardsForSide("shmp");
+    assert.equal(cards.thisMonth, true);
+    assert.equal(cards.inventoryValue, true);
+    assert.equal(cards.topSalesman, true);
+    assert.equal(cards.stores, true);
+    assert.equal(cards.inventorySkus, true);
+    assert.equal(cards.monthlySales, true);
+    assert.equal(cards.topProducts, true);
+    assert.equal(cards.salesBySalesman, true);
+    assert.equal(cards.salesLost, false);
+    assert.equal(cards.attention, false);
+    assert.equal(cards.users, false);
+    assert.equal(cards.warehouseUsers, false);
+    assert.equal(cards.userMix, false);
   });
 });

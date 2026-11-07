@@ -315,7 +315,7 @@ export function ProductImageField({
   }
 
   return (
-    <div className="space-y-3 sm:col-span-2 lg:col-span-3">
+    <div className="space-y-3 rounded-lg border border-line bg-white p-4 sm:col-span-2 lg:col-span-3">
       <div className="space-y-1">
         <label htmlFor={inputId} className="block text-[13px] font-medium text-slate-700">
           Product images

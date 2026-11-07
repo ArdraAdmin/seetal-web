@@ -123,6 +123,13 @@ export interface ProfileUser {
   [key: string]: unknown;
 }
 
+export interface ProductArtworkFile {
+  fileName: string;
+  contentType: string;
+  size: number;
+  url: string;
+}
+
 export interface Product {
   _id: string;
   itemRef?: string;
@@ -150,6 +157,7 @@ export interface Product {
   masterCategoryId?: string;
   imagePath?: string | string[];
   imageCount?: number;
+  artwork?: ProductArtworkFile[];
   company?: string | { _id?: string; name?: string; prefix?: string };
   [key: string]: unknown;
 }

@@ -7,6 +7,7 @@ import {
   checkProductsByItemRefs,
   companyLabel,
   createdProductId,
+  uploadProductArtwork,
   uploadProductImage,
   existingItemLabel,
   getCategories,
@@ -15,10 +16,12 @@ import {
   updateProduct,
   type CompanyRecord,
 } from "@/lib/api";
-import type { Product } from "@/lib/types";
+import type { Product, ProductArtworkFile } from "@/lib/types";
 import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
 import { useToast } from "@/components/Toast";
+import { ProductArtworkField } from "@/components/ProductArtwork";
 import { ProductImageField } from "@/components/ProductImage";
+import { normalizeArtwork } from "@/lib/product-artwork";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
 import { useAuth } from "@/components/AuthProvider";
 import { filterCompaniesForModule, portalFieldVisible } from "@/lib/custom-users";
@@ -235,7 +238,11 @@ export function ProductForm({
   const [form, setForm] = useState(EMPTY_FORM);
   const [existsError, setExistsError] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [pendingArtwork, setPendingArtwork] = useState<File[]>([]);
   const [imagePath, setImagePath] = useState<unknown>(product?.imagePath);
+  const [artwork, setArtwork] = useState<ProductArtworkFile[]>(
+    normalizeArtwork(product?.artwork),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -378,21 +385,37 @@ export function ProductForm({
       }
       const created = await addProductManual(payload);
       const createdId = createdProductId(created);
+      const uploadNotes: string[] = [];
       if (pendingImages.length > 0 && createdId) {
         try {
           for (const file of pendingImages) {
             await uploadProductImage(createdId, file);
           }
         } catch (imageError) {
-          toast(
+          uploadNotes.push(
             imageError instanceof Error
-              ? `Product saved, but the image upload failed: ${imageError.message}`
-              : "Product saved, but the image upload failed",
-            "error",
+              ? `the image upload failed: ${imageError.message}`
+              : "the image upload failed",
           );
-          router.push(`/admin/inventory/${createdId}/edit`);
-          return;
         }
+      }
+      if (pendingArtwork.length > 0 && createdId) {
+        try {
+          for (const file of pendingArtwork) {
+            await uploadProductArtwork(createdId, file);
+          }
+        } catch (artworkError) {
+          uploadNotes.push(
+            artworkError instanceof Error
+              ? `the artwork upload failed: ${artworkError.message}`
+              : "the artwork upload failed",
+          );
+        }
+      }
+      if (uploadNotes.length > 0 && createdId) {
+        toast(`Product saved, but ${uploadNotes.join("; ")}`, "error");
+        router.push(`/admin/inventory/${createdId}/edit`);
+        return;
       }
       toast("Product added", "success");
       router.push("/admin/inventory");
@@ -561,6 +584,12 @@ export function ProductForm({
           productId={editing ? product?._id : undefined}
           onUploaded={setImagePath}
           onPendingFiles={setPendingImages}
+        />
+        <ProductArtworkField
+          artwork={artwork}
+          productId={editing ? product?._id : undefined}
+          onChange={setArtwork}
+          onPendingFiles={setPendingArtwork}
         />
         <div className="flex items-end gap-2 sm:col-span-2">
           <PrimaryButton type="submit" disabled={saving}>
