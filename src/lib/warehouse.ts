@@ -199,8 +199,8 @@ export function dubaiDayStart(now = Date.now()) {
 }
 
 /**
- * Warehouse "today" is the coming Dubai calendar day.
- * With Sunday delivery off, a Sunday is skipped and Monday is the pending day.
+ * Warehouse work day is the coming Dubai calendar day.
+ * With Sunday delivery off, a Sunday is skipped and Monday is the work day.
  */
 export function warehouseWorkDayRange(
   now = Date.now(),
@@ -228,6 +228,22 @@ export function pendingSkipsSunday(
   if (sundayDelivery) return false;
   const nextCalendarDay = warehouseWorkDayRange(now, true);
   return dubaiWeekday(nextCalendarDay.start) === 0;
+}
+
+/**
+ * Dates that belong on Pending.
+ * On Saturday with Sunday delivery off, the work day is Monday, but orders
+ * already placed for Sunday stay on Pending. Leaving them out drops them
+ * from Pending, Upcoming, and overdue.
+ */
+export function warehousePendingRange(
+  now = Date.now(),
+  sundayDelivery = sundayDeliveryEnabled,
+) {
+  const work = warehouseWorkDayRange(now, sundayDelivery);
+  if (!pendingSkipsSunday(now, sundayDelivery)) return work;
+  const skippedSunday = warehouseWorkDayRange(now, true);
+  return { start: skippedSunday.start, end: work.end };
 }
 
 /** A YYYY-MM-DD value that falls on Sunday. */

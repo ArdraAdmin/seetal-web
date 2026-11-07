@@ -49,6 +49,7 @@ import {
   pendingSkipsSunday,
   setSundayDeliveryEnabled,
   sortPendingWarehouseOrders,
+  warehousePendingRange,
   warehouseWorkDayRange,
 } from "./warehouse";
 import {
@@ -1527,7 +1528,7 @@ function isOverdueIncomplete(order: PendingOrder) {
   if (!order.date) return false;
   const ms = new Date(order.date).getTime();
   if (Number.isNaN(ms)) return false;
-  return ms < warehouseWorkDayRange().start.getTime();
+  return ms < warehousePendingRange().start.getTime();
 }
 
 function matchesWarehouseTab(
@@ -1539,9 +1540,12 @@ function matchesWarehouseTab(
   if (!order.date) return false;
   const ms = new Date(order.date).getTime();
   if (Number.isNaN(ms)) return false;
-  const { start, end } = warehouseWorkDayRange();
-  if (tabIndex === 0) return ms >= start.getTime() && ms <= end.getTime();
-  return ms > end.getTime();
+  const pending = warehousePendingRange();
+  const workEnd = warehouseWorkDayRange().end.getTime();
+  if (tabIndex === 0) {
+    return ms >= pending.start.getTime() && ms <= pending.end.getTime();
+  }
+  return ms > workEnd;
 }
 
 function visibleWarehouseOrders(
@@ -1616,7 +1620,9 @@ function orderDeliveryMs(order: PendingOrder) {
 
 /**
  * The warehouse API still treats the next calendar day as pending. When that
- * day is Sunday and Sunday delivery is off, pull Monday out of upcoming.
+ * day is Sunday and Sunday delivery is off, Pending is Monday plus orders
+ * dated that Sunday. Monday is pulled out of upcoming; Sunday stays because
+ * the API only returns it on the pending tab.
  */
 async function fetchSundaySkippedTab(
   userId: string,
@@ -1625,36 +1631,56 @@ async function fetchSundaySkippedTab(
   tag: string,
 ) {
   const pageSize = tabIndex === 0 ? 100 : 50;
-  const remotePageSize = 50;
-  const range = warehouseWorkDayRange();
+  const work = warehouseWorkDayRange();
+  const pending = warehousePendingRange();
   const needed = page * pageSize;
   const matched: PendingOrder[] = [];
   const seen = new Set<string>();
-  let remoteExhausted = false;
+  let remoteExhausted = true;
+  // Pending must read API tab 0 (the skipped Sunday) and tab 1 (Monday).
+  const remoteTabs: Array<0 | 1> = tabIndex === 0 ? [0, 1] : [1];
 
-  for (let remotePage = 1; remotePage <= 40 && matched.length < needed; remotePage++) {
-    const batch = await requestWarehouseOrderBatch(userId, remotePage, 1, tag);
-    if (batch.orders.length === 0) {
-      remoteExhausted = true;
-      break;
+  for (const remoteTab of remoteTabs) {
+    const remotePageSize = remoteTab === 0 ? 100 : 50;
+    let tabExhausted = false;
+    for (let remotePage = 1; remotePage <= 40; remotePage++) {
+      if (tabIndex === 1 && matched.length >= needed) break;
+      const batch = await requestWarehouseOrderBatch(
+        userId,
+        remotePage,
+        remoteTab,
+        tag,
+      );
+      if (batch.orders.length === 0) {
+        tabExhausted = true;
+        break;
+      }
+      let passedPending = false;
+      for (const order of batch.orders) {
+        const id = String(order._id || "");
+        if (id && seen.has(id)) continue;
+        const ms = orderDeliveryMs(order);
+        if (Number.isNaN(ms)) continue;
+        const keep =
+          tabIndex === 0
+            ? ms >= pending.start.getTime() && ms <= pending.end.getTime()
+            : ms > work.end.getTime();
+        if (!keep) {
+          // Upcoming pages are date-ascending, so a later day ends this tab.
+          if (tabIndex === 0 && remoteTab === 1 && ms > pending.end.getTime()) {
+            passedPending = true;
+          }
+          continue;
+        }
+        if (id) seen.add(id);
+        matched.push(order);
+      }
+      if (passedPending || batch.orders.length < remotePageSize) {
+        tabExhausted = true;
+        break;
+      }
     }
-    for (const order of batch.orders) {
-      const id = String(order._id || "");
-      if (id && seen.has(id)) continue;
-      const ms = orderDeliveryMs(order);
-      if (Number.isNaN(ms)) continue;
-      const keep =
-        tabIndex === 0
-          ? ms >= range.start.getTime() && ms <= range.end.getTime()
-          : ms > range.end.getTime();
-      if (!keep) continue;
-      if (id) seen.add(id);
-      matched.push(order);
-    }
-    if (batch.orders.length < remotePageSize) {
-      remoteExhausted = true;
-      break;
-    }
+    if (!tabExhausted) remoteExhausted = false;
   }
 
   const start = (page - 1) * pageSize;
