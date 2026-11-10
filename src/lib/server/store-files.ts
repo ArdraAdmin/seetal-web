@@ -1,9 +1,12 @@
+import fs from "node:fs";
+import path from "node:path";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { awsKeysFromText, type AwsKeyPair } from "../aws-keys";
 import { isStoreObjectKey, storeObjectKey } from "../store-eid";
 
 const DEFAULT_BUCKET = "production-bucket-seetal";
@@ -23,8 +26,30 @@ function region() {
 
 let client: S3Client | null = null;
 
+function credentials(): AwsKeyPair | undefined {
+  const accessKeyId = String(process.env.AWS_ACCESS_KEY_ID || "").trim();
+  const secretAccessKey = String(process.env.AWS_SECRET_ACCESS_KEY || "").trim();
+  if (accessKeyId && secretAccessKey) return { accessKeyId, secretAccessKey };
+
+  // The default credential chain on this machine can be an expired SSO session.
+  // Store uploads then fail with 400 before the new store can be finished.
+  // The local API already has working static keys; use those for local dev.
+  const constantPath = path.resolve(process.cwd(), "../STLAPI/lib/constant.js");
+  try {
+    return awsKeysFromText(fs.readFileSync(constantPath, "utf8")) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function s3() {
-  if (!client) client = new S3Client({ region: region() });
+  if (!client) {
+    const keys = credentials();
+    client = new S3Client({
+      region: region(),
+      ...(keys ? { credentials: keys } : {}),
+    });
+  }
   return client;
 }
 
