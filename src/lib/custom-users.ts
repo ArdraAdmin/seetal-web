@@ -70,7 +70,12 @@ export const SHMP_MODULES: PortalModule[] = [
   { id: "hr", label: "HR", href: "/shmp/hr" },
   { id: "attendance", label: "Attendance", href: "/shmp/attendance" },
   { id: "stores", label: "Stores", href: "/shmp/stores" },
-  { id: "inventory", label: "Inventory", href: "/shmp/inventory" },
+  {
+    id: "inventory",
+    label: "Inventory",
+    href: "/shmp/inventory",
+    match: ["/shmp/inventory", "/shmp/categories"],
+  },
   { id: "catalog", label: "Catalog", href: "/shmp/catalog" },
   { id: "production", label: "Production", href: "/shmp/production" },
   { id: "rm", label: "RM Store", href: "/shmp/rm" },

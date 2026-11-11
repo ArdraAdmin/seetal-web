@@ -3,7 +3,6 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { companyLabel, type CompanyRecord } from "@/lib/api";
 import type { CategoryGroup } from "@/lib/categories";
-import type { ShmpCategory } from "@/lib/shmp-api";
 import {
   baseItemCodeOf,
   isStlCompanyLabel,
@@ -66,26 +65,6 @@ export const EMPTY_FORM: ProductFormState = {
   pieceDimensions: "",
   pricing: [],
 };
-
-export function shmpCategoryGroups(rows: ShmpCategory[]): CategoryGroup[] {
-  const map = new Map<string, CategoryGroup>();
-  for (const row of rows) {
-    const name = row.masterCategoryName || "Category";
-    const group = map.get(name) || {
-      name,
-      masterCategoryId: name,
-      awsMasterCatDir: "",
-      items: [],
-    };
-    group.items.push({
-      _id: row._id,
-      subCategory: row.subCategory,
-      masterCategoryName: name,
-    });
-    map.set(name, group);
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
 
 export function blankForm(company = ""): ProductFormState {
   return { ...EMPTY_FORM, company, pricing: [] };

@@ -800,6 +800,11 @@ export const shmpCreateCategory = (body: {
     body: JSON.stringify(body),
   });
 
+export const shmpDeleteCategory = (id: string) =>
+  shmpRequest<{ ok: boolean; _id: string }>(`/categories/${id}`, {
+    method: "DELETE",
+  });
+
 export const shmpInventory = (
   params?: Record<string, string>,
   signal?: AbortSignal,

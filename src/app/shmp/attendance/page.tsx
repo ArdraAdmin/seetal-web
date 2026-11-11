@@ -24,6 +24,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
 import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
+import { holidayStatusAvailable, mapWithLimit } from "@/lib/attendance-bulk";
 import {
   addedHrStaffOnly,
   attendanceRecordUserId,
@@ -165,7 +166,8 @@ function AttendancePage() {
 
   const [markModalOpen, setMarkModalOpen] = useState(false);
   const [savingOverride, setSavingOverride] = useState(false);
-  const [overridePerson, setOverridePerson] = useState("");
+  const [markError, setMarkError] = useState<string | null>(null);
+  const [overridePeople, setOverridePeople] = useState<string[]>([]);
   const [overrideStatus, setOverrideStatus] = useState("present");
   const [overrideLeaveType, setOverrideLeaveType] = useState<"annual" | "sick">(
     "annual",
@@ -601,26 +603,30 @@ function AttendancePage() {
   }
 
   function closeMarkModal() {
+    if (savingOverride) return;
     setMarkModalOpen(false);
     setOverrideReason("");
+    setOverridePeople([]);
+    setMarkError(null);
   }
 
   function openMark(personId: string, status = "present") {
-    setOverridePerson(personId);
-    setOverrideStatus(status === "holiday" && !personId.startsWith("worker:") ? "present" : status);
+    const people = personId ? [personId] : [];
+    setOverridePeople(people);
+    setOverrideStatus(
+      status === "holiday" && !holidayStatusAvailable(people) ? "present" : status,
+    );
     setOverrideLeaveType("annual");
     setOverrideReason("");
     setOverrideDate(today);
+    setMarkError(null);
     setMarkModalOpen(true);
   }
 
-  async function onOverride(e: FormEvent) {
-    e.preventDefault();
-    if (!overridePerson || !overrideReason.trim()) {
-      setError("Person and reason are required");
-      return;
-    }
-    const [kind, id] = overridePerson.split(":");
+  async function saveAttendanceFor(personKey: string) {
+    const separator = personKey.indexOf(":");
+    const kind = separator === -1 ? "" : personKey.slice(0, separator);
+    const id = separator === -1 ? personKey : personKey.slice(separator + 1);
     const status =
       overrideStatus === "leave"
         ? "leave"
@@ -629,47 +635,94 @@ function AttendancePage() {
           : overrideStatus === "holiday"
             ? "holiday"
             : "present";
+    if (kind === "staff") {
+      if (!user?.id) throw new Error("Sign in again to mark attendance");
+      if (status === "holiday") throw new Error("Holiday is only for factory workers");
+      await markHrStaffAttendance(user.id, id, {
+        date: overrideDate,
+        status,
+        ...(status === "leave" ? { leaveType: overrideLeaveType } : {}),
+        reason: overrideReason.trim(),
+      });
+      return;
+    }
+    if (kind === "portal") {
+      if (!user?.id) throw new Error("Sign in again to mark portal attendance");
+      if (status === "holiday") throw new Error("Holiday is only for factory workers");
+      await overrideSalesAttendance({
+        userId: user.id,
+        salesId: id,
+        date: overrideDate,
+        status,
+        ...(status === "leave" ? { leaveType: overrideLeaveType } : {}),
+        reason: overrideReason.trim() || undefined,
+      });
+      return;
+    }
+    const emp = employees.find((row) => row._id === id);
+    const companyId = companyOf(emp);
+    if (!companyId) throw new Error("Selected worker has no company");
+    await shmpOverrideAttendance({
+      companyId,
+      employeeId: id,
+      date: new Date(overrideDate).toISOString(),
+      newStatus: overrideStatus,
+      ...(overrideStatus === "leave" ? { leaveType: overrideLeaveType } : {}),
+      reason: overrideReason.trim(),
+    });
+  }
+
+  async function onOverride(e: FormEvent) {
+    e.preventDefault();
+    const people = overridePeople.filter(Boolean);
+    if (people.length === 0 || !overrideReason.trim()) {
+      setMarkError("Select at least one person and enter a reason");
+      return;
+    }
     setSavingOverride(true);
-    setError(null);
+    setMarkError(null);
     try {
-      if (kind === "staff") {
-        if (!user?.id) throw new Error("Sign in again to mark attendance");
-        if (status === "holiday") throw new Error("Holiday is only for factory workers");
-        await markHrStaffAttendance(user.id, id, {
-          date: overrideDate,
-          status,
-          ...(status === "leave" ? { leaveType: overrideLeaveType } : {}),
-          reason: overrideReason.trim(),
-        });
-      } else if (kind === "portal") {
-        if (!user?.id) throw new Error("Sign in again to mark portal attendance");
-        if (status === "holiday") throw new Error("Holiday is only for factory workers");
-        await overrideSalesAttendance({
-          userId: user.id,
-          salesId: id,
-          date: overrideDate,
-          status,
-          ...(status === "leave" ? { leaveType: overrideLeaveType } : {}),
-          reason: overrideReason.trim() || undefined,
-        });
-      } else {
-        const emp = employees.find((row) => row._id === id);
-        const companyId = companyOf(emp);
-        if (!companyId) throw new Error("Selected worker has no company");
-        await shmpOverrideAttendance({
-          companyId,
-          employeeId: id,
-          date: new Date(overrideDate).toISOString(),
-          newStatus: overrideStatus,
-          ...(overrideStatus === "leave" ? { leaveType: overrideLeaveType } : {}),
-          reason: overrideReason.trim(),
-        });
+      const results = await mapWithLimit(people, 6, (personKey) =>
+        saveAttendanceFor(personKey),
+      );
+      const failed = results.flatMap((result, index) =>
+        result.status === "rejected" ? [people[index]] : [],
+      );
+      const saved = people.length - failed.length;
+      if (failed.length === 0) {
+        toast(
+          people.length === 1
+            ? "Attendance saved"
+            : `Attendance saved for ${people.length} people`,
+          "success",
+        );
+        setMarkModalOpen(false);
+        setOverrideReason("");
+        setOverridePeople([]);
+        setMarkError(null);
+        await refresh();
+        return;
       }
-      toast("Attendance saved", "success");
-      closeMarkModal();
-      await refresh();
+      setOverridePeople(failed);
+      const first = results.find((result) => result.status === "rejected");
+      const message =
+        first?.status === "rejected" && first.reason instanceof Error
+          ? first.reason.message
+          : "Some attendance updates failed";
+      setMarkError(
+        saved > 0
+          ? `Saved ${saved}. ${failed.length} still need a retry. ${message}`
+          : message,
+      );
+      if (saved > 0) {
+        toast(
+          `Saved ${saved}. ${failed.length} ${failed.length === 1 ? "person" : "people"} still need a retry.`,
+          "info",
+        );
+        await refresh();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Override failed");
+      setMarkError(err instanceof Error ? err.message : "Override failed");
     } finally {
       setSavingOverride(false);
     }
@@ -1184,7 +1237,7 @@ function AttendancePage() {
         <button
           type="button"
           aria-label="Mark attendance"
-          onClick={() => setMarkModalOpen(true)}
+          onClick={() => openMark("")}
           className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand text-ink shadow-lg ring-1 ring-black/5 transition hover:bg-brand-dark hover:text-white lg:bottom-8 lg:right-8"
         >
           <Plus className="h-7 w-7" strokeWidth={2.25} />
@@ -1255,27 +1308,29 @@ function AttendancePage() {
       ) : null}
 
       <MarkAttendanceDialog
+        multiple
         open={markModalOpen}
-        description="Record present, absent, or annual/sick leave for a worker, supervisor, or HR staff member."
+        description="Record present, absent, or annual/sick leave for one or more workers, supervisors, or HR staff."
         people={markPeople}
-        person={overridePerson}
+        selected={overridePeople}
         date={overrideDate}
         status={overrideStatus}
         leaveType={overrideLeaveType}
         reason={overrideReason}
         saving={savingOverride}
+        error={markError}
         statusOptions={[
           { value: "present", label: "Present" },
           { value: "absent", label: "Absent" },
           { value: "leave", label: "Leave" },
-          ...(overridePerson.startsWith("worker:")
+          ...(holidayStatusAvailable(overridePeople)
             ? [{ value: "holiday", label: "Holiday" }]
             : []),
         ]}
         onClose={closeMarkModal}
-        onPerson={(value) => {
-          setOverridePerson(value);
-          if (!value.startsWith("worker:") && overrideStatus === "holiday") {
+        onSelected={(value) => {
+          setOverridePeople(value);
+          if (!holidayStatusAvailable(value) && overrideStatus === "holiday") {
             setOverrideStatus("present");
           }
         }}

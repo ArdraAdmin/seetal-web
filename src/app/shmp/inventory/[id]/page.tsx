@@ -21,6 +21,7 @@ import {
 } from "@/components/ProductArtwork";
 import { ProductImageField, ProductImageGallery } from "@/components/ProductImage";
 import type { CategoryGroup } from "@/lib/categories";
+import { shmpCategoryGroups } from "@/lib/shmp-category-groups";
 import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
@@ -46,7 +47,6 @@ import {
 import {
   ProductFields,
   buildPayload,
-  shmpCategoryGroups,
   companyNameOf,
   formFromProduct,
   matchCategory,

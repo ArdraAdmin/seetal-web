@@ -59,6 +59,15 @@ describe("custom user access", () => {
     assert.equal(canCustomUserAccessPath(access.access, "/admin/users"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/admin/tracking"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/production/abc"), true);
+    assert.equal(canCustomUserAccessPath(access.access, "/shmp/categories"), false);
+    const withInventory = sanitizeCustomAccess({
+      companies: ["shmp"],
+      modules: { shmp: ["inventory"] },
+    });
+    assert.equal(withInventory.ok, true);
+    if (!withInventory.ok) return;
+    assert.equal(canCustomUserAccessPath(withInventory.access, "/shmp/categories"), true);
+    assert.equal(canCustomUserAccessPath(withInventory.access, "/shmp/catalog"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/hr"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/users/new"), false);
     assert.equal(firstAllowedPath(access.access, "stl"), "/admin/stores");
