@@ -414,6 +414,7 @@ export interface ApprovalOrder {
   createdAt?: string;
   updatedAt?: string;
   sales?: string | { _id?: string; name?: string; email?: string };
+  company?: string | { _id?: string; name?: string; prefix?: string };
   storeName?: string;
   store?:
     | string
