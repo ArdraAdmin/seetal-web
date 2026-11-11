@@ -9,11 +9,13 @@ import {
   uploadProductImage,
   type CompanyProduct,
 } from "@/lib/api";
+import { CATALOG_BRANDS } from "@/lib/catalog-brands";
 import { productBelongsToCompany, productImageFileError } from "@/lib/product-image";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
   isFreshShmpInventory,
   shmpInventory,
+  shmpUpdateInventory,
   type ShmpInventoryProduct,
 } from "@/lib/shmp-api";
 import { useToast } from "./Toast";
@@ -36,16 +38,43 @@ type CatalogItem = {
   name: string;
   ref: string;
   imagePath?: unknown;
+  brand: string;
+  sellingPrice: string;
+  unit: string;
+  ratio: string;
+  barcode: string;
+  cartonWeight: string;
+  cartonDimensions: string;
+  cbm: string;
+  pieceWeight: string;
+  pieceDimensions: string;
 };
+
+function measureText(value: unknown) {
+  if (value == null || value === "") return "";
+  const amount = Number(value);
+  return Number.isFinite(amount) ? String(amount) : "";
+}
 
 function asCatalogItem(
   product: CompanyProduct | ShmpInventoryProduct,
 ): CatalogItem {
+  const source = product as ShmpInventoryProduct;
   return {
     id: product._id,
     name: String(product.itemName || "Unnamed"),
     ref: String(product.itemRef || ""),
     imagePath: product.imagePath,
+    brand: String(source.catalogBrand || ""),
+    sellingPrice: source.sellingPrice != null ? String(source.sellingPrice) : "",
+    unit: String(source.unit || ""),
+    ratio: source.ratio != null ? String(source.ratio) : "",
+    barcode: String(source.barCode || source.barcode || ""),
+    cartonWeight: measureText(source.cartonWeight),
+    cartonDimensions: String(source.cartonDimensions || ""),
+    cbm: measureText(source.cbm),
+    pieceWeight: measureText(source.pieceWeight),
+    pieceDimensions: String(source.pieceDimensions || ""),
   };
 }
 
@@ -67,6 +96,8 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
   const previewBlobRef = useRef<Blob | null>(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [details, setDetails] = useState<CatalogItem | null>(null);
+  const [savingDetails, setSavingDetails] = useState(false);
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
@@ -160,7 +191,36 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
 
   function selectItem(id: string) {
     setSelectedId(id);
+    setDetails(items.find((item) => item.id === id) ?? null);
     clearGenerated();
+  }
+
+  async function onSaveDetails() {
+    if (!details || platform !== "shmp") return;
+    setSavingDetails(true);
+    try {
+      await shmpUpdateInventory(details.id, {
+        itemName: details.name.trim(),
+        sellingPrice: Number(details.sellingPrice) || 0,
+        unit: details.unit.trim() || "PCS",
+        ratio: Number(details.ratio) || 1,
+        barCode: details.barcode.trim(),
+        catalogBrand: details.brand,
+        cartonWeight: details.cartonWeight,
+        cartonDimensions: details.cartonDimensions,
+        cbm: details.cbm,
+        pieceWeight: details.pieceWeight,
+        pieceDimensions: details.pieceDimensions,
+      });
+      setItems((current) =>
+        current.map((item) => (item.id === details.id ? details : item)),
+      );
+      toast("Catalogue details saved", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save the details", "error");
+    } finally {
+      setSavingDetails(false);
+    }
   }
 
   function chooseRaw(file: File | null) {
@@ -216,7 +276,7 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
   const subtitle =
     platform === "stl"
       ? "Generate a product image for an STL inventory item, preview it, then save it onto that item."
-      : "Generate a product image for an SHMP inventory item, preview it, then save it onto that item.";
+      : "Choose the brand and the details printed on the card, then generate the image.";
 
   return (
     <div>
@@ -324,6 +384,88 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
             ) : (
               <p className="mt-1 text-sm text-slate-500">Select an inventory item.</p>
             )}
+            {platform === "shmp" && details ? (
+              <div className="mt-4 space-y-3">
+                <label className="block space-y-1.5">
+                  <span className="text-[13px] font-medium text-slate-700">Brand</span>
+                  <select
+                    value={details.brand}
+                    onChange={(event) =>
+                      setDetails({ ...details, brand: event.target.value })
+                    }
+                    className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a brand</option>
+                    {details.brand && !(CATALOG_BRANDS as readonly string[]).includes(details.brand) ? (
+                      <option value={details.brand}>{details.brand}</option>
+                    ) : null}
+                    {CATALOG_BRANDS.map((brand) => (
+                      <option key={brand} value={brand}>{brand}</option>
+                    ))}
+                  </select>
+                </label>
+                <TextField
+                  label="Item name"
+                  value={details.name}
+                  onChange={(event) => setDetails({ ...details, name: event.target.value })}
+                />
+                <TextField
+                  label="Price"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={details.sellingPrice}
+                  onChange={(event) => setDetails({ ...details, sellingPrice: event.target.value })}
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField
+                    label="Unit"
+                    value={details.unit}
+                    onChange={(event) => setDetails({ ...details, unit: event.target.value })}
+                  />
+                  <TextField
+                    label="Pieces per carton"
+                    type="number"
+                    min={1}
+                    value={details.ratio}
+                    onChange={(event) => setDetails({ ...details, ratio: event.target.value })}
+                  />
+                </div>
+                <TextField
+                  label="Barcode"
+                  value={details.barcode}
+                  onChange={(event) => setDetails({ ...details, barcode: event.target.value })}
+                />
+                <TextField
+                  label="Carton weight"
+                  value={details.cartonWeight}
+                  onChange={(event) => setDetails({ ...details, cartonWeight: event.target.value })}
+                />
+                <TextField
+                  label="Carton dimensions"
+                  value={details.cartonDimensions}
+                  onChange={(event) => setDetails({ ...details, cartonDimensions: event.target.value })}
+                />
+                <TextField
+                  label="CBM"
+                  value={details.cbm}
+                  onChange={(event) => setDetails({ ...details, cbm: event.target.value })}
+                />
+                <TextField
+                  label="Piece weight"
+                  value={details.pieceWeight}
+                  onChange={(event) => setDetails({ ...details, pieceWeight: event.target.value })}
+                />
+                <TextField
+                  label="Piece dimensions"
+                  value={details.pieceDimensions}
+                  onChange={(event) => setDetails({ ...details, pieceDimensions: event.target.value })}
+                />
+                <SecondaryButton type="button" disabled={savingDetails} onClick={() => void onSaveDetails()}>
+                  {savingDetails ? "Saving…" : "Save brand and details"}
+                </SecondaryButton>
+              </div>
+            ) : null}
             <label className="mt-4 block space-y-1.5">
               <span className="text-[13px] font-medium text-slate-700">Raw product image</span>
               <input

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { City, Country } from "country-state-city";
 import {
   shmpCreateStore,
@@ -17,6 +18,7 @@ import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
 import { useToast } from "@/components/Toast";
+import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
   Card,
   EmptyState,
@@ -497,6 +499,8 @@ function payloadFromForm(form: StoreForm) {
 
 export default function ShmpStoresPage() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const licenseDue = searchParams.get("license") === "expiring";
   const [stores, setStores] = useState<ShmpStore[]>([]);
   const [salesPeople, setSalesPeople] = useState<ShmpStorePerson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -530,6 +534,12 @@ export default function ShmpStoresPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return stores.filter((store) => {
+      if (
+        licenseDue &&
+        !isExpiringWithinDays(store.tradeLicenseExpiry, EXPIRY_ALERT_DAYS)
+      ) {
+        return false;
+      }
       if (!q) return true;
       const names = salesIdsFromStore(store)
         .map((id) => {
@@ -551,7 +561,7 @@ export default function ShmpStoresPage() {
         .join(" ");
       return blob.includes(q);
     });
-  }, [stores, salesPeople, query]);
+  }, [stores, salesPeople, query, licenseDue]);
 
   function setAddField(key: keyof StoreForm, value: string) {
     setAddForm((prev) => ({ ...prev, [key]: value }));

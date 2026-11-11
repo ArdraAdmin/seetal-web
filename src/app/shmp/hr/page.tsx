@@ -2,31 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { getCompanies } from "@/lib/api";
-import { deleteHrStaff, getHrStaff, uploadHrFile, type HrStaff } from "@/lib/stl-features-api";
-import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
-import {
-  emptySharjahPermit,
-  saveSharjahPermit,
-  type SharjahPermitState,
-} from "@/lib/sharjah-permit";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { deleteHrStaff, getHrStaff, type HrStaff } from "@/lib/stl-features-api";
 import { useAuth } from "@/components/AuthProvider";
-import { SharjahPermitFields } from "@/components/HrProfileFields";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
 import { HrStaffDetails } from "@/components/HrStaffDetails";
 import { formatHrDate } from "@/lib/hr-profile";
+import { sortHrStaff, type HrListSort } from "@/lib/hr-list";
 import { isSupervisor } from "@/lib/auth";
 import { VISA_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import { addedHrStaffOnly } from "@/lib/hr-scope";
-import {
-  shmpCreateAccessUser,
-  shmpCreateAccessWorker,
-  shmpEmployees,
-  type ShmpAccessRole,
-  type ShmpWorkerShift,
-} from "@/lib/shmp-api";
 import {
   EmptyState,
   ErrorState,
@@ -36,17 +22,12 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
-import { companyOf, personHref, type Emp } from "./shared";
-
-const SHMP_USER_ROLES: ShmpAccessRole[] = ["Supervisor", "Sales"];
-
-type DialogMode = "Worker" | ShmpAccessRole;
+import { personHref } from "./shared";
 
 type HrRow = {
   id: string;
   kind: "staff";
   name: string;
-  email?: string;
   role: string;
   joiningDate?: string | null;
   yearsOfService?: number | null;
@@ -73,19 +54,7 @@ export default function ShmpHrPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogRole, setDialogRole] = useState<DialogMode | null>(null);
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
-  const [userPassword, setUserPassword] = useState("");
-  const [userMobile, setUserMobile] = useState("");
-  const [userYearsWorked, setUserYearsWorked] = useState("");
-  const [userVisaExpiry, setUserVisaExpiry] = useState("");
-  const [userShift, setUserShift] = useState<ShmpWorkerShift>("morning");
-  const [userBiometricId, setUserBiometricId] = useState("");
-  const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
-  const [creating, setCreating] = useState(false);
+  const [sort, setSort] = useState<HrListSort>("name");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
 
@@ -95,18 +64,15 @@ export default function ShmpHrPage() {
     setError(null);
     try {
       const hr = await getHrStaff(user.id, { scope: "shmp" });
-      const rows: HrRow[] = addedHrStaffOnly(hr.staff || [])
-        .map((row) => ({
-          id: row.id,
-          kind: "staff" as const,
-          name: row.hrProfile?.visaName || row.name,
-          email: row.email,
-          role: staffRole(row),
-          joiningDate: row.joiningDate,
-          yearsOfService: row.yearsOfService,
-          visaExpiry: row.hrProfile?.visaExpiry,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const rows: HrRow[] = addedHrStaffOnly(hr.staff || []).map((row) => ({
+        id: row.id,
+        kind: "staff" as const,
+        name: row.hrProfile?.visaName || row.name,
+        role: staffRole(row),
+        joiningDate: row.joiningDate,
+        yearsOfService: row.yearsOfService,
+        visaExpiry: row.hrProfile?.visaExpiry,
+      }));
       setStaff(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load staff");
@@ -120,137 +86,12 @@ export default function ShmpHrPage() {
   }, [load]);
 
   const term = q.trim().toLowerCase();
-  const rows = term
-    ? staff.filter((s) =>
-        `${s.name} ${s.email || ""} ${s.role}`.toLowerCase().includes(term),
-      )
-    : staff;
-
-  const dialogRoles = useMemo<DialogMode[]>(
-    () => (supervisor ? [] : ["Worker", ...SHMP_USER_ROLES]),
-    [supervisor],
-  );
-
-  function resetDialog() {
-    setDialogOpen(false);
-    setDialogRole(null);
-    setUserName("");
-    setUserEmail("");
-    setUserPassword("");
-    setUserMobile("");
-    setUserYearsWorked("");
-    setUserVisaExpiry("");
-    setUserShift("morning");
-    setUserBiometricId("");
-    setPermit(emptySharjahPermit());
-  }
-
-  async function onCreateUser(e: FormEvent) {
-    e.preventDefault();
-    if (!dialogRole || supervisor) {
-      toast("Only admins can create users", "info");
-      return;
-    }
-    const yearsWorked =
-      userYearsWorked.trim() === "" ? undefined : Number(userYearsWorked);
-    if (
-      yearsWorked !== undefined &&
-      (!Number.isFinite(yearsWorked) || yearsWorked < 0)
-    ) {
-      toast("Years worked must be a non-negative number", "info");
-      return;
-    }
-    if (dialogRole === "Worker") {
-      if (!userName.trim()) {
-        toast("Name is required", "info");
-        return;
-      }
-      setCreating(true);
-      setError(null);
-      try {
-        let company = "";
-        try {
-          const companies = await getCompanies();
-          company = resolveSalesCompanyByKey("shmp", companies)?.id || "";
-        } catch {
-          // fall back to an existing worker's company below
-        }
-        if (!company) {
-          const workers = (await shmpEmployees().catch(() => [])) as Emp[];
-          company = companyOf(Array.isArray(workers) ? workers[0] : undefined);
-        }
-        if (!company) {
-          throw new Error("Could not determine SHMP company for this worker");
-        }
-        const visa: { yearsWorked?: number; expiry?: string } = {};
-        if (yearsWorked !== undefined) visa.yearsWorked = yearsWorked;
-        if (userVisaExpiry) visa.expiry = userVisaExpiry;
-        await shmpCreateAccessWorker({
-          name: userName.trim(),
-          company,
-          designation: "Operator",
-          defaultShift: userShift,
-          biometricId: userBiometricId.trim() || undefined,
-          email: userEmail.trim() || undefined,
-          mobileNumber: userMobile.trim() || undefined,
-          visa: Object.keys(visa).length ? visa : undefined,
-        });
-        toast("Worker created", "success");
-        resetDialog();
-        await load();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Create failed";
-        setError(message);
-        toast(message, "error");
-      } finally {
-        setCreating(false);
-      }
-      return;
-    }
-    if (!userName.trim() || !userEmail.trim() || !userPassword.trim()) {
-      toast("Name, email, and password are required", "info");
-      return;
-    }
-    setCreating(true);
-    setError(null);
-    try {
-      const created = await shmpCreateAccessUser({
-        role: dialogRole,
-        name: userName.trim(),
-        email: userEmail.trim(),
-        password: userPassword.trim(),
-        mobileNumber: userMobile.trim() || undefined,
-        ...(dialogRole === "Sales" ? { environments: ["stl", "shmp"] } : {}),
-      });
-      if ((permit.expiry || permit.file) && created?._id && user?.id) {
-        try {
-          await saveSharjahPermit({
-            adminUserId: user.id,
-            personId: created._id,
-            scope: "shmp",
-            permit,
-            fallbackName: userName.trim(),
-          });
-        } catch (permitError) {
-          toast(
-            permitError instanceof Error
-              ? `${permitError.message} The user was created, but the Sharjah permit was not saved.`
-              : "The user was created, but the Sharjah permit was not saved.",
-            "error",
-          );
-        }
-      }
-      toast(`${dialogRole} user created`, "success");
-      resetDialog();
-      await load();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Create failed";
-      setError(message);
-      toast(message, "error");
-    } finally {
-      setCreating(false);
-    }
-  }
+  const rows = useMemo(() => {
+    const matched = term
+      ? staff.filter((s) => `${s.name} ${s.role}`.toLowerCase().includes(term))
+      : staff;
+    return sortHrStaff(matched, sort);
+  }, [staff, term, sort]);
 
   async function onDeleteStaff(row: HrRow) {
     if (row.kind !== "staff" || !user?.id) return;
@@ -275,14 +116,9 @@ export default function ShmpHrPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             {!supervisor ? (
-              <PrimaryButton type="button" onClick={() => setDialogOpen(true)}>
-                Add user
-              </PrimaryButton>
-            ) : null}
-            {!supervisor ? (
-              <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/staff/new")}>
+              <PrimaryButton type="button" onClick={() => router.push("/shmp/hr/staff/new")}>
                 Add staff
-              </SecondaryButton>
+              </PrimaryButton>
             ) : null}
             {!supervisor && show("salary") ? (
               <SecondaryButton type="button" onClick={() => router.push("/shmp/hr/payroll")}>
@@ -295,13 +131,27 @@ export default function ShmpHrPage() {
           </div>
         }
       />
-      <div className="mb-4 max-w-sm">
-        <TextField
-          label="Search"
-          placeholder="Name, email or role"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div className="w-full max-w-sm">
+          <TextField
+            label="Search"
+            placeholder="Name or role"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <label className="block space-y-1.5">
+          <span className="text-[13px] font-medium text-slate-700">Sort</span>
+          <select
+            className="min-h-10 rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as HrListSort)}
+          >
+            <option value="name">Alphabetical</option>
+            <option value="oldest">Oldest employee</option>
+            <option value="visa">Visa expiry</option>
+          </select>
+        </label>
       </div>
       {loading ? (
         <LoadingState />
@@ -342,7 +192,6 @@ export default function ShmpHrPage() {
                     >
                       {s.name}
                     </button>
-                    <p className="text-xs text-slate-500">{s.email || "—"}</p>
                   </td>
                   <td className="px-4 py-2">{s.role}</td>
                   <td className="px-4 py-2">{formatHrDate(s.joiningDate)}</td>
@@ -380,175 +229,6 @@ export default function ShmpHrPage() {
           </table>
         </div>
       )}
-
-      {dialogOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="add-user-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) resetDialog();
-          }}
-        >
-          <div className="w-full max-w-md rounded-2xl border border-line bg-white p-5 shadow-lg">
-            {!dialogRole ? (
-              <>
-                <h2 id="add-user-title" className="text-lg font-semibold text-ink">
-                  Create user
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Sales, supervisor, or factory worker. Admin accounts are not managed here.
-                </p>
-                <div className="mt-4 grid gap-2">
-                  {dialogRoles.map((role) => (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => setDialogRole(role)}
-                      className="rounded-xl border border-line px-4 py-3 text-left text-sm font-medium hover:border-brand hover:bg-brand/15"
-                    >
-                      {role}
-                      <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                        {role === "Worker"
-                          ? "Factory employee — attendance via fingerprint (no portal login)"
-                          : role === "Supervisor"
-                            ? "SHMP manufacturing oversight — daily check-in required"
-                            : "Shared with STL — place orders, daily check-in required"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <SecondaryButton type="button" onClick={resetDialog}>
-                    Cancel
-                  </SecondaryButton>
-                </div>
-              </>
-            ) : (
-              <form onSubmit={onCreateUser} className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h2 id="add-user-title" className="text-lg font-semibold text-ink">
-                      New {dialogRole}
-                    </h2>
-                    <button
-                      type="button"
-                      className="mt-1 text-xs text-slate-600 underline"
-                      onClick={() => setDialogRole(null)}
-                    >
-                      Change type
-                    </button>
-                  </div>
-                  <SecondaryButton type="button" onClick={resetDialog}>
-                    Close
-                  </SecondaryButton>
-                </div>
-                <TextField
-                  label="Name"
-                  required
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                />
-                {dialogRole === "Worker" ? (
-                  <>
-                    <label className="block space-y-1.5">
-                      <span className="text-[13px] font-medium text-slate-700">
-                        Shift
-                      </span>
-                      <select
-                        className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-                        value={userShift}
-                        onChange={(e) =>
-                          setUserShift(e.target.value as ShmpWorkerShift)
-                        }
-                      >
-                        <option value="morning">Morning</option>
-                        <option value="night">Night</option>
-                      </select>
-                    </label>
-                    <TextField
-                      label="Biometric ID"
-                      optional
-                      value={userBiometricId}
-                      onChange={(e) => setUserBiometricId(e.target.value)}
-                    />
-                    <TextField
-                      label="Email"
-                      type="email"
-                      optional
-                      value={userEmail}
-                      onChange={(e) => setUserEmail(e.target.value)}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <TextField
-                      label="Email"
-                      type="email"
-                      required
-                      value={userEmail}
-                      onChange={(e) => setUserEmail(e.target.value)}
-                    />
-                    <TextField
-                      label="Password"
-                      type="password"
-                      required
-                      value={userPassword}
-                      onChange={(e) => setUserPassword(e.target.value)}
-                    />
-                  </>
-                )}
-                <TextField
-                  label="Mobile"
-                  optional
-                  value={userMobile}
-                  onChange={(e) => setUserMobile(e.target.value)}
-                />
-                <TextField
-                  label="Years worked"
-                  type="number"
-                  min={0}
-                  step="any"
-                  optional
-                  value={userYearsWorked}
-                  onChange={(e) => setUserYearsWorked(e.target.value)}
-                />
-                {show("visa") ? (
-                <TextField
-                  label="Visa expiry"
-                  type="date"
-                  optional
-                  value={userVisaExpiry}
-                  onChange={(e) => setUserVisaExpiry(e.target.value)}
-                />
-                ) : null}
-                {dialogRole !== "Worker" ? (
-                  <SharjahPermitFields
-                    expiry={permit.expiry}
-                    file={permit.file}
-                    disabled={creating}
-                    onExpiryChange={(expiry) => setPermit((current) => ({ ...current, expiry }))}
-                    onFileChange={(file) => setPermit((current) => ({ ...current, file }))}
-                    onUpload={(selected) => {
-                      if (!user?.id) return Promise.reject(new Error("Sign in again"));
-                      return uploadHrFile(user.id, selected);
-                    }}
-                  />
-                ) : null}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <PrimaryButton type="submit" disabled={creating}>
-                    {creating ? "Creating…" : `Create ${dialogRole}`}
-                  </PrimaryButton>
-                  <SecondaryButton type="button" onClick={resetDialog}>
-                    Cancel
-                  </SecondaryButton>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      ) : null}
       {viewingId ? (
         <HrStaffDetails staffId={viewingId} scope="shmp" onClose={() => setViewingId(null)} />
       ) : null}

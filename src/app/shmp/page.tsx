@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
-import { getCompanies } from "@/lib/api";
+import { getApprovalQueue, getCompanies, getMulkyaAlerts } from "@/lib/api";
 import {
   isFreshShmpInventory,
   shmpDashboard,
   shmpInventory,
   shmpStores,
   type ShmpDashboardSummary,
+  type ShmpInventoryProduct,
   type ShmpStaffCounts,
 } from "@/lib/shmp-api";
 import { useAuth } from "@/components/AuthProvider";
@@ -19,11 +20,18 @@ import { portalFieldVisible } from "@/lib/custom-users";
 import { shmpCatalogueParams } from "@/app/shmp/inventory/catalogue-load";
 import {
   attendanceFilterHref,
-  shmpSalesCategoryRows,
-  shmpSalesTotal,
+  categorySliceTotal,
+  shmpInventoryCategoryRows,
   shmpStockSnapshot,
 } from "@/lib/shmp-dashboard";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
+import { countPendingForCompany } from "@/lib/approval-count";
+import {
+  EXPIRY_ALERT_DAYS,
+  isExpiringWithinDays,
+  type ExpiryAlertRow,
+} from "@/lib/expiry-window";
+import { opsStatsFromDashboard } from "@/lib/admin-kpi";
 import {
   getAdminKpiDashboard,
   type AdminKpiDashboard,
@@ -67,6 +75,11 @@ export default function ShmpDashboardPage() {
   const [kpiError, setKpiError] = useState<string | null>(null);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [storeCount, setStoreCount] = useState<number | null>(null);
+  const [licenseCount, setLicenseCount] = useState<number | null>(null);
+  const [approvalCount, setApprovalCount] = useState<number | null>(null);
+  const [mulkyaAlerts, setMulkyaAlerts] = useState<ExpiryAlertRow[]>([]);
+  const [mulkyaLoading, setMulkyaLoading] = useState(true);
+  const [ownProducts, setOwnProducts] = useState<ShmpInventoryProduct[]>([]);
   const [stock, setStock] = useState<{ skus: number; value: number } | null>(
     null,
   );
@@ -75,6 +88,7 @@ export default function ShmpDashboardPage() {
   const reload = () => {
     setLoading(true);
     setKpiLoading(true);
+    setMulkyaLoading(true);
     setEpoch((value) => value + 1);
   };
 
@@ -86,12 +100,14 @@ export default function ShmpDashboardPage() {
     let cancelled = false;
 
     void (async () => {
-      const [summaryResult, companiesResult, storesResult, kpiResult] =
+      const [summaryResult, companiesResult, storesResult, kpiResult, mulkyaResult, approvalsResult] =
         await Promise.allSettled([
           shmpDashboard({ signal: controller.signal }),
           getCompanies(),
           shmpStores(),
           getAdminKpiDashboard(userId, { companyKey: "shmp" }),
+          getMulkyaAlerts("shmp"),
+          getApprovalQueue(),
         ]);
       if (cancelled) return;
 
@@ -134,17 +150,43 @@ export default function ShmpDashboardPage() {
         const list = Array.isArray(products) ? products : [];
         const own = list.filter((product) => isFreshShmpInventory(product));
         setHasOwnInventory(own.length > 0);
+        setOwnProducts(own);
         setStock(shmpStockSnapshot(own));
       } else {
         setHasOwnInventory(false);
+        setOwnProducts([]);
         setStock(null);
       }
 
       if (storesResult.status === "fulfilled") {
         const rows = Array.isArray(storesResult.value) ? storesResult.value : [];
         setStoreCount(rows.length);
+        setLicenseCount(
+          rows.filter((store) =>
+            isExpiringWithinDays(store.tradeLicenseExpiry, EXPIRY_ALERT_DAYS),
+          ).length,
+        );
       } else {
         setStoreCount(null);
+        setLicenseCount(null);
+      }
+
+      if (mulkyaResult.status === "fulfilled") {
+        setMulkyaAlerts(mulkyaResult.value.vehicles || []);
+      } else {
+        setMulkyaAlerts([]);
+      }
+      setMulkyaLoading(false);
+
+      const shmpCompanyId = resolveSalesCompanyByKey("shmp", companies)?.id || "";
+      if (approvalsResult.status === "fulfilled" && shmpCompanyId) {
+        setApprovalCount(
+          countPendingForCompany(approvalsResult.value, shmpCompanyId),
+        );
+      } else if (approvalsResult.status === "fulfilled") {
+        setApprovalCount(0);
+      } else {
+        setApprovalCount(null);
       }
 
       if (kpiResult.status === "fulfilled") {
@@ -172,16 +214,18 @@ export default function ShmpDashboardPage() {
 
   const staffToday = data?.staffToday || emptyStaff;
   const byCat = useMemo(() => {
-    const rows = shmpSalesCategoryRows(
-      data?.salesValueByCategory,
-      hasOwnInventory,
-    );
+    const rows = shmpInventoryCategoryRows(ownProducts);
     return rows.map((row, i) => ({
       ...row,
       color: PIE_COLORS[i % PIE_COLORS.length],
     }));
-  }, [data, hasOwnInventory]);
-  const totalSales = shmpSalesTotal(byCat);
+  }, [ownProducts]);
+  const inventoryByCategory = categorySliceTotal(byCat);
+  const attentionStats = {
+    ...opsStatsFromDashboard(kpi),
+    ...(licenseCount != null ? { expiredTradeLicenses: licenseCount } : {}),
+    ...(approvalCount != null ? { pendingApprovals: approvalCount } : {}),
+  };
   const onHoliday = (staffToday.leave || 0) + (staffToday.holiday || 0);
   const rangeLabel =
     data?.from && data?.to
@@ -240,24 +284,24 @@ export default function ShmpDashboardPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-ink">
-              Sales value by category
+              Inventory value by category
             </h3>
             <p className="mt-1 text-sm text-slate-600">
-              Confirmed SHMP production sales only. Existing SHMP-labelled
-              catalogue stock is Sarvah inventory and is not counted.
+              On-hand value of SHMP production stock. Catalogue items that
+              are not SHMP inventory are left out.
             </p>
           </div>
           <p className="text-lg font-semibold text-ink">
-            {formatMoney(totalSales)}
+            {formatMoney(inventoryByCategory)}
           </p>
         </div>
         {loading && !data ? (
-          <p className="mt-4 text-sm text-slate-500">Loading category sales…</p>
+          <p className="mt-4 text-sm text-slate-500">Loading inventory…</p>
         ) : byCat.length === 0 ? (
           <p className="mt-4 text-sm text-slate-500">
             {hasOwnInventory
-              ? "No confirmed SHMP production sales in this range."
-              : "No SHMP production inventory yet, so there are no SHMP sales to show."}
+              ? "SHMP production stock has no on-hand value yet."
+              : "No SHMP production inventory yet."}
           </p>
         ) : (
           <div className="mt-5 grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
@@ -327,9 +371,11 @@ export default function ShmpDashboardPage() {
         kpi={kpi}
         kpiError={kpiError}
         onRetryKpi={reload}
-        stats={{}}
+        stats={attentionStats}
         statsError={null}
         onRetryStats={reload}
+        mulkyaAlerts={mulkyaAlerts}
+        mulkyaLoading={mulkyaLoading}
         inventoryValue={stock ? stock.value : null}
         storeCount={storeCount}
         skuCount={stock ? stock.skus : null}
@@ -369,7 +415,7 @@ function CategoryPie({ slices }: { slices: CategorySlice[] }) {
       viewBox="0 0 220 220"
       className="mx-auto h-52 w-52"
       role="img"
-      aria-label="Sales value by category"
+      aria-label="Inventory value by category"
     >
       {paths.length === 1 ? (
         <circle cx={cx} cy={cy} r={r} fill={paths[0].color} />

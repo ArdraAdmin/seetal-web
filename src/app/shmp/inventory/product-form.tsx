@@ -3,6 +3,7 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { companyLabel, type CompanyRecord } from "@/lib/api";
 import type { CategoryGroup } from "@/lib/categories";
+import type { ShmpCategory } from "@/lib/shmp-api";
 import {
   baseItemCodeOf,
   isStlCompanyLabel,
@@ -36,8 +37,11 @@ export type ProductFormState = {
   sellingPrice: string;
   isDisplay: boolean;
   description: string;
-  dimensions: string;
-  weight: string;
+  cartonWeight: string;
+  cartonDimensions: string;
+  cbm: string;
+  pieceWeight: string;
+  pieceDimensions: string;
   pricing: PricingRow[];
 };
 
@@ -55,10 +59,33 @@ export const EMPTY_FORM: ProductFormState = {
   sellingPrice: "0",
   isDisplay: true,
   description: "",
-  dimensions: "",
-  weight: "",
+  cartonWeight: "",
+  cartonDimensions: "",
+  cbm: "",
+  pieceWeight: "",
+  pieceDimensions: "",
   pricing: [],
 };
+
+export function shmpCategoryGroups(rows: ShmpCategory[]): CategoryGroup[] {
+  const map = new Map<string, CategoryGroup>();
+  for (const row of rows) {
+    const name = row.masterCategoryName || "Category";
+    const group = map.get(name) || {
+      name,
+      masterCategoryId: name,
+      awsMasterCatDir: "",
+      items: [],
+    };
+    group.items.push({
+      _id: row._id,
+      subCategory: row.subCategory,
+      masterCategoryName: name,
+    });
+    map.set(name, group);
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 export function blankForm(company = ""): ProductFormState {
   return { ...EMPTY_FORM, company, pricing: [] };
@@ -92,6 +119,12 @@ export function storeNameOf(
 ) {
   if (!store || typeof store === "string") return "";
   return String(store.storeName ?? "");
+}
+
+function measureText(value: unknown) {
+  if (value == null || value === "") return "";
+  const amount = Number(value);
+  return Number.isFinite(amount) ? String(amount) : "";
 }
 
 function asCategoryId(value: unknown): string {
@@ -164,7 +197,12 @@ export function formFromProduct(
   product: ShmpInventoryProduct,
   groups: CategoryGroup[],
 ): ProductFormState {
-  const matched = matchCategory(product, groups);
+  const matched = product.shmpCategoryId
+    ? {
+        category: String(product.shmpMasterCategory || ""),
+        subCategory: String(product.shmpCategoryId),
+      }
+    : matchCategory(product, groups);
   const ratio = Number(product.ratio ?? 1) || 1;
   const amountInUnits =
     (product.inQty?.amountInCartons ?? 0) * ratio +
@@ -184,11 +222,11 @@ export function formFromProduct(
     sellingPrice: String(product.sellingPrice ?? 0),
     isDisplay: Boolean(product.isDisplay ?? true),
     description: String(product.description ?? ""),
-    dimensions: String(product.dimensions ?? ""),
-    weight:
-      product.weight != null && Number.isFinite(Number(product.weight))
-        ? String(product.weight)
-        : "",
+    cartonWeight: measureText(product.cartonWeight),
+    cartonDimensions: String(product.cartonDimensions ?? ""),
+    cbm: measureText(product.cbm),
+    pieceWeight: measureText(product.pieceWeight ?? product.weight),
+    pieceDimensions: String(product.pieceDimensions ?? product.dimensions ?? ""),
     pricing: pricingRowsFromProfiles(
       product.storeProfileList,
       product.sellingPrice,
@@ -415,12 +453,10 @@ export function buildPayload(
   form: ProductFormState,
   groups: CategoryGroup[],
 ): BuiltInventoryPayload {
-  const group =
-    groups.find(
-      (entry) =>
-        entry.masterCategoryId === form.category || entry.name === form.category,
-    ) || null;
-  if (!group || !form.subCategory) {
+  const knownSub = groups.some((entry) =>
+    entry.items.some((item) => (item._id || item.subCategory) === form.subCategory),
+  );
+  if (!form.subCategory || (groups.length > 0 && !knownSub)) {
     return { ok: false, error: "Select a category and sub category" };
   }
   if (!form.company) return { ok: false, error: "Select a company" };
@@ -442,8 +478,7 @@ export function buildPayload(
       itemName: form.itemName.trim(),
       barCode: form.barCode.trim(),
       barcode: form.barCode.trim(),
-      masterCategoryId: group.masterCategoryId || undefined,
-      category: form.subCategory,
+      shmpCategoryId: form.subCategory,
       company: form.company,
       companyId: form.company,
       unit: form.unit.trim() || "PCS",
@@ -452,11 +487,11 @@ export function buildPayload(
       sellingPrice: Number(form.sellingPrice) || 0,
       isDisplay: form.isDisplay,
       description: form.description.trim() || undefined,
-      dimensions: form.dimensions.trim() || undefined,
-      weight:
-        form.weight.trim() === ""
-          ? undefined
-          : Number(form.weight),
+      cartonWeight: form.cartonWeight.trim() === "" ? "" : Number(form.cartonWeight),
+      cartonDimensions: form.cartonDimensions.trim(),
+      cbm: form.cbm.trim() === "" ? "" : Number(form.cbm),
+      pieceWeight: form.pieceWeight.trim() === "" ? "" : Number(form.pieceWeight),
+      pieceDimensions: form.pieceDimensions.trim(),
       storeProfiles,
       source: SHMP_OWN_SOURCE,
       ownInventory: true,
@@ -655,21 +690,45 @@ export function ProductFields({
         }
       />
       <TextField
-        label="Dimensions"
-        optional
-        value={form.dimensions}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, dimensions: e.target.value }))
-        }
-      />
-      <TextField
-        label="Weight"
+        label="Carton weight"
         optional
         type="number"
         min={0}
         step="0.01"
-        value={form.weight}
-        onChange={(e) => setForm((prev) => ({ ...prev, weight: e.target.value }))}
+        value={form.cartonWeight}
+        onChange={(e) => setForm((prev) => ({ ...prev, cartonWeight: e.target.value }))}
+      />
+      <TextField
+        label="Carton dimensions"
+        optional
+        value={form.cartonDimensions}
+        onChange={(e) => setForm((prev) => ({ ...prev, cartonDimensions: e.target.value }))}
+        placeholder="L x W x H"
+      />
+      <TextField
+        label="CBM"
+        optional
+        type="number"
+        min={0}
+        step="0.0001"
+        value={form.cbm}
+        onChange={(e) => setForm((prev) => ({ ...prev, cbm: e.target.value }))}
+      />
+      <TextField
+        label="Piece weight"
+        optional
+        type="number"
+        min={0}
+        step="0.01"
+        value={form.pieceWeight}
+        onChange={(e) => setForm((prev) => ({ ...prev, pieceWeight: e.target.value }))}
+      />
+      <TextField
+        label="Piece dimensions"
+        optional
+        value={form.pieceDimensions}
+        onChange={(e) => setForm((prev) => ({ ...prev, pieceDimensions: e.target.value }))}
+        placeholder="L x W x H"
       />
       <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
         <input

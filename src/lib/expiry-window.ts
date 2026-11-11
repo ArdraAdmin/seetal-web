@@ -140,6 +140,7 @@ export function mulkyaAlertsFromVehicles(
     mulkyaExpiry?: string | Date | null;
   }>,
   now = Date.now(),
+  hrefBase = "/admin/vehicles",
 ): ExpiryAlertRow[] {
   const rows: ExpiryAlertRow[] = [];
   for (const vehicle of vehicles) {
@@ -154,7 +155,7 @@ export function mulkyaAlertsFromVehicles(
       title: `Vehicle #${number}`,
       expiryDate: asDateOnly(vehicle.mulkyaExpiry) || "",
       daysRemaining,
-      href: `/admin/vehicles/${id}`,
+      href: `${hrefBase}/${id}`,
     });
   }
   return rows.sort(compareAlerts);

@@ -485,12 +485,20 @@ export type PayrollRegisterRow = {
   absentDays: number;
   presentDays: number;
   leaveDays: number;
+  sundayDays?: number;
   basicSalary: number;
   otherBenefits: number;
   otSundays: number;
   totalSalary: number;
   food: number;
+  foodPerMonth?: number;
+  fines?: number;
+  loanBalance?: number;
+  loanDeduction?: number;
   finalPay: number;
+  companyId?: string;
+  attendanceType?: string;
+  attendanceId?: string;
 };
 
 export type PayrollRegister = {
@@ -516,6 +524,48 @@ export async function getPayrollRegister(
     month: String(month),
   });
   return request<PayrollRegister>(`/admin/payroll/register?${qs}`);
+}
+
+export async function savePayrollRow(
+  userId: string,
+  payload: {
+    scope: "shmp";
+    year: number;
+    month: number;
+    id: string;
+    kind: "staff" | "employee";
+    presentDays: number;
+    basicSalary: number;
+    otherBenefits: number;
+    totalSalary: number;
+    sundayAllowance?: number | "";
+    otAmount?: number | "";
+    foodServed: boolean;
+    foodPerMonth?: number | "";
+    fines: number;
+    loanDeduction?: number;
+  },
+) {
+  return request<PayrollRegister>("/admin/payroll/row", {
+    method: "POST",
+    body: JSON.stringify({ userId, ...payload }),
+  });
+}
+
+export async function recordHrFine(
+  userId: string,
+  payload: {
+    kind: "staff" | "employee" | "user";
+    id: string;
+    amount: number;
+    date: string;
+    reason: string;
+  },
+) {
+  return request<HrStaff>("/admin/hr/fines", {
+    method: "POST",
+    body: JSON.stringify({ userId, ...payload }),
+  });
 }
 
 export type HrStaffAttendanceMark = {
@@ -687,6 +737,30 @@ export type HrStaff = {
   hrProfile?: HrProfile;
 };
 
+export type HrLoanRepayment = {
+  entryId: string;
+  voucherNo: string;
+  date: string;
+  amount: number;
+  note?: string;
+};
+
+export type HrLoan = {
+  entryId: string;
+  voucherNo: string;
+  issuedOn: string;
+  amount: number;
+  note?: string;
+  repayments?: HrLoanRepayment[];
+};
+
+export type HrFine = {
+  entryId: string;
+  date: string;
+  amount: number;
+  reason: string;
+};
+
 export type HrProfile = {
   visaApplicationYear?: number;
   visaCost?: number;
@@ -701,6 +775,10 @@ export type HrProfile = {
   totalSalary?: number;
   sundayAllowance?: number;
   foodServed?: boolean;
+  productionWorker?: boolean;
+  productionEmployeeId?: string;
+  loans?: HrLoan[];
+  fines?: HrFine[];
   salarySlips?: Array<{
     year: number;
     month: number;
@@ -819,6 +897,87 @@ export async function getHrLinkCandidates(
   return request<{
     users: Array<{ id: string; name: string; email: string; role: string }>;
   }>(`/admin/hr/link-candidates?${qs}`);
+}
+
+function hrLedgerRoot(kind?: "staff" | "employee") {
+  return kind === "employee" ? "employees" : "staff";
+}
+
+export async function issueHrLoan(
+  adminUserId: string,
+  staffId: string,
+  payload: { amount: number; issuedOn: string; note?: string },
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(`/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/loans`, {
+    method: "POST",
+    body: JSON.stringify({ userId: adminUserId, ...payload }),
+  });
+}
+
+export async function repayHrLoan(
+  adminUserId: string,
+  staffId: string,
+  loanId: string,
+  payload: { amount: number; date: string; note?: string },
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(
+    `/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/loans/${encodeURIComponent(loanId)}/repayments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: adminUserId, ...payload }),
+    },
+  );
+}
+
+export async function deleteHrLoan(
+  adminUserId: string,
+  staffId: string,
+  loanId: string,
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(
+    `/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/loans/${encodeURIComponent(loanId)}?userId=${encodeURIComponent(adminUserId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function deleteHrLoanRepayment(
+  adminUserId: string,
+  staffId: string,
+  loanId: string,
+  repaymentId: string,
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(
+    `/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/loans/${encodeURIComponent(loanId)}/repayments/${encodeURIComponent(repaymentId)}?userId=${encodeURIComponent(adminUserId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function addHrFine(
+  adminUserId: string,
+  staffId: string,
+  payload: { amount: number; date: string; reason: string },
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(`/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/fines`, {
+    method: "POST",
+    body: JSON.stringify({ userId: adminUserId, ...payload }),
+  });
+}
+
+export async function deleteHrFine(
+  adminUserId: string,
+  staffId: string,
+  fineId: string,
+  kind?: "staff" | "employee",
+) {
+  return request<HrStaff>(
+    `/admin/hr/${hrLedgerRoot(kind)}/${encodeURIComponent(staffId)}/fines/${encodeURIComponent(fineId)}?userId=${encodeURIComponent(adminUserId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getEmployeeHr(adminUserId: string, id: string) {

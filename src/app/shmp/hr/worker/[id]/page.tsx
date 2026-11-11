@@ -28,6 +28,8 @@ import {
   TextField,
 } from "@/components/ui";
 import { HrEmployeeDocuments } from "@/components/HrStaffEditor";
+import { HrLedgerCard } from "@/components/HrLedgerCard";
+import { getEmployeeHr, type HrStaff } from "@/lib/stl-features-api";
 import { SalarySlipCard } from "@/components/SalarySlipCard";
 import {
   AttendanceHistory,
@@ -77,6 +79,7 @@ function WorkerDetail() {
       : "Back to HR";
   const id = String(params?.id || "");
   const [emp, setEmp] = useState<Emp | null>(null);
+  const [hrRecord, setHrRecord] = useState<HrStaff | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
@@ -105,6 +108,11 @@ function WorkerDetail() {
         leave: { ...found.leave, ...leave },
       };
       setEmp(merged);
+      if (user?.id && showSalary) {
+        setHrRecord(await getEmployeeHr(user.id, id).catch(() => null));
+      } else {
+        setHrRecord(null);
+      }
       setName(merged.name || "");
       setDesignation(
         DESIGNATIONS.includes(merged.designation as Designation)
@@ -129,7 +137,7 @@ function WorkerDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, showSalary, user?.id]);
 
   useEffect(() => {
     void load();
@@ -316,6 +324,16 @@ function WorkerDetail() {
       <AttendanceHistory kind="worker" personId={id} />
       {!supervisor ? <HrEmployeeDocuments personId={id} /> : null}
       {!supervisor && showSalary ? <SalarySlipCard kind="employee" personId={id} /> : null}
+      {!supervisor && showSalary && hrRecord ? (
+        <HrLedgerCard
+          staff={hrRecord}
+          kind="employee"
+          onChanged={async () => {
+            if (!user?.id) return;
+            setHrRecord(await getEmployeeHr(user.id, id));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

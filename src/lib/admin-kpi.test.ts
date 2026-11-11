@@ -133,7 +133,7 @@ describe("dashboardCardsForSide", () => {
     assert.equal(cards.salesBySalesman, true);
   });
 
-  it("shows SHMP sales, inventory, stores, and insights without STL-only cards", () => {
+  it("shows SHMP sales, inventory, stores, expiry alerts, and insights", () => {
     const cards = dashboardCardsForSide("shmp");
     assert.equal(cards.thisMonth, true);
     assert.equal(cards.inventoryValue, true);
@@ -144,7 +144,7 @@ describe("dashboardCardsForSide", () => {
     assert.equal(cards.topProducts, true);
     assert.equal(cards.salesBySalesman, true);
     assert.equal(cards.salesLost, false);
-    assert.equal(cards.attention, false);
+    assert.equal(cards.attention, true);
     assert.equal(cards.users, false);
     assert.equal(cards.warehouseUsers, false);
     assert.equal(cards.userMix, false);

@@ -180,6 +180,7 @@ export function HrProfileFields({
   showCompany = false,
   scope,
   shown,
+  showProductionWorker = false,
 }: {
   form: HrProfileFormState;
   onChange: (form: HrProfileFormState) => void;
@@ -188,6 +189,7 @@ export function HrProfileFields({
   showCompany?: boolean;
   scope: HrSalaryScope;
   shown?: HrFieldVisibility;
+  showProductionWorker?: boolean;
 }) {
   const showSalary = shown?.salary !== false;
   const showPassport = shown?.passport !== false;
@@ -252,6 +254,35 @@ export function HrProfileFields({
             <span className="text-xs font-normal text-slate-500">{form.foodServed ? "On" : "Off"}</span>
           </button>
         </div>
+        {showProductionWorker ? (
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.productionWorker}
+              aria-label="Production worker"
+              disabled={disabled}
+              onClick={() => set("productionWorker", !form.productionWorker)}
+              className="inline-flex items-center gap-2 text-sm font-medium text-ink disabled:opacity-60"
+            >
+              <span
+                className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-out ${
+                  form.productionWorker ? "bg-brand" : "bg-slate-300"
+                }`}
+              >
+                <span
+                  className={`h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
+                    form.productionWorker ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </span>
+              Production worker
+              <span className="text-xs font-normal text-slate-500">
+                {form.productionWorker ? "Shows in the production list" : "Hidden from production"}
+              </span>
+            </button>
+          </div>
+        ) : null}
         {showCompany ? (
           <CompanyField
             value={form.company}

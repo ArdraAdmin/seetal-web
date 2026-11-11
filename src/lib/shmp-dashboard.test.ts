@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   attendanceFilterHref,
+  categorySliceTotal,
   hrFilterHref,
+  inventoryCategoryLabel,
   parseHrDayFilter,
-  shmpSalesCategoryRows,
-  shmpSalesTotal,
+  shmpInventoryCategoryRows,
   shmpStockSnapshot,
 } from "./shmp-dashboard.ts";
 
@@ -33,37 +34,45 @@ describe("attendanceFilterHref", () => {
   });
 });
 
-describe("shmpSalesCategoryRows", () => {
-  const sarvahRows = [
-    { categoryName: "Tiles — Floor", value: 1200 },
-    { categoryName: "Sanitaryware", value: 800 },
-  ];
-
-  it("returns no sales when SHMP has not added its own inventory", () => {
-    assert.deepEqual(shmpSalesCategoryRows(sarvahRows, false), []);
-    assert.equal(shmpSalesTotal(shmpSalesCategoryRows(sarvahRows, false)), 0);
-  });
-
-  it("groups confirmed SHMP production sales by master category", () => {
-    const rows = shmpSalesCategoryRows(
-      [
-        { categoryName: "Tiles — Floor", value: 1200 },
-        { categoryName: "Tiles — Wall", value: 300 },
-        { categoryName: "Sanitaryware — Basins", value: 800 },
-        { categoryName: "Ignored", value: 0 },
-      ],
-      true,
-    );
-    assert.deepEqual(rows, [
-      { key: "Tiles", label: "Tiles", value: 1500 },
-      { key: "Sanitaryware", label: "Sanitaryware", value: 800 },
+describe("shmpInventoryCategoryRows", () => {
+  it("groups on-hand SHMP stock by master category and skips empty stock", () => {
+    const rows = shmpInventoryCategoryRows([
+      {
+        sellingPrice: 10,
+        ratio: 2,
+        inQty: { amountInCartons: 3, amountInUnits: 0 },
+        category: { masterCategoryName: "Tiles — Floor" },
+      },
+      {
+        sellingPrice: 5,
+        ratio: 1,
+        inQty: { amountInCartons: 4, amountInUnits: 0 },
+        category: { masterCategory: "Tiles" },
+      },
+      {
+        sellingPrice: 8,
+        ratio: 1,
+        inQty: { amountInCartons: 2, amountInUnits: 0 },
+        category: { subCategory: "Basins" },
+      },
+      {
+        sellingPrice: 20,
+        ratio: 1,
+        inQty: { amountInCartons: 0, amountInUnits: 0 },
+        categoryName: "Ignored",
+      },
     ]);
-    assert.equal(shmpSalesTotal(rows), 2300);
+    assert.deepEqual(rows, [
+      { key: "Tiles", label: "Tiles", value: 80 },
+      { key: "Basins", label: "Basins", value: 16 },
+    ]);
+    assert.equal(categorySliceTotal(rows), 96);
+    assert.equal(inventoryCategoryLabel({}), "Uncategorised");
   });
 
-  it("does not fall back to empty or missing category rows", () => {
-    assert.deepEqual(shmpSalesCategoryRows(undefined, true), []);
-    assert.deepEqual(shmpSalesCategoryRows([], true), []);
+  it("returns no rows when there is no stock", () => {
+    assert.deepEqual(shmpInventoryCategoryRows([]), []);
+    assert.equal(categorySliceTotal([]), 0);
   });
 });
 

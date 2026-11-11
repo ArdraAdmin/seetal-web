@@ -8,6 +8,7 @@ import {
   Boxes,
   CalendarDays,
   ClipboardList,
+  ShieldCheck,
   Factory,
   Image as ImageIcon,
   LayoutDashboard,
@@ -46,6 +47,13 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/shmp", label: "Dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
+  {
+    href: "/shmp/approvals",
+    label: "Approvals",
+    icon: ShieldCheck,
+    moduleId: "dashboard",
+    fieldId: "pending-approvals",
+  },
   { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/shmp/hr/payroll",

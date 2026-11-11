@@ -12,7 +12,6 @@ import {
 } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
-  getCategories,
   getCompanies,
   type CompanyRecord,
 } from "@/lib/api";
@@ -21,13 +20,14 @@ import {
   ProductArtworkGallery,
 } from "@/components/ProductArtwork";
 import { ProductImageField, ProductImageGallery } from "@/components/ProductImage";
-import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
+import type { CategoryGroup } from "@/lib/categories";
 import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
 import {
   baseItemCodeOf,
   shmpDeleteInventory,
+  shmpCategories,
   shmpInventoryProduct,
   shmpStores,
   shmpUpdateInventory,
@@ -46,6 +46,7 @@ import {
 import {
   ProductFields,
   buildPayload,
+  shmpCategoryGroups,
   companyNameOf,
   formFromProduct,
   matchCategory,
@@ -131,12 +132,12 @@ function InventoryItemDetail() {
     setLoadingCategories(true);
     setLoadingCompanies(true);
     void Promise.all([
-      getCategories().catch(() => []),
+      shmpCategories().catch(() => []),
       getCompanies().catch(() => [] as CompanyRecord[]),
       shmpStores().catch(() => [] as ShmpStore[]),
     ]).then(([cats, comps, storeList]) => {
       if (cancelled) return;
-      setGroups(parseCategoryGroups(cats));
+      setGroups(shmpCategoryGroups(Array.isArray(cats) ? cats : []));
       setCompanies(Array.isArray(comps) ? comps : []);
       setStores(Array.isArray(storeList) ? storeList : []);
       setLoadingCategories(false);

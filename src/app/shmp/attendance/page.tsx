@@ -14,6 +14,7 @@ import {
   getPortalLeaveEntitlements,
   markHrStaffAttendance,
   overrideSalesAttendance,
+  recordHrFine,
   savePortalLeaveEntitlements,
   updateHrStaff,
   type HrStaffAttendanceMark,
@@ -177,6 +178,12 @@ function AttendancePage() {
   const [leaveAnnual, setLeaveAnnual] = useState("");
   const [leaveSick, setLeaveSick] = useState("");
   const [savingLeave, setSavingLeave] = useState(false);
+  const [finePerson, setFinePerson] = useState("");
+  const [fineAmount, setFineAmount] = useState("");
+  const [fineDate, setFineDate] = useState(dubaiToday);
+  const [fineReason, setFineReason] = useState("");
+  const [fineOpen, setFineOpen] = useState(false);
+  const [savingFine, setSavingFine] = useState(false);
   const [selectedLeaveKeys, setSelectedLeaveKeys] = useState<string[]>([]);
   const [leaveListQuery, setLeaveListQuery] = useState("");
   const [portalLeave, setPortalLeave] = useState<
@@ -668,6 +675,42 @@ function AttendancePage() {
     }
   }
 
+  function openFine(personId = "") {
+    setFinePerson(personId);
+    setFineAmount("");
+    setFineDate(dubaiToday());
+    setFineReason("");
+    setFineOpen(true);
+  }
+
+  async function onSaveFine(event: FormEvent) {
+    event.preventDefault();
+    if (!user?.id) return;
+    const amount = Number(fineAmount);
+    if (!finePerson || !Number.isFinite(amount) || amount <= 0 || !fineDate || !fineReason.trim()) {
+      toast("Person, amount, date, and reason are required", "info");
+      return;
+    }
+    const [rawKind, id] = finePerson.split(":");
+    const kind = rawKind === "worker" ? "employee" : rawKind === "portal" ? "user" : "staff";
+    setSavingFine(true);
+    try {
+      await recordHrFine(user.id, {
+        kind,
+        id,
+        amount,
+        date: fineDate,
+        reason: fineReason.trim(),
+      });
+      toast("Fine recorded on this person's HR loans and fines", "success");
+      setFineOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not record the fine", "error");
+    } finally {
+      setSavingFine(false);
+    }
+  }
+
   async function onSaveLeave(e: FormEvent) {
     e.preventDefault();
     if (supervisor) return;
@@ -767,9 +810,14 @@ function AttendancePage() {
         title="Attendance"
         subtitle="Workers, supervisors, and everyone listed in HR. Mark or change attendance from here."
         actions={
-          <SecondaryButton type="button" disabled={loading} onClick={() => void refresh()}>
-            Refresh
-          </SecondaryButton>
+          <div className="flex gap-2">
+            <SecondaryButton type="button" disabled={loading} onClick={() => openFine()}>
+              Record a fine
+            </SecondaryButton>
+            <SecondaryButton type="button" disabled={loading} onClick={() => void refresh()}>
+              Refresh
+            </SecondaryButton>
+          </div>
         }
       />
 
@@ -895,18 +943,29 @@ function AttendancePage() {
                           Check out: {fmtDateTime(row.checkOutAt)}
                         </p>
                       </Link>
-                      <button
-                        type="button"
-                        className="shrink-0 font-medium text-brand-dark underline"
-                        onClick={() =>
-                          openMark(
-                            row.kind === "worker" ? `worker:${row._id}` : `portal:${row._id}`,
-                            "present",
-                          )
-                        }
-                      >
-                        Edit
-                      </button>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <button
+                          type="button"
+                          className="font-medium text-brand-dark underline"
+                          onClick={() =>
+                            openMark(
+                              row.kind === "worker" ? `worker:${row._id}` : `portal:${row._id}`,
+                              "present",
+                            )
+                          }
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="font-medium text-brand-dark underline"
+                          onClick={() =>
+                            openFine(row.kind === "worker" ? `worker:${row._id}` : `portal:${row._id}`)
+                          }
+                        >
+                          Fine
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -983,13 +1042,22 @@ function AttendancePage() {
                             </p>
                           ) : null}
                         </div>
-                        <button
-                          type="button"
-                          className="shrink-0 font-medium text-brand-dark underline"
-                          onClick={() => openMark(hrMarkId(person), mark?.status || "present")}
-                        >
-                          Edit
-                        </button>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <button
+                            type="button"
+                            className="font-medium text-brand-dark underline"
+                            onClick={() => openMark(hrMarkId(person), mark?.status || "present")}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="font-medium text-brand-dark underline"
+                            onClick={() => openFine(hrMarkId(person))}
+                          >
+                            Fine
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
@@ -1121,6 +1189,69 @@ function AttendancePage() {
         >
           <Plus className="h-7 w-7" strokeWidth={2.25} />
         </button>
+      ) : null}
+
+      {fineOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="record-fine-title"
+        >
+          <form
+            onSubmit={onSaveFine}
+            className="w-full max-w-md space-y-3 rounded-2xl border border-line bg-white p-5 shadow-lg"
+          >
+            <h2 id="record-fine-title" className="text-lg font-semibold text-ink">Record a fine</h2>
+            <p className="text-xs text-slate-500">
+              This is saved under that person&apos;s loans and fines in HR, and it is taken off SHMP payroll for the month of the fine.
+            </p>
+            <label className="block space-y-1.5">
+              <span className="text-[13px] font-medium text-slate-700">Person</span>
+              <select
+                required
+                value={finePerson}
+                onChange={(event) => setFinePerson(event.target.value)}
+                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
+              >
+                <option value="">Select a person</option>
+                {markPeople.map((person) => (
+                  <option key={person.id} value={person.id}>{person.label}</option>
+                ))}
+              </select>
+            </label>
+            <TextField
+              label="Amount (AED)"
+              type="number"
+              min={0.01}
+              step="0.01"
+              required
+              value={fineAmount}
+              onChange={(event) => setFineAmount(event.target.value)}
+            />
+            <TextField
+              label="Date"
+              type="date"
+              required
+              value={fineDate}
+              onChange={(event) => setFineDate(event.target.value)}
+            />
+            <TextField
+              label="Reason"
+              required
+              value={fineReason}
+              onChange={(event) => setFineReason(event.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <SecondaryButton type="button" disabled={savingFine} onClick={() => setFineOpen(false)}>
+                Cancel
+              </SecondaryButton>
+              <PrimaryButton type="submit" disabled={savingFine}>
+                {savingFine ? "Saving…" : "Save fine"}
+              </PrimaryButton>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       <MarkAttendanceDialog

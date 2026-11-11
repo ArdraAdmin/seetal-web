@@ -33,6 +33,7 @@ export type HrProfileFormState = {
   sharjahPermitExpiry: string;
   sharjahPermitCopy: HrFileValue;
   foodServed: boolean;
+  productionWorker: boolean;
 };
 
 const FILE_KEYS = [
@@ -76,6 +77,7 @@ export function emptyHrProfileForm(): HrProfileFormState {
     sharjahPermitExpiry: "",
     sharjahPermitCopy: null,
     foodServed: false,
+    productionWorker: false,
   };
 }
 
@@ -178,6 +180,7 @@ export function hrProfileToForm(
   form.insuranceExpiry = toDateInput(source.insuranceExpiry);
   form.sharjahPermitExpiry = toDateInput(source.sharjahPermitExpiry);
   form.foodServed = source.foodServed === true;
+  form.productionWorker = source.productionWorker === true;
   for (const key of FILE_KEYS) form[key] = fileFrom(source[key]);
   return form;
 }
@@ -210,6 +213,7 @@ export function hrProfilePayload(
     insuranceExpiry: form.insuranceExpiry,
     sharjahPermitExpiry: form.sharjahPermitExpiry,
     foodServed: form.foodServed === true,
+    productionWorker: form.productionWorker === true,
   };
   for (const key of FILE_KEYS) {
     const file = form[key];

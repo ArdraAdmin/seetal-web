@@ -416,7 +416,7 @@ export function KpiDashboard({
             label="Trade license expiring"
             icon={AlertTriangle}
             value={stats.expiredTradeLicenses}
-            href="/admin/stores?license=expired"
+            href={side === "shmp" ? "/shmp/stores?license=expiring" : "/admin/stores?license=expired"}
           />
           ) : null}
           {show("pending-approvals") ? (
@@ -424,7 +424,7 @@ export function KpiDashboard({
             label="Pending approvals"
             icon={ShieldCheck}
             value={stats.pendingApprovals}
-            href="/admin/approvals"
+            href={side === "shmp" ? "/shmp/approvals" : "/admin/approvals"}
           />
           ) : null}
         </div>

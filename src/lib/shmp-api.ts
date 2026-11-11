@@ -694,6 +694,15 @@ export type ShmpInventoryProduct = {
   description?: string;
   dimensions?: string;
   weight?: number;
+  cartonWeight?: number;
+  cartonDimensions?: string;
+  pieceWeight?: number;
+  pieceDimensions?: string;
+  cbm?: number;
+  shmpCategoryId?: string;
+  shmpMasterCategory?: string;
+  shmpSubCategory?: string;
+  catalogBrand?: string;
   masterCategoryId?: string;
   category?: string | { _id?: string; subCategory?: string };
   company?: string | { _id?: string; name?: string; prefix?: string };
@@ -773,6 +782,23 @@ export type ShmpStoreProfileInput = {
   storeItemCode?: string;
   isDisplayed?: boolean;
 };
+
+export type ShmpCategory = {
+  _id: string;
+  masterCategoryName: string;
+  subCategory: string;
+};
+
+export const shmpCategories = () => shmpRequest<ShmpCategory[]>("/categories");
+
+export const shmpCreateCategory = (body: {
+  masterCategoryName: string;
+  subCategory: string;
+}) =>
+  shmpRequest<ShmpCategory>("/categories", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 export const shmpInventory = (
   params?: Record<string, string>,

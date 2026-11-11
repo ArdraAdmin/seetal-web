@@ -1,5 +1,3 @@
-import type { ShmpCategoryValue } from "./shmp-api";
-
 export type HrDayFilter = "total" | "present" | "absent" | "leave";
 
 export function parseHrDayFilter(
@@ -30,22 +28,55 @@ export type SalesCategorySlice = {
   value: number;
 };
 
-/**
- * SHMP sales by category. Existing SHMP-labelled stock is Sarvah inventory
- * and must not count until SHMP production products exist.
- */
-export function shmpSalesCategoryRows(
-  salesValueByCategory: ShmpCategoryValue[] | undefined,
-  hasOwnInventory: boolean,
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** Master category for an SHMP production product. Subcategory is the fallback. */
+export function inventoryCategoryLabel(product: {
+  category?: unknown;
+  categoryName?: unknown;
+  masterCategoryName?: unknown;
+}): string {
+  const direct = text(product.masterCategoryName) || text(product.categoryName);
+  if (direct) return direct.split(" — ")[0].trim() || "Uncategorised";
+  if (product.category && typeof product.category === "object") {
+    const category = product.category as Record<string, unknown>;
+    const master = text(category.masterCategoryName) || text(category.masterCategory);
+    if (master) return master.split(" — ")[0].trim() || "Uncategorised";
+    const sub = text(category.subCategory);
+    if (sub) return sub;
+  }
+  if (typeof product.category === "string" && product.category.trim()) {
+    return product.category.trim();
+  }
+  return "Uncategorised";
+}
+
+export function stockLineValue(product: ShmpStockProduct): number {
+  const price = Number(product.sellingPrice) || 0;
+  const ratio = Number(product.ratio);
+  const piecesPerCarton = ratio > 0 ? ratio : 1;
+  const cartons = Number(product.inQty?.amountInCartons) || 0;
+  const loose = Number(product.inQty?.amountInUnits) || 0;
+  return price * (cartons * piecesPerCarton + loose);
+}
+
+/** On-hand value of SHMP production stock, grouped by category. */
+export function shmpInventoryCategoryRows(
+  products: Array<
+    ShmpStockProduct & {
+      category?: unknown;
+      categoryName?: unknown;
+      masterCategoryName?: unknown;
+    }
+  >,
 ): SalesCategorySlice[] {
-  if (!hasOwnInventory) return [];
   const grouped = new Map<string, number>();
-  for (const row of salesValueByCategory || []) {
-    const raw =
-      row.categoryName || (row._id ? String(row._id) : "Uncategorised");
-    const label = raw.split(" — ")[0].trim() || "Uncategorised";
-    const value = Number(row.value) || 0;
+  for (const product of products) {
+    const value = stockLineValue(product);
     if (value <= 0) continue;
+    const label = inventoryCategoryLabel(product);
     grouped.set(label, (grouped.get(label) || 0) + value);
   }
   return [...grouped.entries()]
@@ -57,7 +88,7 @@ export function shmpSalesCategoryRows(
     }));
 }
 
-export function shmpSalesTotal(rows: SalesCategorySlice[]): number {
+export function categorySliceTotal(rows: SalesCategorySlice[]): number {
   return rows.reduce((sum, row) => sum + row.value, 0);
 }
 
@@ -73,14 +104,8 @@ export type ShmpStockProduct = {
 
 /** SKU count and stock value. Pass SHMP production products only. */
 export function shmpStockSnapshot(products: ShmpStockProduct[]) {
-  let value = 0;
-  for (const product of products) {
-    const price = Number(product.sellingPrice) || 0;
-    const ratio = Number(product.ratio);
-    const piecesPerCarton = ratio > 0 ? ratio : 1;
-    const cartons = Number(product.inQty?.amountInCartons) || 0;
-    const loose = Number(product.inQty?.amountInUnits) || 0;
-    value += price * (cartons * piecesPerCarton + loose);
-  }
-  return { skus: products.length, value };
+  return {
+    skus: products.length,
+    value: products.reduce((sum, product) => sum + stockLineValue(product), 0),
+  };
 }

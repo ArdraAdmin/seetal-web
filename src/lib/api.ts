@@ -520,7 +520,11 @@ export const getVehicleExtrasMap = (ids: string[], scope: FleetScope = "stl") =>
 export async function getMulkyaAlerts(scope: FleetScope = "stl") {
   const vehicles = await getVehicles(scope);
   return {
-    vehicles: mulkyaAlertsFromVehicles(Array.isArray(vehicles) ? vehicles : []),
+    vehicles: mulkyaAlertsFromVehicles(
+      Array.isArray(vehicles) ? vehicles : [],
+      Date.now(),
+      scope === "shmp" ? "/shmp/vehicles" : "/admin/vehicles",
+    ),
   };
 }
 export const addVehicleMaintenance = (

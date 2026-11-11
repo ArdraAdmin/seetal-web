@@ -22,9 +22,19 @@ import {
 } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
 import {
+  foodRateFromCharge,
+  linkedAttendanceDays,
+  roundPayrollMoney,
+  standardFoodCharge,
+} from "@/lib/payroll-edit";
+import { shmpOverrideAttendance } from "@/lib/shmp-api";
+import {
   getEmployeeHr,
   getHrStaffRecord,
   getPayrollRegister,
+  markHrStaffAttendance,
+  overrideSalesAttendance,
+  savePayrollRow,
   updateEmployeeHr,
   updateHrStaffRecord,
   type PayrollRegisterRow,
@@ -52,7 +62,7 @@ function formatDays(value: number) {
   return rounded.toFixed(2).replace(/0$/, "");
 }
 
-function sumMoney(rows: PayrollRegisterRow[], key: "basicSalary" | "otherBenefits" | "otSundays" | "totalSalary" | "food" | "finalPay") {
+function sumMoney(rows: PayrollRegisterRow[], key: "basicSalary" | "otherBenefits" | "otSundays" | "totalSalary" | "food" | "fines" | "loanBalance" | "finalPay") {
   return Math.round(rows.reduce((total, row) => total + (Number(row[key]) || 0), 0) * 100) / 100;
 }
 
@@ -79,6 +89,7 @@ export function PayrollRegister() {
   const [rows, setRows] = useState<PayrollRegisterRow[]>([]);
   const [label, setLabel] = useState("");
   const [foodPerMonth, setFoodPerMonth] = useState(230);
+  const [calendarDays, setCalendarDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -88,6 +99,17 @@ export function PayrollRegister() {
   const [editOther, setEditOther] = useState("");
   const [editSunday, setEditSunday] = useState("");
   const [editFood, setEditFood] = useState(false);
+  const [editPresent, setEditPresent] = useState("");
+  const [editAbsent, setEditAbsent] = useState("");
+  const [editOt, setEditOt] = useState("");
+  const [editTotal, setEditTotal] = useState("");
+  const [editFoodAmount, setEditFoodAmount] = useState("");
+  const [editFines, setEditFines] = useState("");
+  const [editLoan, setEditLoan] = useState("");
+  const [dayDate, setDayDate] = useState("");
+  const [dayStatus, setDayStatus] = useState("present");
+  const [dayReason, setDayReason] = useState("");
+  const [daySaving, setDaySaving] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const editRequest = useRef(0);
@@ -108,6 +130,7 @@ export function PayrollRegister() {
           setRows(data.rows || []);
           setLabel(data.label || "");
           setFoodPerMonth(data.foodPerMonth || 230);
+          setCalendarDays(data.calendarDays || 30);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
@@ -137,6 +160,16 @@ export function PayrollRegister() {
     setEditOther(String(row.otherBenefits));
     setEditSunday("");
     setEditFood(row.food > 0);
+    setEditPresent(String(row.presentDays));
+    setEditAbsent(String(row.absentDays));
+    setEditOt(String(row.otSundays));
+    setEditTotal(String(row.totalSalary));
+    setEditFoodAmount(String(row.food));
+    setEditFines(String(row.fines || 0));
+    setEditLoan("");
+    setDayDate(`${month}-01`);
+    setDayStatus("present");
+    setDayReason("");
     if (!user?.id) return;
     setEditLoading(true);
     const load = row.kind === "employee"
@@ -161,15 +194,140 @@ export function PayrollRegister() {
       });
   }
 
+  function applyPresent(value: string) {
+    const days = linkedAttendanceDays(Number(value), calendarDays);
+    setEditPresent(String(days.presentDays));
+    setEditAbsent(String(days.absentDays));
+  }
+
+  function applyAbsent(value: string) {
+    const absent = Number(value);
+    if (!Number.isFinite(absent)) {
+      setEditAbsent(value);
+      return;
+    }
+    applyPresent(String(calendarDays - absent));
+  }
+
+  async function onSaveDay() {
+    if (!user?.id || !editing) return;
+    if (!dayDate || !dayReason.trim()) {
+      toast("Date and reason are required", "info");
+      return;
+    }
+    const status = dayStatus === "leave" || dayStatus === "absent" || dayStatus === "holiday"
+      ? dayStatus
+      : "present";
+    setDaySaving(true);
+    try {
+      if (editing.attendanceType === "employee") {
+        if (!editing.companyId) throw new Error("Selected worker has no company");
+        await shmpOverrideAttendance({
+          companyId: editing.companyId,
+          employeeId: editing.attendanceId,
+          date: new Date(dayDate).toISOString(),
+          newStatus: status,
+          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          reason: dayReason.trim(),
+        });
+      } else if (editing.attendanceType === "user") {
+        if (status === "holiday") throw new Error("Holiday is only for factory workers");
+        await overrideSalesAttendance({
+          userId: user.id,
+          salesId: editing.attendanceId || editing.id,
+          date: dayDate,
+          status: status === "leave" ? "leave" : status === "absent" ? "absent" : "present",
+          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          reason: dayReason.trim(),
+        });
+      } else {
+        if (status === "holiday") throw new Error("Holiday is only for factory workers");
+        await markHrStaffAttendance(user.id, editing.attendanceId || editing.id, {
+          date: dayDate,
+          status: status === "leave" ? "leave" : status === "absent" ? "absent" : "present",
+          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          reason: dayReason.trim(),
+        });
+      }
+      const data = await getPayrollRegister(user.id, scope, year || 0, monthNumber || 0);
+      setRows(data.rows || []);
+      const fresh = (data.rows || []).find((row) => row.id === editing.id && row.kind === editing.kind);
+      if (fresh) {
+        setEditing(fresh);
+        setEditPresent(String(fresh.presentDays));
+        setEditAbsent(String(fresh.absentDays));
+        setEditOt(String(fresh.otSundays));
+        setEditFoodAmount(String(fresh.food));
+        setEditFood(fresh.food > 0);
+        setEditFines(String(fresh.fines || 0));
+      }
+      setDayReason("");
+      toast("Attendance saved", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Attendance update failed", "error");
+    } finally {
+      setDaySaving(false);
+    }
+  }
+
   async function onSaveEdit(event: FormEvent) {
     event.preventDefault();
-    if (!user?.id || !editing) return;
+    if (!user?.id || !editing || year == null || monthNumber == null) return;
     const problem =
       moneyProblem("Basic salary", editBasic, true) ||
       moneyProblem("Other benefits", editOther, true) ||
-      moneyProblem("Sunday allowance", editSunday, false);
+      moneyProblem("Sunday allowance", editSunday, false) ||
+      (scope === "shmp"
+        ? moneyProblem("Present days", editPresent, true) ||
+          moneyProblem("OT Sundays", editOt, true) ||
+          moneyProblem("Food", editFoodAmount, true) ||
+          moneyProblem("Fines", editFines, true) ||
+          moneyProblem("Loan deduction", editLoan, false)
+        : null);
     if (problem) {
       toast(problem, "info");
+      return;
+    }
+    if (scope === "shmp") {
+      const basic = Number(editBasic);
+      const other = Number(editOther);
+      const ot = Number(editOt);
+      const sundayDays = editing.sundayDays || 0;
+      const standard = standardFoodCharge(foodPerMonth, calendarDays, editing.leaveDays || 0);
+      const typedFood = editFood ? Number(editFoodAmount) : 0;
+      const personalRate = editFood && Math.abs(typedFood - standard) > 0.009
+        ? foodRateFromCharge(typedFood, calendarDays, editing.leaveDays || 0)
+        : null;
+      setEditSaving(true);
+      try {
+        const data = await savePayrollRow(user.id, {
+          scope: "shmp",
+          year,
+          month: monthNumber,
+          id: editing.id,
+          kind: editing.kind,
+          presentDays: Number(editPresent),
+          basicSalary: basic,
+          otherBenefits: other,
+          totalSalary: roundPayrollMoney(basic + other + ot),
+          sundayAllowance: sundayDays > 0
+            ? roundPayrollMoney(ot / sundayDays)
+            : editSunday.trim() === "" ? "" : Number(editSunday),
+          otAmount: sundayDays > 0 ? "" : ot,
+          foodServed: editFood,
+          foodPerMonth: personalRate == null ? "" : personalRate,
+          fines: Number(editFines),
+          loanDeduction: editLoan.trim() === "" ? 0 : Number(editLoan),
+        });
+        setRows(data.rows || []);
+        setLabel(data.label || "");
+        toast("Payroll record saved", "success");
+        setEditing(null);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Save failed", "error");
+      } finally {
+        setEditSaving(false);
+      }
       return;
     }
     setEditSaving(true);
@@ -214,7 +372,13 @@ export function PayrollRegister() {
 
   const term = query.trim().toLowerCase();
   const visible = term ? rows.filter((row) => row.name.toLowerCase().includes(term)) : rows;
-  const moneyKeys = ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "finalPay"] as const;
+  const moneyKeys = (scope === "shmp"
+    ? ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "loanBalance", "fines", "finalPay"]
+    : ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "finalPay"]) as Array<
+    "basicSalary" | "otherBenefits" | "otSundays" | "totalSalary" | "food" | "fines" | "loanBalance" | "finalPay"
+  >;
+  const foodTotal = sumMoney(rows, "food");
+  const foodPeople = rows.filter((row) => row.food > 0).length;
 
   return (
     <div>
@@ -222,8 +386,10 @@ export function PayrollRegister() {
         title="Payroll"
         subtitle={
           label
-            ? `${label} monthly salary. Food is AED ${foodPerMonth} when food served is on. Leave days are left out of that charge.`
-            : "Monthly salary for this side. Leave days are left out of the food charge."
+            ? `${label} monthly salary. Food is AED ${foodPerMonth} when food served is on. Leave days are left out of that charge.${scope === "shmp" ? " Fines dated in this month are taken off the final pay." : ""}`
+            : scope === "shmp"
+              ? "Monthly salary for this side. Fines dated in this month are taken off the final pay."
+              : "Monthly salary for this side. Leave days are left out of the food charge."
         }
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => setReloadKey((value) => value + 1)}>
@@ -246,6 +412,29 @@ export function PayrollRegister() {
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>
+      {scope === "shmp" && !loading && !error && parsedMonth && rows.length > 0 ? (
+        <div className="mb-4 grid gap-3 sm:grid-cols-4">
+          <div className="rounded-2xl border border-line bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Food total</p>
+            <p className="mt-1 text-2xl font-semibold text-red-700">{salesMoney(foodTotal)}</p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-slate-500">People charged</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{foodPeople}</p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Share this month</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">
+              {foodPeople > 0 ? salesMoney(roundPayrollMoney(foodTotal / foodPeople)) : salesMoney(0)}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-line bg-white px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Headcount</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{rows.length}</p>
+            <p className="mt-1 text-xs text-slate-500">AED {foodPerMonth} per person before leave</p>
+          </div>
+        </div>
+      ) : null}
       {!parsedMonth ? (
         <ErrorState message="Choose a valid month" />
       ) : loading ? (
@@ -277,6 +466,12 @@ export function PayrollRegister() {
                 <th scope="col" className="px-4 py-2 text-right font-medium">OT Sundays</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Total salary</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium text-red-700">Food</th>
+                {scope === "shmp" ? (
+                  <th scope="col" className="px-4 py-2 text-right font-medium text-red-700">Loans</th>
+                ) : null}
+                {scope === "shmp" ? (
+                  <th scope="col" className="px-4 py-2 text-right font-medium text-red-700">Fines</th>
+                ) : null}
                 <th scope="col" className="px-4 py-2 text-right font-medium">Final</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">
                   <span className="sr-only">Actions</span>
@@ -296,6 +491,19 @@ export function PayrollRegister() {
                   <td className={`px-4 py-2 text-right tabular-nums ${row.food > 0 ? "font-medium text-red-700" : ""}`}>
                     {salesMoney(row.food)}
                   </td>
+                  {scope === "shmp" ? (
+                    <td className={`px-4 py-2 text-right tabular-nums ${(row.loanBalance || 0) > 0 ? "font-medium text-red-700" : ""}`}>
+                      {salesMoney(row.loanBalance || 0)}
+                      {(row.loanDeduction || 0) > 0 ? (
+                        <span className="block text-xs font-normal">Deducted {salesMoney(row.loanDeduction || 0)}</span>
+                      ) : null}
+                    </td>
+                  ) : null}
+                  {scope === "shmp" ? (
+                    <td className={`px-4 py-2 text-right tabular-nums ${(row.fines || 0) > 0 ? "font-medium text-red-700" : ""}`}>
+                      {salesMoney(row.fines || 0)}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-2 text-right font-semibold tabular-nums text-ink">{salesMoney(row.finalPay)}</td>
                   <td className="px-4 py-2 text-right">
                     <button
@@ -317,7 +525,7 @@ export function PayrollRegister() {
                 {moneyKeys.map((key) => (
                   <td
                     key={key}
-                    className={`px-4 py-2 text-right tabular-nums ${key === "food" ? "text-red-700" : ""}`}
+                    className={`px-4 py-2 text-right tabular-nums ${key === "food" || key === "fines" || key === "loanBalance" ? "text-red-700" : ""}`}
                   >
                     {salesMoney(sumMoney(visible, key))}
                   </td>
@@ -340,7 +548,7 @@ export function PayrollRegister() {
         >
           <form
             onSubmit={onSaveEdit}
-            className="w-full max-w-md space-y-3 rounded-2xl border border-line bg-white p-5 shadow-lg"
+            className="max-h-[90vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-line bg-white p-5 shadow-lg"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -348,7 +556,9 @@ export function PayrollRegister() {
                   Edit payroll
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  {editing.name}. Present and absent days come from attendance. Sunday allowance updates OT Sundays. Leave it blank to use the company default.
+                  {editing.name}. {scope === "shmp"
+                    ? "Changes are saved on this person's salary and attendance."
+                    : "Present and absent days come from attendance. Sunday allowance updates OT Sundays. Leave it blank to use the company default."}
                 </p>
               </div>
               <button
@@ -360,6 +570,70 @@ export function PayrollRegister() {
                 <X className="h-5 w-5" strokeWidth={1.75} />
               </button>
             </div>
+            {scope === "shmp" ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TextField
+                    label="Present days"
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    required
+                    value={editPresent}
+                    disabled={editLoading || editSaving}
+                    onChange={(event) => applyPresent(event.target.value)}
+                  />
+                  <TextField
+                    label="Absent days"
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    required
+                    value={editAbsent}
+                    disabled={editLoading || editSaving}
+                    onChange={(event) => applyAbsent(event.target.value)}
+                  />
+                </div>
+                <div className="rounded-xl border border-line p-3">
+                  <p className="text-sm font-medium text-ink">Edit attendance</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Mark one day. Leave and holidays stay as they are when you change the day counts above.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <TextField
+                      label="Date"
+                      type="date"
+                      value={dayDate}
+                      disabled={daySaving}
+                      onChange={(event) => setDayDate(event.target.value)}
+                    />
+                    <label className="block space-y-1.5">
+                      <span className="text-[13px] font-medium text-slate-700">Status</span>
+                      <select
+                        value={dayStatus}
+                        disabled={daySaving}
+                        onChange={(event) => setDayStatus(event.target.value)}
+                        className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="present">Present</option>
+                        <option value="absent">Absent</option>
+                        <option value="leave">Leave</option>
+                        {editing.attendanceType === "employee" ? <option value="holiday">Holiday</option> : null}
+                      </select>
+                    </label>
+                  </div>
+                  <TextField
+                    label="Reason"
+                    value={dayReason}
+                    disabled={daySaving}
+                    onChange={(event) => setDayReason(event.target.value)}
+                  />
+                  <SecondaryButton type="button" className="mt-3" disabled={daySaving} onClick={() => void onSaveDay()}>
+                    {daySaving ? "Saving…" : "Save this day"}
+                  </SecondaryButton>
+                </div>
+              </>
+            ) : null}
             <TextField
               label="Basic salary (AED)"
               type="number"
@@ -368,7 +642,12 @@ export function PayrollRegister() {
               required
               value={editBasic}
               disabled={editLoading || editSaving}
-              onChange={(event) => setEditBasic(event.target.value)}
+              onChange={(event) => {
+                setEditBasic(event.target.value);
+                if (scope === "shmp") {
+                  setEditTotal(String(roundPayrollMoney(Number(event.target.value) + Number(editOther) + Number(editOt))));
+                }
+              }}
             />
             <TextField
               label="Other benefits (AED)"
@@ -378,7 +657,12 @@ export function PayrollRegister() {
               required
               value={editOther}
               disabled={editLoading || editSaving}
-              onChange={(event) => setEditOther(event.target.value)}
+              onChange={(event) => {
+                setEditOther(event.target.value);
+                if (scope === "shmp") {
+                  setEditTotal(String(roundPayrollMoney(Number(editBasic) + Number(event.target.value) + Number(editOt))));
+                }
+              }}
             />
             <TextField
               label="Sunday allowance (AED per Sunday)"
@@ -390,9 +674,41 @@ export function PayrollRegister() {
               disabled={editLoading || editSaving}
               onChange={(event) => setEditSunday(event.target.value)}
             />
+            {scope === "shmp" ? (
+              <>
+                <TextField
+                  label="OT Sundays (AED)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                  value={editOt}
+                  disabled={editLoading || editSaving}
+                  onChange={(event) => {
+                    setEditOt(event.target.value);
+                    setEditTotal(String(roundPayrollMoney(Number(editBasic) + Number(editOther) + Number(event.target.value))));
+                  }}
+                />
+                <TextField
+                  label="Total salary (AED)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                  value={editTotal}
+                  disabled={editLoading || editSaving}
+                  onChange={(event) => {
+                    setEditTotal(event.target.value);
+                    const other = roundPayrollMoney(Number(event.target.value) - Number(editBasic) - Number(editOt));
+                    setEditOther(String(Math.max(0, other)));
+                  }}
+                />
+              </>
+            ) : (
             <p className="text-xs text-slate-500">
               OT Sundays this month: {salesMoney(editing.otSundays)}
             </p>
+            )}
             <button
               type="button"
               role="switch"
@@ -415,6 +731,46 @@ export function PayrollRegister() {
               Food served
               <span className="text-xs font-normal text-slate-500">{editFood ? "On" : "Off"}</span>
             </button>
+            {scope === "shmp" ? (
+              <>
+                <TextField
+                  label="Food charge (AED)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                  value={editFood ? editFoodAmount : "0"}
+                  disabled={editLoading || editSaving || !editFood}
+                  onChange={(event) => setEditFoodAmount(event.target.value)}
+                />
+                <TextField
+                  label="Fines this month (AED)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  required
+                  value={editFines}
+                  disabled={editLoading || editSaving}
+                  onChange={(event) => setEditFines(event.target.value)}
+                />
+                <TextField
+                  label="Deduct from loan this month (AED)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  optional
+                  value={editLoan}
+                  disabled={editLoading || editSaving}
+                  onChange={(event) => setEditLoan(event.target.value)}
+                />
+                <p className="text-xs text-slate-500">
+                  Outstanding loan {salesMoney(editing.loanBalance || 0)}
+                  {(editing.loanDeduction || 0) > 0
+                    ? `. Already deducted this month ${salesMoney(editing.loanDeduction || 0)}`
+                    : ""}. A deduction is recorded as a loan repayment and comes off final pay.
+                </p>
+              </>
+            ) : null}
             <div className="flex justify-end gap-2 pt-1">
               <SecondaryButton type="button" onClick={closeEdit} disabled={editSaving}>
                 Cancel

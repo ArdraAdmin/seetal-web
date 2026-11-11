@@ -10,13 +10,12 @@ import {
   useState,
 } from "react";
 import {
-  getCategories,
   getCompanies,
   uploadProductArtwork,
   uploadProductImage,
   type CompanyRecord,
 } from "@/lib/api";
-import { parseCategoryGroups, type CategoryGroup } from "@/lib/categories";
+import type { CategoryGroup } from "@/lib/categories";
 import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { salesMoney } from "@/lib/sales";
@@ -25,6 +24,8 @@ import {
   baseItemCodeOf,
   isFreshShmpInventory,
   rememberOwnShmpInventoryId,
+  shmpCategories,
+  shmpCreateCategory,
   shmpCreateInventory,
   shmpDeleteInventory,
   shmpInventory,
@@ -53,6 +54,7 @@ import {
   ProductFields,
   blankForm,
   buildPayload,
+  shmpCategoryGroups,
   companyNameOf,
   type ProductFormState,
   EMPTY_FORM,
@@ -81,17 +83,20 @@ export default function ShmpInventoryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [pendingArtwork, setPendingArtwork] = useState<File[]>([]);
+  const [newCategory, setNewCategory] = useState("");
+  const [newSubCategory, setNewSubCategory] = useState("");
+  const [savingCategory, setSavingCategory] = useState(false);
 
   const loadMeta = useCallback(async () => {
     setLoadingCategories(true);
     setLoadingCompanies(true);
     try {
       const [cats, comps, storeList] = await Promise.all([
-        getCategories().catch(() => []),
+        shmpCategories().catch(() => []),
         getCompanies().catch(() => [] as CompanyRecord[]),
         shmpStores().catch(() => [] as ShmpStore[]),
       ]);
-      setGroups(parseCategoryGroups(cats));
+      setGroups(shmpCategoryGroups(Array.isArray(cats) ? cats : []));
       setCompanies(Array.isArray(comps) ? comps : []);
       setStores(Array.isArray(storeList) ? storeList : []);
     } finally {
@@ -255,6 +260,45 @@ export default function ShmpInventoryPage() {
     }
   }
 
+  async function onCreateCategory(event: FormEvent) {
+    event.preventDefault();
+    if (!newCategory.trim() || !newSubCategory.trim()) {
+      toast("Category and sub category are required", "info");
+      return;
+    }
+    setSavingCategory(true);
+    try {
+      const created = await shmpCreateCategory({
+        masterCategoryName: newCategory.trim(),
+        subCategory: newSubCategory.trim(),
+      });
+      setGroups((current) =>
+        shmpCategoryGroups([
+          ...current.flatMap((group) =>
+            group.items.map((item) => ({
+              _id: String(item._id || ""),
+              masterCategoryName: group.name,
+              subCategory: String(item.subCategory || ""),
+            })),
+          ),
+          created,
+        ]),
+      );
+      setAddForm((form) => ({
+        ...form,
+        category: created.masterCategoryName,
+        subCategory: created._id,
+      }));
+      setNewCategory("");
+      setNewSubCategory("");
+      toast("Category saved", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save the category", "error");
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -286,6 +330,29 @@ export default function ShmpInventoryPage() {
         }
       />
 
+      <Card className="mb-5">
+        <h2 className="font-semibold text-ink">SHMP categories</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          These categories belong to SHMP inventory. They are separate from the Seetal catalogue.
+        </p>
+        <form onSubmit={onCreateCategory} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <TextField
+            label="Category"
+            value={newCategory}
+            onChange={(event) => setNewCategory(event.target.value)}
+            placeholder="Category"
+          />
+          <TextField
+            label="Sub category"
+            value={newSubCategory}
+            onChange={(event) => setNewSubCategory(event.target.value)}
+            placeholder="Sub category"
+          />
+          <PrimaryButton type="submit" disabled={savingCategory}>
+            {savingCategory ? "Saving…" : "Add category"}
+          </PrimaryButton>
+        </form>
+      </Card>
       {adding ? (
         <Card className="mb-5">
           <p className="mb-3 text-sm font-semibold text-ink">Add product</p>

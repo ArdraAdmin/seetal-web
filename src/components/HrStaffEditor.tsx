@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { HrProfileFields, type HrFieldVisibility } from "@/components/HrProfileFields";
 import { portalFieldVisible, type CustomAccess, type PortalSide } from "@/lib/custom-users";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { HrLedgerCard } from "@/components/HrLedgerCard";
 import { SalaryIncrementCard } from "@/components/SalaryIncrementCard";
 import { SalarySlipCard } from "@/components/SalarySlipCard";
 import { useAuth } from "@/components/AuthProvider";
@@ -243,6 +244,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               showCompany={scope === "stl"}
               scope={scope}
               shown={shown}
+              showProductionWorker={scope === "shmp"}
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <PrimaryButton type="submit" disabled={busy || removing}>
@@ -262,6 +264,11 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
           </Card>
         </form>
       )}
+      {!creating && staff && scope === "shmp" && shown.salary ? (
+        <div className="mt-4">
+          <HrLedgerCard staff={staff} onChanged={load} />
+        </div>
+      ) : null}
       {!creating && staff && user?.id && shown.salary ? (
         <SalaryIncrementCard
           staff={staff}

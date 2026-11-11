@@ -156,6 +156,9 @@ export function HrStaffDetails({
                 <Detail label="Joined" value={formatHrDate(staff.joiningDate)} />
                 <Detail label="Years of service" value={staff.yearsOfService ?? "-"} />
                 <Detail label="Food served" value={profile.foodServed ? "On" : "Off"} />
+                {scope === "shmp" ? (
+                  <Detail label="Production worker" value={profile.productionWorker ? "On" : "Off"} />
+                ) : null}
               </dl>
             </section>
 

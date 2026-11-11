@@ -130,6 +130,10 @@ describe("HR profile form", () => {
     assert.equal(hrProfilePayload(form).foodServed, true);
     assert.equal(hrProfileToForm({ foodServed: true }).foodServed, true);
     assert.equal(hrProfileToForm({}).foodServed, false);
+    assert.equal(hrProfilePayload(emptyHrProfileForm()).productionWorker, false);
+    form.productionWorker = true;
+    assert.equal(hrProfilePayload(form).productionWorker, true);
+    assert.equal(hrProfileToForm({ productionWorker: true }).productionWorker, true);
     assert.equal(displayedTotalSalary({ basicSalary: 800, otherBenefits: 200 }, "stl"), "1000");
     assert.equal(displayedTotalSalary({ basicSalary: 800, totalSalary: 2000 }, "stl"), "2000");
     assert.equal(displayedTotalSalary({ totalSalary: 2000 }, "shmp"), "2000");

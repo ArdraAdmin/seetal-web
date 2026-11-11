@@ -36,7 +36,7 @@ export type DashboardCardSet = {
   salesBySalesman: boolean;
 };
 
-/** STL keeps fleet and portal cards. SHMP keeps the commercial cards only. */
+/** STL keeps fleet and portal cards. SHMP keeps commercial cards and expiry alerts. */
 export function dashboardCardsForSide(side: CompanyKey): DashboardCardSet {
   const commercial = {
     thisMonth: true,
@@ -52,7 +52,7 @@ export function dashboardCardsForSide(side: CompanyKey): DashboardCardSet {
     return {
       ...commercial,
       salesLost: false,
-      attention: false,
+      attention: true,
       users: false,
       warehouseUsers: false,
       userMix: false,
