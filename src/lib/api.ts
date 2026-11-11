@@ -784,6 +784,49 @@ export const createAdminStore = (body: StoreCreateInput) =>
     body: appendAdminStoreFormData({ ...body, location: body.location || "—" }),
   });
 
+export type StoreRequestRow = {
+  id: string;
+  status: string;
+  environment: "stl" | "shmp";
+  storeName: string;
+  alias?: string;
+  marks?: string;
+  addressLine1?: string;
+  city?: string;
+  country?: string;
+  contactNumber?: string;
+  requestedByName?: string;
+  reviewNote?: string;
+  createdAt?: string;
+};
+
+export function listStoreRequests(userId: string, environment?: "stl" | "shmp") {
+  const qs = new URLSearchParams({ userId, status: "pending" });
+  if (environment) qs.set("environment", environment);
+  return request<{ requests: StoreRequestRow[] }>(`/admin/store-requests?${qs}`);
+}
+
+export function approveStoreRequest(userId: string, id: string) {
+  return request<{ store?: { uid?: string; storeName?: string } }>(
+    `/admin/store-requests/${encodeURIComponent(id)}/approve`,
+    { method: "POST", body: JSON.stringify({ userId }) },
+  );
+}
+
+export function rejectStoreRequest(userId: string, id: string, note: string) {
+  return request<unknown>(`/admin/store-requests/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ userId, note }),
+  });
+}
+
+export function submitStoreRequest(body: FormData) {
+  return request<StoreRequestRow>("/sales/store-requests", {
+    method: "POST",
+    body,
+  });
+}
+
 export const saveAdminStoreEid = (input: {
   storeId: string;
   eidNumber: string;

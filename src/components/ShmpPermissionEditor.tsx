@@ -146,12 +146,16 @@ function IdScopeEditor({
   onChange,
   loadOptions,
   hideMode = false,
+  allLabel = "All",
+  selectedLabel = "Selected only",
 }: {
   title: string;
   scope: IdScope;
   onChange: (scope: IdScope) => void;
   loadOptions: () => Promise<Option[]>;
   hideMode?: boolean;
+  allLabel?: string;
+  selectedLabel?: string;
 }) {
   const [options, setOptions] = useState<Option[] | null>(null);
   const [query, setQuery] = useState("");
@@ -197,11 +201,11 @@ function IdScopeEditor({
             checked={scope.mode === "all"}
             onChange={() => onChange({ mode: "all" })}
           />
-          All
+          {allLabel}
         </label>
         <label className="flex items-center gap-2">
           <input type="radio" checked={scope.mode === "selected"} onChange={() => void chooseSelected()} />
-          Selected only
+          {selectedLabel}
         </label>
       </div>
       )}
@@ -316,6 +320,21 @@ export function ShmpPermissionEditor({
     }));
   }
 
+  async function loadWorkers() {
+    const rows = (await shmpEmployees()) as Array<{
+      _id?: string;
+      name?: string;
+      designation?: string;
+    }>;
+    return rows
+      .map((row) => ({
+        id: String(row._id || ""),
+        label: [row.name || "Worker", row.designation].filter(Boolean).join(" · "),
+      }))
+      .filter((row) => row.id)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
   async function loadOrders() {
     const rows = (await shmpOrders()) as Array<{ _id?: string; tempOrderInvoiceNo?: string; store?: { storeName?: string } }>;
     return rows.map((row) => ({
@@ -352,6 +371,7 @@ export function ShmpPermissionEditor({
                   loadCategories={loadCategories}
                   loadOrders={loadOrders}
                   loadStores={loadStores}
+                  loadWorkers={loadWorkers}
                 />
               </div>
             ) : null}
@@ -372,6 +392,7 @@ function ModuleDetail({
   loadCategories,
   loadOrders,
   loadStores,
+  loadWorkers,
 }: {
   id: string;
   grant: ShmpGrantMap[keyof ShmpGrantMap];
@@ -382,6 +403,7 @@ function ModuleDetail({
   loadCategories: () => Promise<Option[]>;
   loadOrders: () => Promise<Option[]>;
   loadStores: () => Promise<Option[]>;
+  loadWorkers: () => Promise<Option[]>;
 }) {
   if (!grant) return null;
   if (id === "dashboard" && "fields" in grant) {
@@ -483,6 +505,14 @@ function ModuleDetail({
           onChange={(next) => onChange({ ...grant, orders: next })}
           loadOrders={loadOrders}
           loadStores={loadStores}
+        />
+        <IdScopeEditor
+          title="Users"
+          allLabel="All users"
+          selectedLabel="Selected users"
+          scope={"users" in grant && grant.users ? grant.users : { mode: "all" }}
+          onChange={(users) => onChange({ ...grant, users })}
+          loadOptions={loadWorkers}
         />
         <ToggleRow
           on={grant.logs}

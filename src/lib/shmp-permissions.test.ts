@@ -6,6 +6,7 @@ import {
   permissionsForEditor,
   productionOrderAllowed,
   sanitizeShmpPermissions,
+  sessionCustomAccess,
   shmpActionOn,
   shmpFieldOn,
   shmpModuleAllowed,
@@ -107,6 +108,74 @@ describe("SHMP permission grants", () => {
     const approvals = grantWhenEnabled("approvals");
     assert.equal("approve" in approvals && approvals.approve, false);
     assert.equal("read" in approvals && approvals.read, true);
+  });
+
+  it("lets production assign every worker until a user list is saved", () => {
+    const saved = sanitizeShmpPermissions({
+      version: 1,
+      shmp: {
+        production: {
+          orders: { mode: "all" },
+          logs: false,
+          cards: { "today-cartons": true },
+        },
+      },
+    });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    assert.equal(saved.permissions.shmp.production?.users.mode, "all");
+
+    const limited = sanitizeShmpPermissions({
+      version: 1,
+      shmp: {
+        production: {
+          orders: { mode: "all" },
+          logs: false,
+          cards: {},
+          users: { mode: "selected", ids: ["worker-1", "worker-1"] },
+        },
+      },
+    });
+    assert.equal(limited.ok, true);
+    if (!limited.ok) return;
+    assert.deepEqual(limited.permissions.shmp.production?.users, {
+      mode: "selected",
+      ids: ["worker-1"],
+    });
+    const access = {
+      companies: ["shmp"],
+      modules: { shmp: ["production"] },
+      explicit: true,
+      permissions: limited.permissions,
+    };
+    assert.equal(shmpRecordAllowed(access, "production", "users", "worker-1"), true);
+    assert.equal(shmpRecordAllowed(access, "production", "users", "worker-2"), false);
+    const cookie = sessionCustomAccess(access);
+    assert.deepEqual(cookie.permissions?.shmp.production?.users, {
+      mode: "selected",
+      ids: [],
+    });
+
+    const older = {
+      companies: ["shmp"],
+      modules: { shmp: ["production"] },
+      explicit: true,
+      permissions: {
+        version: 1 as const,
+        shmp: {
+          production: {
+            orders: { mode: "all" as const },
+            logs: false,
+            cards: { "today-cartons": true },
+            users: undefined as unknown as { mode: "all" },
+          },
+        },
+      },
+    };
+    assert.equal(shmpRecordAllowed(older, "production", "users", "worker-2"), true);
+    assert.equal(permissionsForEditor(older).shmp.production?.users.mode, "all");
+    const enabled = grantWhenEnabled("production");
+    assert.equal("users" in enabled && enabled.users.mode, "all");
   });
 
   it("shows an older account as fully enabled until it is saved", () => {

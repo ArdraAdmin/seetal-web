@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  attendanceDatesInRange,
   filterAttendancePeople,
   holidayStatusAvailable,
   mapWithLimit,
@@ -48,10 +49,23 @@ describe("attendance bulk selection", () => {
     );
   });
 
-  it("allows holiday only when every selected person is a worker", () => {
+  it("allows holiday for any selected person", () => {
     assert.equal(holidayStatusAvailable([]), false);
-    assert.equal(holidayStatusAvailable(["worker:1", "worker:4"]), true);
-    assert.equal(holidayStatusAvailable(["worker:1", "portal:2"]), false);
+    assert.equal(holidayStatusAvailable(["worker:1", "portal:2"]), true);
+  });
+
+  it("lists every day in a holiday range", () => {
+    assert.deepEqual(attendanceDatesInRange("2026-11-05", "2026-11-12"), [
+      "2026-11-05",
+      "2026-11-06",
+      "2026-11-07",
+      "2026-11-08",
+      "2026-11-09",
+      "2026-11-10",
+      "2026-11-11",
+      "2026-11-12",
+    ]);
+    assert.equal(attendanceDatesInRange("2026-11-12", "2026-11-05"), null);
   });
 
   it("runs saves with a concurrency cap and keeps failures", async () => {

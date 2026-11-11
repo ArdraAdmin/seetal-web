@@ -574,7 +574,7 @@ export async function recordHrFine(
 export type HrStaffAttendanceMark = {
   staffId: string;
   date: string;
-  status: "present" | "absent" | "leave" | string;
+    status: "present" | "absent" | "leave" | "holiday" | string;
   leaveType?: string | null;
   reason?: string;
 };
@@ -596,9 +596,9 @@ export async function markHrStaffAttendance(
   staffId: string,
   payload: {
     date: string;
-    status: "present" | "absent" | "leave";
+    status: "present" | "absent" | "leave" | "holiday";
     leaveType?: "annual" | "sick";
-    reason: string;
+    reason?: string;
   },
 ) {
   return request<HrStaffAttendanceMark>(
@@ -649,7 +649,7 @@ export async function overrideSalesAttendance(payload: {
   userId: string;
   salesId: string;
   date: string;
-  status: "present" | "absent" | "leave";
+  status: "present" | "absent" | "leave" | "holiday";
   leaveType?: "annual" | "sick";
   reason?: string;
   companyId?: string;
@@ -660,10 +660,21 @@ export async function overrideSalesAttendance(payload: {
   });
 }
 
-export async function getAttendanceOverrides(userId: string) {
-  return request<{ overrides: unknown[] }>(
-    `/admin/attendance/override?userId=${encodeURIComponent(userId)}`,
-  );
+export async function getAttendanceOverrides(
+  userId: string,
+  from?: string,
+  to?: string,
+) {
+  const qs = new URLSearchParams({ userId });
+  if (from) qs.set("from", from);
+  if (to) qs.set("to", to);
+  return request<{
+    overrides: Array<{
+      sales?: { _id?: string; name?: string } | string;
+      date?: string;
+      status?: string;
+    }>;
+  }>(`/admin/attendance/override?${qs}`);
 }
 
 export async function getSalesAttendanceReport(

@@ -1,3 +1,16 @@
+/** Year-month for the current Asia/Dubai calendar day, `YYYY-MM`. */
+export function currentPayrollMonth(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Dubai",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  if (!/^\d{4}$/.test(year) || !/^\d{2}$/.test(month)) return "";
+  return `${year}-${month}`;
+}
+
 export function roundPayrollMoney(value: number) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }

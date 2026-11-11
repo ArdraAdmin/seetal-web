@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  currentPayrollMonth,
   foodRateFromCharge,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
@@ -8,6 +9,12 @@ import {
 } from "./payroll-edit.ts";
 
 describe("payroll edit", () => {
+  it("opens payroll on the current Dubai month", () => {
+    assert.equal(currentPayrollMonth(new Date("2026-11-11T08:00:00.000Z")), "2026-11");
+    assert.equal(currentPayrollMonth(new Date("2026-10-31T20:30:00.000Z")), "2026-11");
+    assert.equal(currentPayrollMonth(new Date("2026-10-31T18:00:00.000Z")), "2026-10");
+  });
+
   it("turns a typed food charge back into the monthly rate", () => {
     assert.equal(standardFoodCharge(230, 31, 1), 222.58);
     assert.equal(foodRateFromCharge(222.58, 31, 1), 230);

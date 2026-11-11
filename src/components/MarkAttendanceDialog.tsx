@@ -19,6 +19,7 @@ type MarkAttendanceBase = {
   description?: string;
   people: MarkAttendanceChoice[];
   date: string;
+  endDate?: string;
   status: string;
   leaveType: "annual" | "sick";
   reason: string;
@@ -27,6 +28,7 @@ type MarkAttendanceBase = {
   statusOptions: Array<{ value: string; label: string }>;
   onClose: () => void;
   onDate: (value: string) => void;
+  onEndDate?: (value: string) => void;
   onStatus: (value: string) => void;
   onLeaveType: (value: "annual" | "sick") => void;
   onReason: (value: string) => void;
@@ -53,6 +55,7 @@ export function MarkAttendanceDialog(
     description = "Record present, absent, or annual/sick leave.",
     people,
     date,
+    endDate,
     status,
     leaveType,
     reason,
@@ -61,6 +64,7 @@ export function MarkAttendanceDialog(
     statusOptions,
     onClose,
     onDate,
+    onEndDate,
     onStatus,
     onLeaveType,
     onReason,
@@ -158,7 +162,7 @@ export function MarkAttendanceDialog(
               className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
             />
             <p className="mt-2 text-xs text-slate-500">
-              The date, status, and reason apply to everyone selected.
+              The date and status apply to everyone selected. Reason is optional.
             </p>
             <ul
               ref={listRef}
@@ -215,8 +219,18 @@ export function MarkAttendanceDialog(
           value={date}
           onChange={(event) => onDate(event.target.value)}
           required
-          aria-label="Date"
+          aria-label={status === "holiday" ? "Holiday from" : "Date"}
         />
+        {status === "holiday" && onEndDate ? (
+          <input
+            type="date"
+            className="w-full rounded-xl border border-line px-3 py-2 text-sm"
+            value={endDate || date}
+            onChange={(event) => onEndDate(event.target.value)}
+            required
+            aria-label="Holiday to"
+          />
+        ) : null}
         <select
           className="w-full rounded-xl border border-line px-3 py-2 text-sm"
           value={status}
@@ -242,10 +256,9 @@ export function MarkAttendanceDialog(
         ) : null}
         <input
           className="w-full rounded-xl border border-line px-3 py-2 text-sm"
-          placeholder="Reason (required)"
+          placeholder="Reason (optional)"
           value={reason}
           onChange={(event) => onReason(event.target.value)}
-          required
           aria-label="Reason"
         />
         {error ? (

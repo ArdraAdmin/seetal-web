@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
 import { salesPersonIdsFromStore } from "@/lib/store-access";
+import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
   formatTradeLicenseDate,
@@ -303,7 +304,6 @@ function StoreFields({
   mode: "create" | "edit";
   isTemp?: boolean;
 }) {
-  const requireIdentity = mode === "create" || !isTemp;
   const requireFiles = mode === "create";
 
   return (
@@ -351,13 +351,18 @@ function StoreFields({
         onChange={(e) => setField("addressLine3", e.target.value)}
       />
       <CountryCityFields form={form} setField={setField} />
-      <TextField
-        label="Store code"
-        required={requireIdentity}
-        optional={!requireIdentity}
-        value={form.uid}
-        onChange={(e) => setField("uid", e.target.value)}
-      />
+      {mode === "edit" && !isTemp ? (
+        <TextField
+          label="Store code"
+          required
+          value={form.uid}
+          onChange={(e) => setField("uid", e.target.value)}
+        />
+      ) : mode === "create" ? (
+        <p className="text-xs text-slate-500">
+          The store code is assigned automatically, starting at SHR5742.
+        </p>
+      ) : null}
       <StoreDocumentField
         label="TRN document"
         required={requireFiles}
@@ -504,10 +509,6 @@ export default function StoresPage() {
       toast("Enter a store name", "info");
       return;
     }
-    if (!addForm.uid.trim()) {
-      toast("Enter a store code", "info");
-      return;
-    }
     if (!addForm.addressLine1.trim()) {
       toast("Enter an address", "info");
       return;
@@ -549,7 +550,6 @@ export default function StoresPage() {
         addressLine3: addForm.addressLine3.trim(),
         city: addForm.city.trim(),
         country: addForm.country.trim(),
-        uid: addForm.uid.trim(),
         salesPerson: addForm.salesPersonIds[0],
         salesPersons: addForm.salesPersonIds,
         location: "—",
@@ -644,6 +644,8 @@ export default function StoresPage() {
           </div>
         }
       />
+
+      <StoreRequestQueue environment="stl" />
 
       {expiredOnly && !loading ? (
         <Card className="mb-5 border-brand/30 bg-[#f7f5f0]">
@@ -759,10 +761,11 @@ async function resolveCreatedStoreId(
   const direct = createdStoreId(created);
   if (direct) return direct;
   const data = await getAdminStores();
-  const match = (data.stores || []).find(
-    (store) =>
-      text(store.uid) === uid && text(store.storeName || store.name) === storeName,
-  );
+  const match = (data.stores || []).find((store) => {
+    const sameName = text(store.storeName || store.name) === storeName;
+    if (!uid) return sameName;
+    return text(store.uid) === uid && sameName;
+  });
   return match ? text(match._id) : "";
 }
 

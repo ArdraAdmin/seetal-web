@@ -33,12 +33,25 @@ export function setVisibleSelection(
   return selected.filter((id) => !hide.has(id));
 }
 
-/** Holiday applies to factory workers only, and only when every selection is one. */
+/** Holiday can be marked for any selected person. */
 export function holidayStatusAvailable(selectedIds: string[]) {
-  return (
-    selectedIds.length > 0 &&
-    selectedIds.every((id) => id.startsWith("worker:"))
-  );
+  return selectedIds.length > 0;
+}
+
+/** Inclusive calendar dates from `from` through `to`. */
+export function attendanceDatesInRange(from: string, to: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  if (to < from) return null;
+  const [year, month, day] = from.split("-").map(Number);
+  const cursor = new Date(Date.UTC(year, month - 1, day));
+  const dates: string[] = [];
+  for (let guard = 0; guard < 366; guard += 1) {
+    const key = cursor.toISOString().slice(0, 10);
+    dates.push(key);
+    if (key === to) return dates;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return null;
 }
 
 export async function mapWithLimit<T, R>(

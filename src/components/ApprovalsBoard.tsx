@@ -7,6 +7,7 @@ import { notifyApprovalsChanged, pendingApprovalCount } from "@/lib/approval";
 import { approvalCompanyId } from "@/lib/approval-count";
 import type { ApprovalOrder } from "@/lib/types";
 import { ApprovalSummary } from "@/components/ApprovalViews";
+import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { shmpActionOn } from "@/lib/shmp-permissions";
@@ -91,13 +92,15 @@ export function ApprovalsBoard({ companyId }: { companyId?: string }) {
     <div>
       <PageHeader
         title="Approvals"
-        subtitle="Discount and payable changes from salesmen wait here for review."
+        subtitle="Order changes and new stores from salesmen wait here for review."
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
             Refresh
           </SecondaryButton>
         }
       />
+
+      <StoreRequestQueue environment={companyId ? "shmp" : undefined} />
 
       {loading ? (
         <LoadingState label="Loading approvals…" />

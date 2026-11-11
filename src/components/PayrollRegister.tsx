@@ -23,6 +23,7 @@ import {
 } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
 import {
+  currentPayrollMonth,
   foodRateFromCharge,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
@@ -42,10 +43,14 @@ import {
   type PayrollRegisterRow,
 } from "@/lib/stl-features-api";
 
-function currentMonthValue() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" })
-    .format(new Date())
-    .slice(0, 7);
+function monthHeading(value: string) {
+  const parsed = parseMonth(value);
+  if (!parsed) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(parsed.year, parsed.monthNumber - 1, 1)));
 }
 
 function parseMonth(value: string) {
@@ -88,7 +93,7 @@ export function PayrollRegister() {
   const canEditPayroll = scope !== "shmp" || shmpActionOn(user?.customAccess, "payroll", "edit");
   const payField = (fieldId: string) =>
     scope !== "shmp" || shmpFieldOn(user?.customAccess, "payroll", fieldId);
-  const [month, setMonth] = useState(currentMonthValue);
+  const [month, setMonth] = useState(currentPayrollMonth);
   const [rows, setRows] = useState<PayrollRegisterRow[]>([]);
   const [label, setLabel] = useState("");
   const [foodPerMonth, setFoodPerMonth] = useState(230);
@@ -214,8 +219,8 @@ export function PayrollRegister() {
 
   async function onSaveDay() {
     if (!user?.id || !editing) return;
-    if (!dayDate || !dayReason.trim()) {
-      toast("Date and reason are required", "info");
+    if (!dayDate) {
+      toast("Choose a date", "info");
       return;
     }
     const status = dayStatus === "leave" || dayStatus === "absent" || dayStatus === "holiday"
@@ -234,20 +239,18 @@ export function PayrollRegister() {
           reason: dayReason.trim(),
         });
       } else if (editing.attendanceType === "user") {
-        if (status === "holiday") throw new Error("Holiday is only for factory workers");
         await overrideSalesAttendance({
           userId: user.id,
           salesId: editing.attendanceId || editing.id,
           date: dayDate,
-          status: status === "leave" ? "leave" : status === "absent" ? "absent" : "present",
+          status,
           ...(status === "leave" ? { leaveType: "annual" } : {}),
-          reason: dayReason.trim(),
+          reason: dayReason.trim() || undefined,
         });
       } else {
-        if (status === "holiday") throw new Error("Holiday is only for factory workers");
         await markHrStaffAttendance(user.id, editing.attendanceId || editing.id, {
           date: dayDate,
-          status: status === "leave" ? "leave" : status === "absent" ? "absent" : "present",
+          status,
           ...(status === "leave" ? { leaveType: "annual" } : {}),
           reason: dayReason.trim(),
         });
@@ -393,11 +396,9 @@ export function PayrollRegister() {
       <PageHeader
         title="Payroll"
         subtitle={
-          label
-            ? `${label} monthly salary. Food is AED ${foodPerMonth} when food served is on. Leave days are left out of that charge.${scope === "shmp" ? " Fines dated in this month are taken off the final pay." : ""}`
-            : scope === "shmp"
-              ? "Monthly salary for this side. Fines dated in this month are taken off the final pay."
-              : "Monthly salary for this side. Leave days are left out of the food charge."
+          monthHeading(month)
+            ? `${monthHeading(month)}. Salary is the monthly amount for days marked present. A fully absent month pays nothing. Food is AED ${foodPerMonth} when food served is on.${scope === "shmp" ? " Fines dated in this month are taken off the final pay." : ""}`
+            : "Salary is the monthly amount for days marked present."
         }
         actions={
           <SecondaryButton type="button" disabled={loading} onClick={() => setReloadKey((value) => value + 1)}>
@@ -636,7 +637,7 @@ export function PayrollRegister() {
                         <option value="present">Present</option>
                         <option value="absent">Absent</option>
                         <option value="leave">Leave</option>
-                        {editing.attendanceType === "employee" ? <option value="holiday">Holiday</option> : null}
+                        <option value="holiday">Holiday</option>
                       </select>
                     </label>
                   </div>

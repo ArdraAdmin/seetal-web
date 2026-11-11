@@ -32,6 +32,7 @@ import {
   SALES_COMPANY_LABELS,
   type SalesCompanyKey,
 } from "@/lib/sales-selected-company";
+import { StoreRequestDialog } from "@/components/StoreRequestDialog";
 import {
   Card,
   EmptyState,
@@ -76,6 +77,7 @@ export default function SalesHomePage() {
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const assignedOnly = salesCompanyStoreMode(companyKey) === "assigned";
 
@@ -300,6 +302,9 @@ export default function SalesHomePage() {
                   Clear
                 </SecondaryButton>
               ) : null}
+              <SecondaryButton type="button" onClick={() => setRequestOpen(true)}>
+                New store
+              </SecondaryButton>
               <SecondaryButton
                 type="button"
                 onClick={() => void onDownloadStores()}
@@ -366,6 +371,11 @@ export default function SalesHomePage() {
           )}
         </>
       )}
+      <StoreRequestDialog
+        open={requestOpen}
+        environment={companyKey === "shmp" ? "shmp" : "stl"}
+        onClose={() => setRequestOpen(false)}
+      />
     </div>
   );
 }

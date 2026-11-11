@@ -208,6 +208,7 @@ export const shmpPresentStaff = (params: {
 export type ShmpPresentTodayRow = {
   kind: "worker" | "portal";
   _id: string;
+  personId?: string;
   name: string;
   role: string;
   designation?: string;

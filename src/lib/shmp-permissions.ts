@@ -41,7 +41,12 @@ export type ShmpGrantMap = {
   inventory?: { actions: Crud; fields: Record<string, boolean>; items: IdScope };
   categories?: { actions: Crud; categories: IdScope };
   catalog?: { actions: Crud; items: IdScope; uploadImages: boolean };
-  production?: { orders: OrderScope; logs: boolean; cards: Record<string, boolean> };
+  production?: {
+    orders: OrderScope;
+    logs: boolean;
+    cards: Record<string, boolean>;
+    users: IdScope;
+  };
 };
 
 export type ShmpPermissions = {
@@ -458,6 +463,7 @@ export function grantWhenEnabled(moduleId: string): ShmpGrantMap[keyof ShmpGrant
     orders: { mode: "all" },
     logs: false,
     cards: allFields("production", true),
+    users: allScope(),
   };
 }
 
@@ -480,13 +486,31 @@ function legacyGrant(moduleId: string, access: ShmpAccessLike) {
   if (moduleId === "inventory") return { actions: full, fields, items: allScope() };
   if (moduleId === "categories") return { actions: full, categories: allScope() };
   if (moduleId === "catalog") return { actions: full, items: allScope(), uploadImages: true };
-  return { orders: { mode: "all" as const }, logs: true, cards: allFields("production", true) };
+  return {
+    orders: { mode: "all" as const },
+    logs: true,
+    cards: allFields("production", true),
+    users: allScope(),
+  };
+}
+
+/** Older production grants have no user list. Those accounts can assign anyone. */
+function withProductionUsers(permissions: ShmpPermissions): ShmpPermissions {
+  const production = permissions.shmp.production;
+  if (!production || production.users) return permissions;
+  return {
+    version: 1,
+    shmp: {
+      ...permissions.shmp,
+      production: { ...production, users: { mode: "all" } },
+    },
+  };
 }
 
 /** What the editor should show for an account that has not been saved with explicit grants. */
 export function permissionsForEditor(access: ShmpAccessLike | null | undefined): ShmpPermissions {
   if (access?.explicit && access.permissions?.version === 1 && access.permissions.shmp) {
-    return access.permissions;
+    return withProductionUsers(access.permissions);
   }
   const shmp: ShmpGrantMap = {};
   for (const moduleId of SHMP_GRANULAR_MODULES) {
@@ -622,11 +646,17 @@ export function sanitizeShmpPermissions(
     };
   }
   if (source.production) {
-    const row = source.production as { orders?: unknown; logs?: unknown; cards?: unknown };
+    const row = source.production as {
+      orders?: unknown;
+      logs?: unknown;
+      cards?: unknown;
+      users?: unknown;
+    };
     shmp.production = {
       orders: cleanOrderScope(row.orders),
       logs: row.logs === true,
       cards: cleanFields("production", row.cards),
+      users: row.users == null ? { mode: "all" } : cleanScope(row.users),
     };
   }
   return { ok: true, permissions: { version: 1, shmp } };
@@ -660,7 +690,13 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
   if (shmp.inventory) next.inventory = { ...shmp.inventory, items: slimScope(shmp.inventory.items) };
   if (shmp.categories) next.categories = { ...shmp.categories, categories: slimScope(shmp.categories.categories) };
   if (shmp.catalog) next.catalog = { ...shmp.catalog, items: slimScope(shmp.catalog.items) };
-  if (shmp.production) next.production = { ...shmp.production, orders: slimOrder(shmp.production.orders) };
+  if (shmp.production) {
+    next.production = {
+      ...shmp.production,
+      orders: slimOrder(shmp.production.orders),
+      users: slimScope(shmp.production.users || { mode: "all" }),
+    };
+  }
   copy.permissions = { version: 1, shmp: next };
   return copy;
 }

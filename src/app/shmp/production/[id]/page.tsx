@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 import { getCompanies } from "@/lib/api";
 import {
   shmpAssignOrderItem,
@@ -19,6 +20,7 @@ import {
   remainingCartons,
 } from "@/lib/shmp-order-item";
 import { companyIdOf } from "@/lib/shmp-orders";
+import { shmpRecordAllowed } from "@/lib/shmp-permissions";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
   currentShift,
@@ -83,6 +85,7 @@ function asWorkerList(value: unknown): WorkerOption[] {
 
 export default function ShmpProductionOrderPage() {
   const params = useParams();
+  const { user } = useAuth();
   const orderId = String(params?.id || "");
   const [companyId, setCompanyId] = useState("");
   const [detail, setDetail] = useState<OrderDetail | null>(null);
@@ -125,7 +128,7 @@ export default function ShmpProductionOrderPage() {
       try {
         const cid = await ensureCompany();
         const [emps, sh] = await Promise.all([
-          shmpEmployees(cid || undefined),
+          shmpEmployees(cid || undefined, { for: "production" }),
           shmpShifts(cid || undefined),
         ]);
         setWorkers(asWorkerList(emps));
@@ -228,6 +231,9 @@ export default function ShmpProductionOrderPage() {
   }
 
   const invoice = detail?.order?.tempOrderInvoiceNo || orderId || "Order";
+  const assignableWorkers = workers.filter((worker) =>
+    shmpRecordAllowed(user?.customAccess, "production", "users", worker._id),
+  );
 
   return (
     <div className="space-y-6">
@@ -332,7 +338,7 @@ export default function ShmpProductionOrderPage() {
                               }
                             >
                               <option value="">Select worker</option>
-                              {workers.map((worker) => (
+                              {assignableWorkers.map((worker) => (
                                 <option key={worker._id} value={worker._id}>
                                   {worker.name || worker._id}
                                 </option>
@@ -415,7 +421,7 @@ export default function ShmpProductionOrderPage() {
             {!detail?.lines?.length ? (
               <p className="text-sm text-slate-500">No items on this order.</p>
             ) : null}
-            {!workers.length && detail?.lines?.length ? (
+            {!assignableWorkers.length && detail?.lines?.length ? (
               <p className="text-sm text-slate-500">
                 No workers are available to assign.
               </p>

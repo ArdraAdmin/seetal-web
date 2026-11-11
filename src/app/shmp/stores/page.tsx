@@ -17,6 +17,7 @@ import {
 import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
+import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { useAuth } from "@/components/AuthProvider";
 import { shmpActionOn } from "@/lib/shmp-permissions";
 import { useToast } from "@/components/Toast";
@@ -368,12 +369,18 @@ function StoreFields({
         onChange={(e) => setField("addressLine3", e.target.value)}
       />
       <CountryCityFields form={form} setField={setField} />
-      <TextField
-        label="Store code"
-        required
-        value={form.uid}
-        onChange={(e) => setField("uid", e.target.value)}
-      />
+      {mode === "edit" ? (
+        <TextField
+          label="Store code"
+          required
+          value={form.uid}
+          onChange={(e) => setField("uid", e.target.value)}
+        />
+      ) : (
+        <p className="text-xs text-slate-500">
+          The store code is assigned automatically, starting at SHR5742.
+        </p>
+      )}
       <StoreDocumentField
         label="TRN document"
         required={requireTrn}
@@ -429,7 +436,7 @@ function validateForm(
     toast("Enter a store name", "info");
     return false;
   }
-  if (!form.uid.trim()) {
+  if (mode === "edit" && !form.uid.trim()) {
     toast("Enter a store code", "info");
     return false;
   }
@@ -616,6 +623,8 @@ export default function ShmpStoresPage() {
           </div>
         }
       />
+
+      <StoreRequestQueue environment="shmp" />
 
       {adding ? (
         <Card className="mb-5">

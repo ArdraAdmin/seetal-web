@@ -17,6 +17,7 @@ import {
 import { warehouseField } from "@/lib/profiles";
 import {
   getHrStaff,
+  getAttendanceOverrides,
   getHrStaffAttendance,
   markHrStaffAttendance,
   overrideSalesAttendance,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/stl-features-api";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
+import { attendanceDatesInRange } from "@/lib/attendance-bulk";
 import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
 import {
   Card,
@@ -44,13 +46,31 @@ type HrPerson = {
   kind: "staff" | "user";
 };
 
+function dubaiDayKey(value?: string | Date) {
+  const date = value instanceof Date ? value : value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Dubai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  if (!year || !month || !day) return "";
+  return `${year}-${month}-${day}`;
+}
+
 function dubaiToday() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
+  return dubaiDayKey(new Date());
 }
 
 function markStatusLabel(mark: HrStaffAttendanceMark) {
   if (mark.status === "present") return "Present";
   if (mark.status === "absent") return "Absent";
+  if (mark.status === "holiday") return "Holiday";
   return mark.leaveType === "sick" ? "Sick leave" : "Annual leave";
 }
 
@@ -84,6 +104,9 @@ export default function AdminAttendancePage() {
   const [people, setPeople] = useState<HrPerson[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [staffMarks, setStaffMarks] = useState<HrStaffAttendanceMark[]>([]);
+  const [overrides, setOverrides] = useState<
+    Array<{ salesId: string; date: string; status: string }>
+  >([]);
   const [todayOnly, setTodayOnly] = useState(true);
   const [markOpen, setMarkOpen] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
@@ -92,6 +115,7 @@ export default function AdminAttendancePage() {
   const [markLeaveType, setMarkLeaveType] = useState<"annual" | "sick">("annual");
   const [markReason, setMarkReason] = useState("");
   const [markDate, setMarkDate] = useState(dubaiToday);
+  const [markEndDate, setMarkEndDate] = useState(dubaiToday);
 
   useEffect(() => {
     if (authLoading) return;
@@ -111,7 +135,7 @@ export default function AdminAttendancePage() {
       const from = todayOnly
         ? to
         : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(fromDate);
-      const [hr, warehouse, data, marks] = await Promise.all([
+      const [hr, warehouse, data, marks, overrideData] = await Promise.all([
         getHrStaff(user.id, { role: "Warehouse", scope: "stl" }),
         getWarehouseProfiles().catch(() => []),
         getAdminAttendance({
@@ -121,6 +145,7 @@ export default function AdminAttendancePage() {
         getHrStaffAttendance(user.id, "stl", from, to).catch(() => ({
           marks: [] as HrStaffAttendanceMark[],
         })),
+        getAttendanceOverrides(user.id, from, to).catch(() => ({ overrides: [] })),
       ]);
       const managerIds = new Set(
         warehouse
@@ -149,6 +174,16 @@ export default function AdminAttendancePage() {
         ),
       );
       setStaffMarks(marks.marks || []);
+      setOverrides(
+        (overrideData.overrides || []).map((row) => ({
+          salesId:
+            row.sales && typeof row.sales === "object"
+              ? String(row.sales._id || "")
+              : String(row.sales || ""),
+          date: dubaiDayKey(row.date),
+          status: String(row.status || ""),
+        })),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load attendance");
     } finally {
@@ -185,6 +220,17 @@ export default function AdminAttendancePage() {
           .filter((mark) => mark.staffId === person.key)
           .map((mark) => markStatusLabel(mark))
           .join(", ");
+        const override = overrides.find(
+          (row) => row.salesId === person.loginId && row.date === dubaiToday(),
+        );
+        const overrideLabel =
+          override?.status === "present"
+            ? "Present"
+            : override?.status === "absent"
+              ? "Absent"
+              : override?.status === "holiday"
+                ? "Holiday"
+                : "";
         return {
           key: person.key,
           name: person.name,
@@ -193,9 +239,11 @@ export default function AdminAttendancePage() {
           checkInAt: record?.checkInAt,
           checkOutAt: record?.checkOutAt,
           report: record?.report,
-          empty: record
-            ? undefined
-            : marked || (person.loginId ? "Not checked in" : "Not marked"),
+          empty: overrideLabel
+            ? overrideLabel
+            : record
+              ? undefined
+              : marked || (person.loginId ? "Not checked in" : "Not marked"),
         };
       });
     }
@@ -220,10 +268,14 @@ export default function AdminAttendancePage() {
     const missing = people
       .filter((person) => !person.loginId || !seen.has(person.loginId))
       .map((person) => {
-        const marked = staffMarks
-          .filter((mark) => mark.staffId === person.key)
-          .map((mark) => `${mark.date}: ${markStatusLabel(mark)}`)
-          .join(", ");
+        const marked = [
+          ...staffMarks
+            .filter((mark) => mark.staffId === person.key)
+            .map((mark) => `${mark.date}: ${markStatusLabel(mark)}`),
+          ...overrides
+            .filter((row) => row.salesId === person.loginId)
+            .map((row) => `${row.date}: ${row.status}`),
+        ].join(", ");
         return {
           key: person.key,
           name: person.name,
@@ -236,7 +288,7 @@ export default function AdminAttendancePage() {
         };
       });
     return [...fromRecords, ...missing];
-  }, [people, records, staffMarks, todayOnly]);
+  }, [overrides, people, records, staffMarks, todayOnly]);
 
   const markPeople = useMemo(
     () =>
@@ -255,6 +307,7 @@ export default function AdminAttendancePage() {
     setMarkLeaveType("annual");
     setMarkReason("");
     setMarkDate(dubaiToday());
+    setMarkEndDate(dubaiToday());
     setMarkOpen(true);
   }
 
@@ -266,30 +319,43 @@ export default function AdminAttendancePage() {
 
   async function onMark(event: FormEvent) {
     event.preventDefault();
-    if (!user?.id || !markPerson || !markReason.trim()) {
-      toast("Person and reason are required", "info");
+    if (!user?.id || !markPerson) {
+      toast("Choose a person", "info");
       return;
     }
     const [kind, id] = markPerson.split(":");
-    const status = markStatus === "leave" ? "leave" : markStatus === "absent" ? "absent" : "present";
+    const status =
+      markStatus === "leave" || markStatus === "absent" || markStatus === "holiday"
+        ? markStatus
+        : "present";
+    const dates =
+      status === "holiday"
+        ? attendanceDatesInRange(markDate, markEndDate || markDate)
+        : [markDate];
+    if (!dates) {
+      toast("Choose a valid holiday range", "info");
+      return;
+    }
     setSavingMark(true);
     try {
-      if (kind === "staff") {
-        await markHrStaffAttendance(user.id, id, {
-          date: markDate,
-          status,
-          ...(status === "leave" ? { leaveType: markLeaveType } : {}),
-          reason: markReason.trim(),
-        });
-      } else {
-        await overrideSalesAttendance({
-          userId: user.id,
-          salesId: id,
-          date: markDate,
-          status,
-          ...(status === "leave" ? { leaveType: markLeaveType } : {}),
-          reason: markReason.trim(),
-        });
+      for (const date of dates) {
+        if (kind === "staff") {
+          await markHrStaffAttendance(user.id, id, {
+            date,
+            status,
+            ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+            reason: markReason.trim(),
+          });
+        } else {
+          await overrideSalesAttendance({
+            userId: user.id,
+            salesId: id,
+            date,
+            status,
+            ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+            reason: markReason.trim() || undefined,
+          });
+        }
       }
       toast("Attendance saved", "success");
       setMarkOpen(false);
@@ -375,7 +441,8 @@ export default function AdminAttendancePage() {
                 <p className="mt-2 text-sm text-slate-700">{row.empty}</p>
               ) : (
                 <>
-                  <p className="mt-2 text-sm text-slate-700">
+                  <p className="mt-2 text-sm font-medium text-slate-800">Present</p>
+                  <p className="mt-1 text-sm text-slate-700">
                     Check in: {fmtDateTime(row.checkInAt)}
                   </p>
                   <p className="mt-1 text-sm text-slate-700">
@@ -392,10 +459,11 @@ export default function AdminAttendancePage() {
       )}
       <MarkAttendanceDialog
         open={markOpen}
-        description="Record present, absent, or annual/sick leave for someone listed in HR."
+        description="Record present, absent, leave, or a holiday range. Reason is optional."
         people={markPeople}
         person={markPerson}
         date={markDate}
+        endDate={markEndDate}
         status={markStatus}
         leaveType={markLeaveType}
         reason={markReason}
@@ -404,10 +472,15 @@ export default function AdminAttendancePage() {
           { value: "present", label: "Present" },
           { value: "absent", label: "Absent" },
           { value: "leave", label: "Leave" },
+          { value: "holiday", label: "Holiday" },
         ]}
         onClose={closeMark}
         onPerson={setMarkPerson}
-        onDate={setMarkDate}
+        onDate={(value) => {
+          setMarkDate(value);
+          if (markEndDate < value) setMarkEndDate(value);
+        }}
+        onEndDate={setMarkEndDate}
         onStatus={setMarkStatus}
         onLeaveType={setMarkLeaveType}
         onReason={setMarkReason}
