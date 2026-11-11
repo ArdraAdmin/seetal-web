@@ -10,6 +10,8 @@ import {
   shmpOrderDetail,
   shmpShifts,
 } from "@/lib/shmp-api";
+import { PackagingUsage } from "@/components/PackagingUsage";
+import { draftCartonTotal } from "@/lib/rm-usage";
 import {
   assignedWorkerName,
   isOrderItemDone,
@@ -90,6 +92,7 @@ export default function ShmpProductionOrderPage() {
     {},
   );
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -190,10 +193,11 @@ export default function ShmpProductionOrderPage() {
       return;
     }
     setBusyId(productId);
+    setNotice(null);
     try {
       const cid =
         companyIdOf(detail?.order?.company) || (await ensureCompany());
-      await shmpAssignOrderItem(orderId, productId, {
+      const saved = await shmpAssignOrderItem(orderId, productId, {
         workers: parsed.workers.map((worker) => ({
           employeeId: worker.employeeId,
           cartonQty: worker.cartonQty,
@@ -207,7 +211,14 @@ export default function ShmpProductionOrderPage() {
         delete next[productId];
         return next;
       });
-      setError(null);
+      setError(
+        saved.rmRequestError
+          ? `Packing was saved, but the label check was not created. ${saved.rmRequestError}`
+          : null,
+      );
+      if (!saved.rmRequestError) {
+        setNotice("Packing saved. Cartons and labels are waiting for a label checker.");
+      }
       await loadDetail();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save packing");
@@ -229,7 +240,9 @@ export default function ShmpProductionOrderPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-ink">{invoice}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Record who packed each item and how many cartons they packed.
+          Record who packed each item and how many cartons they packed. Cartons
+          and labels for this allotment are shown before you save. Stock is
+          deducted after a label checker approves.
         </p>
         <p className="mt-1 text-sm text-slate-600">
           {activeShift
@@ -243,6 +256,11 @@ export default function ShmpProductionOrderPage() {
       {error ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {notice}
         </p>
       ) : null}
 
@@ -368,6 +386,11 @@ export default function ShmpProductionOrderPage() {
                           Add worker
                         </button>
                       ) : null}
+                      <PackagingUsage
+                        orderId={orderId}
+                        productId={pid}
+                        cartonQty={draftCartonTotal(rows)}
+                      />
                       <div className="flex justify-end">
                         <button
                           type="button"

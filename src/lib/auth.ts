@@ -98,6 +98,10 @@ export function isSupervisor(user: AuthUser | null): boolean {
   return user?.role === "Supervisor";
 }
 
+export function isLabelChecker(user: AuthUser | null): boolean {
+  return user?.role === "LabelChecker";
+}
+
 export function canAccessEnvironment(
   user: AuthUser | null,
   env: "stl" | "shmp",

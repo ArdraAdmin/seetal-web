@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   homePathForEnvironment,
+  LABEL_CHECKER_SHMP_HOME,
   SUPERVISOR_SHMP_HOME,
 } from "./environment.ts";
+import { canLabelCheckerAccessShmpPath } from "./label-checker-access.ts";
 import { canSupervisorAccessShmpPath } from "./supervisor-shmp-access.ts";
 
 describe("supervisor SHMP routes", () => {
@@ -24,5 +26,16 @@ describe("supervisor SHMP routes", () => {
     assert.equal(canSupervisorAccessShmpPath("/shmp/orders"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/delivery"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp"), false);
+  });
+
+  it("sends label checkers to the RM store", () => {
+    assert.equal(LABEL_CHECKER_SHMP_HOME, "/shmp/rm");
+    assert.equal(
+      homePathForEnvironment("shmp", "LabelChecker"),
+      "/shmp/rm",
+    );
+    assert.equal(canLabelCheckerAccessShmpPath("/shmp/rm"), true);
+    assert.equal(canLabelCheckerAccessShmpPath("/shmp/production"), false);
+    assert.equal(canLabelCheckerAccessShmpPath("/shmp"), false);
   });
 });

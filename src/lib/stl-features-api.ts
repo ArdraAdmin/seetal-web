@@ -1,5 +1,6 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
+import { noteRejectedSession } from "./session";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -25,6 +26,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -35,6 +37,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     cache: "no-store",
     headers,
   });
+  if (sentToken) noteRejectedSession(res.status);
   const text = await res.text();
   let body: unknown = null;
   if (text) {
@@ -1084,6 +1087,7 @@ async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> 
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -1093,6 +1097,7 @@ async function siteJson<T>(path: string, options: RequestInit = {}): Promise<T> 
     cache: "no-store",
     headers,
   });
+  if (sentToken) noteRejectedSession(res.status);
   const text = await res.text();
   let body: unknown = null;
   if (text) {

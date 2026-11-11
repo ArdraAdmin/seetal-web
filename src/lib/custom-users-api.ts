@@ -1,5 +1,6 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
+import { noteRejectedSession } from "./session";
 import type { CustomAccess, CustomUserRecord } from "./custom-users";
 
 export type CustomUserInput = {
@@ -24,6 +25,7 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -43,6 +45,7 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
   }
   if (!res.ok) {
+    if (sentToken) noteRejectedSession(res.status);
     throw new Error(
       describeApiError(body, text || res.statusText || `Request failed (${res.status})`),
     );

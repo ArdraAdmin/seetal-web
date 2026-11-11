@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AUTH_COOKIE, parseAuthCookie } from "@/lib/session";
+import {
+  AUTH_COOKIE,
+  parseAuthCookie,
+  remoteSessionDecision,
+  SESSION_CHECK_COOKIE,
+  SESSION_CHECK_MAX_AGE,
+} from "@/lib/session";
 import {
   canCustomUserAccessPath,
   customHomePath,
@@ -8,6 +14,7 @@ import {
   readCustomAccess,
   type AppSide,
 } from "@/lib/custom-users";
+import { canLabelCheckerAccessShmpPath } from "@/lib/label-checker-access";
 import {
   canSupervisorAccessShmpPath,
   homePathForRole,
@@ -15,15 +22,78 @@ import {
 } from "@/lib/roles";
 import {
   homePathForEnvironment,
+  LABEL_CHECKER_SHMP_HOME,
   normalizeEnvironments,
 } from "@/lib/environment";
 
-export function middleware(request: NextRequest) {
+const API_ORIGIN = (
+  process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
+).replace(/\/$/, "");
+
+async function remoteSessionStatus(token: string): Promise<number | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_ORIGIN}/user/me`, {
+      headers: { "auth-token": token, Authorization: token },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return res.status;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function endSavedSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const response =
+    pathname === "/login"
+      ? NextResponse.next()
+      : NextResponse.redirect(loginUrl(request));
+  response.cookies.set(AUTH_COOKIE, "", {
+    path: "/",
+    maxAge: 0,
+    sameSite: "lax",
+  });
+  response.cookies.set(SESSION_CHECK_COOKIE, "", { path: "/", maxAge: 0 });
+  return response;
+}
+
+function loginUrl(request: NextRequest) {
+  const url = request.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  return url;
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const raw = request.cookies.get(AUTH_COOKIE)?.value;
   const session = parseAuthCookie(raw);
   const role = session?.role;
   const authed = Boolean(session?.token);
+  let markChecked = false;
+
+  if (authed && session?.token && request.cookies.get(SESSION_CHECK_COOKIE)?.value !== "1") {
+    const decision = remoteSessionDecision(await remoteSessionStatus(session.token));
+    if (decision === "reject") return endSavedSession(request);
+    if (decision === "allow") markChecked = true;
+  }
+
+  const finish = (response: NextResponse) => {
+    if (markChecked) {
+      response.cookies.set(SESSION_CHECK_COOKIE, "1", {
+        path: "/",
+        maxAge: SESSION_CHECK_MAX_AGE,
+        sameSite: "lax",
+        httpOnly: true,
+      });
+    }
+    return response;
+  };
   const environments = normalizeEnvironments(
     session?.environments,
     role,
@@ -40,16 +110,16 @@ export function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
     if (environments.includes("stl") === false) {
       const url = request.nextUrl.clone();
       url.pathname = "/select-environment";
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
     if (customAccess) {
       const blocked = redirectCustom(request, customAccess, pathname);
-      if (blocked) return blocked;
+      if (blocked) return finish(blocked);
     }
   }
 
@@ -58,7 +128,7 @@ export function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
   }
 
@@ -67,7 +137,7 @@ export function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
   }
 
@@ -76,19 +146,19 @@ export function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
-    const allowedRoles = ["Admin", "Supervisor"];
+    const allowedRoles = ["Admin", "Supervisor", "LabelChecker"];
     if (!allowedRoles.includes(String(role))) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
     if (!environments.includes("shmp")) {
       const url = request.nextUrl.clone();
       url.pathname = "/select-environment";
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
     if (
       role === "Supervisor" &&
@@ -96,11 +166,16 @@ export function middleware(request: NextRequest) {
     ) {
       const url = request.nextUrl.clone();
       url.pathname = supervisorShmpHome();
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
+    }
+    if (role === "LabelChecker" && !canLabelCheckerAccessShmpPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = LABEL_CHECKER_SHMP_HOME;
+      return finish(NextResponse.redirect(url));
     }
     if (customAccess) {
       const blocked = redirectCustom(request, customAccess, pathname);
-      if (blocked) return blocked;
+      if (blocked) return finish(blocked);
     }
   }
 
@@ -108,7 +183,7 @@ export function middleware(request: NextRequest) {
     if (!authed) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
-      return NextResponse.redirect(url);
+      return finish(NextResponse.redirect(url));
     }
   }
 
@@ -131,10 +206,10 @@ export function middleware(request: NextRequest) {
     } else {
       url.pathname = homePathForRole(role);
     }
-    return NextResponse.redirect(url);
+    return finish(NextResponse.redirect(url));
   }
 
-  return NextResponse.next();
+  return finish(NextResponse.next());
 }
 
 function redirectCustom(

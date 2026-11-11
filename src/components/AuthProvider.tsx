@@ -9,13 +9,18 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { fetchCurrentUser, login as apiLogin } from "@/lib/api";
+import { ApiError, fetchCurrentUser, login as apiLogin } from "@/lib/api";
 import {
   canAccessEnvironment,
   clearAuth,
   getStoredAuth,
   saveAuth,
 } from "@/lib/auth";
+import {
+  isRejectedSessionStatus,
+  onRejectedSession,
+  resumeSession,
+} from "@/lib/session";
 import { clearSelectedSalesCompany } from "@/lib/sales-selected-company";
 import { postLoginPath, areaPrefix, homePathForRole } from "@/lib/roles";
 import {
@@ -48,6 +53,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
+    return onRejectedSession(() => {
+      clearAuth();
+      setUser(null);
+      setEnvironment(null);
+      router.replace("/login");
+    });
+  }, [router]);
+
+  useEffect(() => {
     let cancelled = false;
     async function hydrate() {
       const stored = getStoredAuth();
@@ -60,8 +74,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
-      // Refresh cookie so middleware sees normalized environments (fixes empty []).
-      saveAuth(stored, env);
       if (!cancelled) {
         setUser(stored);
         setEnvironment(env);
@@ -71,26 +83,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const fresh = await fetchCurrentUser();
-        if (cancelled) return;
+        if (cancelled || !getStoredAuth()) return;
+        resumeSession();
         let customAccess = stored.customAccess;
         try {
           customAccess = (await getMyCustomAccess()) ?? undefined;
         } catch {
           /* Keep the access already stored with this session. */
         }
-        if (cancelled) return;
+        if (cancelled || !getStoredAuth()) return;
         const next = { ...fresh, customAccess };
         saveAuth(next, env);
         setUser(next);
-      } catch {
-        // Keep stored session if /user/me is unavailable (older API).
+      } catch (error) {
+        if (error instanceof ApiError && isRejectedSessionStatus(error.status)) {
+          clearAuth();
+          if (!cancelled) {
+            setUser(null);
+            setEnvironment(null);
+          }
+          router.replace("/login");
+          return;
+        }
+        // Keep the stored session if /user/me is unavailable (older API or outage).
+        saveAuth(stored, env);
       }
     }
     void hydrate();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [router]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -98,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!signedIn?.token) {
         throw new Error("Sign-in failed");
       }
+      resumeSession();
       clearEnvironment();
       clearSelectedSalesCompany();
       saveAuth(signedIn, null);

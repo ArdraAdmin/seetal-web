@@ -1,5 +1,6 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
+import { noteRejectedSession } from "./session";
 import type { ShmpProductionLog } from "./shmp-production";
 import type { ProductArtworkFile } from "./types";
 
@@ -16,6 +17,7 @@ async function shmpRequest<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   const isFormData =
     typeof FormData !== "undefined" && init.body instanceof FormData;
   const headers: Record<string, string> = {
@@ -42,6 +44,7 @@ async function shmpRequest<T>(
     body = text;
   }
   if (!res.ok) {
+    if (sentToken) noteRejectedSession(res.status);
     throw new Error(describeApiError(body, `Request failed (${res.status})`));
   }
   return body as T;
@@ -254,19 +257,117 @@ export const shmpSubmitProductionEntry = (id: string) =>
     body: "{}",
   });
 
+export type RmMaterial = {
+  _id: string;
+  name: string;
+  code: string;
+  kind?: "Carton" | "Label" | "Other" | string;
+  unit?: string;
+  balance?: number;
+  currentPrice?: number;
+};
+
+export type RmLedgerEntry = {
+  _id: string;
+  type: string;
+  quantity: number;
+  unitPrice?: number;
+  supplierName?: string;
+  invoiceNo?: string;
+  receiptDate?: string;
+  createdAt?: string;
+  remarks?: string;
+  material?: { name?: string; code?: string; kind?: string };
+  order?: { _id?: string; tempOrderInvoiceNo?: string } | string | null;
+  product?: { itemName?: string; itemRef?: string } | string | null;
+  createdBy?: { name?: string } | string | null;
+  approvedBy?: { name?: string } | string | null;
+};
+
+export type RmUsageLine = {
+  materialId: string;
+  kind: string;
+  name: string;
+  code?: string;
+  qtyPerCarton: number;
+  quantity: number;
+  balance?: number;
+};
+
+export type RmUsage = {
+  cartonQty: number;
+  lines: RmUsageLine[];
+  missingSetup: boolean;
+  blockers?: string[];
+};
+
+export type RmApproval = {
+  _id: string;
+  status: string;
+  cartonQty: number;
+  createdAt?: string;
+  rejectReason?: string;
+  order?: { _id?: string; tempOrderInvoiceNo?: string } | string | null;
+  product?: { itemName?: string; itemRef?: string } | string | null;
+  requestedBy?: { name?: string } | string | null;
+  approvedBy?: { name?: string } | string | null;
+  workers?: Array<{
+    cartonQty?: number;
+    employee?: { name?: string } | string | null;
+  }>;
+  requirement?: RmUsage;
+};
+
 export const shmpRmMaterials = (companyId?: string) =>
-  shmpRequest(
-    `/rm/materials${companyId ? `?companyId=${companyId}` : ""}`,
+  shmpRequest<RmMaterial[]>(
+    `/rm/materials${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
   );
 
 export const shmpCreateMaterial = (body: Record<string, unknown>) =>
   shmpRequest("/rm/materials", { method: "POST", body: JSON.stringify(body) });
+
+export const shmpUpdateMaterial = (id: string, body: Record<string, unknown>) =>
+  shmpRequest(`/rm/materials/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 
 export const shmpStockIn = (body: Record<string, unknown>) =>
   shmpRequest("/rm/stock-in", { method: "POST", body: JSON.stringify(body) });
 
 export const shmpIssueRm = (body: Record<string, unknown>) =>
   shmpRequest("/rm/issue", { method: "POST", body: JSON.stringify(body) });
+
+export const shmpRmLedger = (companyId?: string) =>
+  shmpRequest<RmLedgerEntry[]>(
+    `/rm/ledger${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
+  );
+
+export const shmpRmApprovals = (status = "pending") =>
+  shmpRequest<RmApproval[]>(
+    `/rm/approvals?status=${encodeURIComponent(status)}`,
+  );
+
+export const shmpApproveRm = (id: string) =>
+  shmpRequest(`/rm/approvals/${id}/approve`, {
+    method: "POST",
+    body: "{}",
+  });
+
+export const shmpRejectRm = (id: string, reason: string) =>
+  shmpRequest(`/rm/approvals/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+
+export const shmpOrderItemRmUsage = (
+  orderId: string,
+  productId: string,
+  cartonQty: number,
+) =>
+  shmpRequest<RmUsage>(
+    `/orders/${orderId}/items/${productId}/rm-usage?cartonQty=${encodeURIComponent(String(cartonQty))}`,
+  );
 
 export const shmpBom = (productId: string) =>
   shmpRequest(`/rm/bom/${productId}`);
@@ -320,10 +421,13 @@ export const shmpAssignOrderItem = (
     companyId?: string;
   },
 ) =>
-  shmpRequest(`/orders/${orderId}/items/${productId}/assign`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  shmpRequest<{ rmRequestError?: string | null }>(
+    `/orders/${orderId}/items/${productId}/assign`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 
 export const shmpMarkOrderItemDone = (orderId: string, productId: string) =>
   shmpRequest(`/orders/${orderId}/items/${productId}/done`, {
@@ -427,7 +531,7 @@ export const shmpSaveRecipients = (body: Record<string, unknown>) =>
 export const shmpAccessMe = () =>
   shmpRequest<Record<string, unknown>>("/access/me");
 
-export type ShmpAccessRole = "Admin" | "Sales" | "Supervisor";
+export type ShmpAccessRole = "Admin" | "Sales" | "Supervisor" | "LabelChecker";
 
 export type ShmpAccessUser = {
   _id: string;

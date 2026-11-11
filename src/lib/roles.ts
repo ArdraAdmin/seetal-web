@@ -3,6 +3,7 @@ import { firstAllowedPath } from "./custom-users";
 import {
   normalizeEnvironments,
   homePathForEnvironment,
+  LABEL_CHECKER_SHMP_HOME,
   SUPERVISOR_SHMP_HOME,
 } from "./environment";
 
@@ -19,6 +20,7 @@ export function homePathForRole(role?: string) {
   if (role === "Sales") return "/sales";
   if (role === "Warehouse") return "/warehouse";
   if (role === "Supervisor") return supervisorShmpHome();
+  if (role === "LabelChecker") return LABEL_CHECKER_SHMP_HOME;
   return "/admin";
 }
 

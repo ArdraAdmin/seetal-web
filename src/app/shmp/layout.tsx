@@ -6,7 +6,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { ShmpShell } from "@/components/ShmpShell";
 import { CustomAccessGuard } from "@/components/CustomAccessGuard";
 import { StaffCheckInGate } from "@/components/StaffCheckInGate";
-import { canAccessEnvironment, isSupervisor } from "@/lib/auth";
+import { canAccessEnvironment, isLabelChecker, isSupervisor } from "@/lib/auth";
+import { canLabelCheckerAccessShmpPath, LABEL_CHECKER_SHMP_HOME } from "@/lib/label-checker-access";
 import {
   canSupervisorAccessShmpPath,
   supervisorShmpHome,
@@ -21,6 +22,7 @@ export default function ShmpLayout({
   const router = useRouter();
   const pathname = usePathname();
   const supervisor = isSupervisor(user);
+  const labelChecker = isLabelChecker(user);
 
   useEffect(() => {
     if (loading) return;
@@ -32,7 +34,11 @@ export default function ShmpLayout({
       router.replace("/select-environment");
       return;
     }
-    if (user.role !== "Admin" && user.role !== "Supervisor") {
+    if (
+      user.role !== "Admin" &&
+      user.role !== "Supervisor" &&
+      user.role !== "LabelChecker"
+    ) {
       router.replace("/login");
       return;
     }
@@ -43,7 +49,14 @@ export default function ShmpLayout({
     ) {
       router.replace(supervisorShmpHome());
     }
-  }, [user, loading, router, pathname]);
+    if (
+      isLabelChecker(user) &&
+      pathname &&
+      !canLabelCheckerAccessShmpPath(pathname)
+    ) {
+      router.replace(LABEL_CHECKER_SHMP_HOME);
+    }
+  }, [user, loading, router, pathname, supervisor, labelChecker]);
 
   if (loading || !user) {
     return (

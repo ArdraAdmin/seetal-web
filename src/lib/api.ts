@@ -1,5 +1,6 @@
 import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
+import { noteRejectedSession } from "./session";
 import { readCustomAccess } from "./custom-users";
 import { mulkyaAlertsFromVehicles } from "./expiry-window";
 import type {
@@ -97,6 +98,10 @@ function errorMessage(body: unknown, fallback: string): string {
   return describeApiError(body, fallback);
 }
 
+function endSessionIfRejected(status: number, sentToken: boolean) {
+  if (sentToken) noteRejectedSession(status);
+}
+
 async function requestRaw(
   path: string,
   options: RequestInit = {},
@@ -108,9 +113,11 @@ async function requestRaw(
   if (!isFormData && !headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
+  let sentToken = false;
   if (auth) {
     const user = getStoredAuth();
     if (user?.token) {
+      sentToken = true;
       headers.set("Authorization", user.token);
       headers.set("auth-token", user.token);
     }
@@ -131,6 +138,7 @@ async function requestRaw(
   }
 
   const body = await parseBody(res);
+  endSessionIfRejected(res.status, sentToken);
   return { body, headers: res.headers, ok: res.ok, status: res.status };
 }
 
@@ -160,6 +168,7 @@ async function siteRequest<T>(
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -177,6 +186,7 @@ async function siteRequest<T>(
   }
 
   const body = await parseBody(res);
+  endSessionIfRejected(res.status, sentToken);
   if (!res.ok) {
     throw new ApiError(
       errorMessage(body, `Request failed (${res.status})`),
@@ -269,7 +279,8 @@ function authUserFromPayload(
     environments:
       environments && environments.length
         ? environments
-        : String(data.role) === "Supervisor"
+        : String(data.role) === "Supervisor" ||
+            String(data.role) === "LabelChecker"
           ? (["shmp"] as ("stl" | "shmp")[])
           : adminField?.isSuperAdmin === true
             ? (["stl", "shmp"] as ("stl" | "shmp")[])
@@ -555,11 +566,13 @@ export const addVehicleMaintenance = (
 async function fetchFleetFile(path: string): Promise<Blob> {
   const headers = new Headers();
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
   }
   const res = await fetch(`${apiBase()}${path}`, { headers, cache: "no-store" });
+  endSessionIfRejected(res.status, sentToken);
   if (!res.ok) {
     const text = await res.text();
     let message = text;
@@ -791,6 +804,7 @@ export const saveAdminStoreEid = (input: {
 export async function openAdminStoreEidFile(storeId: string) {
   const headers = new Headers();
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -799,6 +813,7 @@ export async function openAdminStoreEidFile(storeId: string) {
     `/api/admin/stores/eid?storeId=${encodeURIComponent(storeId)}`,
     { headers, cache: "no-store" },
   );
+  endSessionIfRejected(res.status, sentToken);
   if (!res.ok) {
     const raw = await res.text();
     throw new ApiError(raw || "Unable to open the EID document", res.status);
@@ -1325,16 +1340,19 @@ async function authorizedFetch(path: string, options: RequestInit) {
     headers.set("Content-Type", "application/json");
   }
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
   }
   try {
-    return await fetch(`${apiBase()}${path}`, {
+    const res = await fetch(`${apiBase()}${path}`, {
       ...options,
       cache: "no-store",
       headers,
     });
+    endSessionIfRejected(res.status, sentToken);
+    return res;
   } catch {
     throw new ApiError(
       "Cannot reach the STL API. The request was blocked before your credentials were checked.",
@@ -2109,6 +2127,7 @@ const LIST_FILE_NAMES: Record<WarehouseActionTag, string> = {
 export async function downloadWarehouseActionSheet(tag: WarehouseActionTag) {
   const headers = new Headers();
   const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
   if (user?.token) {
     headers.set("Authorization", user.token);
     headers.set("auth-token", user.token);
@@ -2119,6 +2138,7 @@ export async function downloadWarehouseActionSheet(tag: WarehouseActionTag) {
     headers,
     body: JSON.stringify({ tag }),
   });
+  endSessionIfRejected(res.status, sentToken);
   if (!res.ok) {
     const body = await parseBody(res);
     throw new ApiError(

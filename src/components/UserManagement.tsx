@@ -64,7 +64,9 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
             : null
       : group === "custom"
         ? { href: `${pathname}/new`, label: "Create user" }
-        : { href: "/shmp/hr", label: "Add in HR" };
+        : group === "label-checker"
+          ? { href: "/shmp/users/label-checker/new", label: "Add" }
+          : { href: "/shmp/hr", label: "Add in HR" };
 
   return (
     <div>
@@ -73,7 +75,7 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
         subtitle={
           side === "admin"
             ? "Sales accounts, warehouse accounts, admins, and custom users."
-            : "Supervisors, factory workers, and custom users."
+            : "Supervisors, factory workers, label checkers, and custom users."
         }
         actions={
           <div className="flex gap-2">
@@ -165,6 +167,17 @@ export function UserManagement({ side }: { side: UserManagementSide }) {
           }
         />
       ) : null}
+      {side === "shmp" && group === "label-checker" ? (
+        <PeopleList
+          key={`label-checker-${reloadKey}`}
+          emptyTitle="No label checkers yet"
+          emptyDescription="Add a label checker to approve carton and label usage."
+          load={loadLabelCheckers}
+          hrefFor={(person) =>
+            withReturnTo(`/shmp/users/label-checker/${person.id}`, returnTo)
+          }
+        />
+      ) : null}
       {side === "shmp" && group === "workers" ? (
         <PeopleList
           key={`workers-${reloadKey}`}
@@ -186,6 +199,10 @@ async function loadAdmins() {
 
 async function loadSupervisors() {
   return readAccessPeople(await shmpAccessUsers("Supervisor"), "Supervisor");
+}
+
+async function loadLabelCheckers() {
+  return readAccessPeople(await shmpAccessUsers("LabelChecker"), "LabelChecker");
 }
 
 async function loadWorkers() {

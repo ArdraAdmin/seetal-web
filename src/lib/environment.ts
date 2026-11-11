@@ -50,17 +50,20 @@ export function normalizeEnvironments(
       .map((e) => String(e).toLowerCase())
       .filter((e): e is AppEnvironment => e === "stl" || e === "shmp");
   }
-  if (role === "Supervisor") return ["shmp"];
+  if (role === "Supervisor" || role === "LabelChecker") return ["shmp"];
   if (role === "Admin" && isSuperAdmin) return ["stl", "shmp"];
   return ["stl"];
 }
 
 export const SUPERVISOR_SHMP_HOME = "/shmp/attendance";
+export const LABEL_CHECKER_SHMP_HOME = "/shmp/rm";
 
 export function homePathForEnvironment(env: AppEnvironment, role?: string) {
   if (role === "Sales") return "/sales";
   if (env === "shmp") {
-    return role === "Supervisor" ? SUPERVISOR_SHMP_HOME : "/shmp";
+    if (role === "Supervisor") return SUPERVISOR_SHMP_HOME;
+    if (role === "LabelChecker") return LABEL_CHECKER_SHMP_HOME;
+    return "/shmp";
   }
   if (role === "Warehouse") return "/warehouse";
   return "/admin";

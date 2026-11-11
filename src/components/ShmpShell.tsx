@@ -29,8 +29,9 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
-import { isSupervisor } from "@/lib/auth";
+import { isLabelChecker, isSupervisor } from "@/lib/auth";
 import { portalFieldVisible, shmpModuleVisible } from "@/lib/custom-users";
+import { canLabelCheckerAccessShmpPath } from "@/lib/label-checker-access";
 import { navItemActive } from "@/lib/nav-active";
 import { canSupervisorAccessShmpPath } from "@/lib/supervisor-shmp-access";
 
@@ -122,11 +123,13 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
     .join("");
 
   const supervisor = isSupervisor(user);
+  const labelChecker = isLabelChecker(user);
   const navItems = NAV.filter((item) => {
     if (item.fullAdminOnly) {
       return user?.role === "Admin" && !user.customAccess;
     }
     if (supervisor) return canSupervisorAccessShmpPath(item.href);
+    if (labelChecker) return canLabelCheckerAccessShmpPath(item.href);
     if (user?.customAccess) {
       if (!item.moduleId || !shmpModuleVisible(user.customAccess, item.moduleId)) {
         return false;

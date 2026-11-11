@@ -16,6 +16,7 @@ describe("user management groups", () => {
     assert.equal(parseUserGroup("shmp", ""), "supervisor");
     assert.equal(parseUserGroup("admin", "warehouse"), "warehouse");
     assert.equal(parseUserGroup("shmp", "workers"), "workers");
+    assert.equal(parseUserGroup("shmp", "label-checker"), "label-checker");
   });
 
   it("rejects a group that belongs to the other side", () => {

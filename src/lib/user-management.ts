@@ -2,7 +2,12 @@ export const ADMIN_USER_GROUPS = ["sales", "warehouse", "admins", "custom"] as c
 
 /** STL portal admins. Other Admin-role logins are not listed or counted here. */
 export const PORTAL_ADMIN_EMAILS = ["lav@shrseetal.com", "admin@gmail.com"] as const;
-export const SHMP_USER_GROUPS = ["supervisor", "workers", "custom"] as const;
+export const SHMP_USER_GROUPS = [
+  "supervisor",
+  "workers",
+  "label-checker",
+  "custom",
+] as const;
 
 export type UserManagementSide = "admin" | "shmp";
 export type AdminUserGroup = (typeof ADMIN_USER_GROUPS)[number];
@@ -16,6 +21,7 @@ export const USER_GROUP_LABELS: Record<UserGroup, string> = {
   custom: "Custom",
   supervisor: "Supervisors",
   workers: "Workers",
+  "label-checker": "Label checkers",
 };
 
 export function userGroupsForSide(side: UserManagementSide): readonly UserGroup[] {
