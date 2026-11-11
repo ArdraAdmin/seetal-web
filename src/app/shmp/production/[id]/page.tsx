@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { getCompanies } from "@/lib/api";
 import {
+  cachedShmpOrderDetail,
   shmpAssignOrderItem,
   shmpEmployees,
   shmpOrderDetail,
@@ -17,6 +18,7 @@ import {
   assignedWorkerName,
   isOrderItemDone,
   parseSplitAssignments,
+  productionStatusClass,
   remainingCartons,
 } from "@/lib/shmp-order-item";
 import { companyIdOf } from "@/lib/shmp-orders";
@@ -87,8 +89,9 @@ export default function ShmpProductionOrderPage() {
   const params = useParams();
   const { user } = useAuth();
   const orderId = String(params?.id || "");
+  const cached = cachedShmpOrderDetail(orderId) as OrderDetail | undefined;
   const [companyId, setCompanyId] = useState("");
-  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const [detail, setDetail] = useState<OrderDetail | null>(cached || null);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [shifts, setShifts] = useState<ShiftOption[]>([]);
   const [rowsByProduct, setRowsByProduct] = useState<Record<string, SplitRow[]>>(
@@ -97,7 +100,7 @@ export default function ShmpProductionOrderPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
 
   const activeShift = currentShift(shifts);
 
@@ -124,6 +127,22 @@ export default function ShmpProductionOrderPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const next = (await shmpOrderDetail(orderId, {
+          view: "production",
+        })) as OrderDetail;
+        if (cancelled) return;
+        setDetail(next);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Detail failed");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     void (async () => {
       try {
         const cid = await ensureCompany();
@@ -131,14 +150,18 @@ export default function ShmpProductionOrderPage() {
           shmpEmployees(cid || undefined, { for: "production" }),
           shmpShifts(cid || undefined),
         ]);
+        if (cancelled) return;
         setWorkers(asWorkerList(emps));
         setShifts(asShiftList(sh));
       } catch {
+        if (cancelled) return;
         setWorkers([]);
         setShifts([]);
       }
-      await loadDetail();
     })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
@@ -299,7 +322,9 @@ export default function ShmpProductionOrderPage() {
                         ordered · {packed} packed · {remaining} still unpacked
                       </p>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${productionStatusClass(line.productionStatus)}`}
+                    >
                       {String(line.productionStatus || "Pending")}
                     </span>
                   </div>

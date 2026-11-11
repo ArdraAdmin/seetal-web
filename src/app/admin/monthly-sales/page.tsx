@@ -14,6 +14,11 @@ import {
   SecondaryButton,
 } from "@/components/ui";
 import { salesmanBreakdownHref } from "@/lib/admin-kpi";
+import {
+  loadShmpDeliveredSales,
+  summarizeShmpDeliveries,
+  withShmpDeliveredSales,
+} from "@/lib/shmp-delivered-sales";
 import { compactMoney, salesMoney } from "@/lib/sales";
 import {
   getAdminKpiDashboard,
@@ -54,7 +59,15 @@ export default function AdminMonthlySalesPage() {
     setLoading(true);
     setError(null);
     try {
-      setKpi(await getAdminKpiDashboard(user.id, { companyKey }));
+      const remote = await getAdminKpiDashboard(user.id, { companyKey });
+      if (companyKey === "shmp") {
+        const delivered = await loadShmpDeliveredSales().catch(() =>
+          summarizeShmpDeliveries([], []),
+        );
+        setKpi(withShmpDeliveredSales(remote, delivered));
+      } else {
+        setKpi(remote);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load monthly sales");
     } finally {
@@ -76,7 +89,11 @@ export default function AdminMonthlySalesPage() {
     <div>
       <PageHeader
         title="This month’s sales"
-        subtitle="Confirmed delivered value for the selected company, with last month for comparison."
+        subtitle={
+          companyKey === "shmp"
+            ? "Delivered order value for SHMP. An order counts only after it is delivered."
+            : "Confirmed delivered value for the selected company, with last month for comparison."
+        }
         actions={
           <>
             <Link

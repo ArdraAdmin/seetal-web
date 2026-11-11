@@ -19,6 +19,11 @@ import {
 } from "@/components/ui";
 import { salesMoney } from "@/lib/sales";
 import {
+  loadShmpDeliveredSales,
+  salesmanFromDeliveries,
+  summarizeShmpDeliveries,
+} from "@/lib/shmp-delivered-sales";
+import {
   getAdminSalesmanBreakdown,
   type AdminSalesmanBreakdown,
   type CompanyKey,
@@ -55,9 +60,19 @@ export default function AdminSalesmanBreakdownPage() {
     setLoading(true);
     setError(null);
     try {
-      setData(
-        await getAdminSalesmanBreakdown(user.id, salesId, { companyKey }),
-      );
+      const remote = await getAdminSalesmanBreakdown(user.id, salesId, {
+        companyKey,
+      }).catch(() => null);
+      if (companyKey === "shmp") {
+        const delivered = await loadShmpDeliveredSales().catch(() =>
+          summarizeShmpDeliveries([], []),
+        );
+        setData(salesmanFromDeliveries(delivered, salesId, remote));
+      } else if (remote) {
+        setData(remote);
+      } else {
+        throw new Error("Failed to load salesman sales");
+      }
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Failed to load salesman sales",
@@ -216,7 +231,7 @@ export default function AdminSalesmanBreakdownPage() {
             <h2 className="text-sm font-semibold text-ink">Orders</h2>
             {data.orders.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">
-                No confirmed orders this month.
+                No delivered orders this month.
               </p>
             ) : (
               <div className="mt-4 overflow-x-auto">

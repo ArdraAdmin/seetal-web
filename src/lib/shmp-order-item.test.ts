@@ -4,6 +4,7 @@ import {
   canMarkOrderItemComplete,
   isOrderItemDone,
   parseSplitAssignments,
+  productionStatusClass,
   remainingCartons,
 } from "./shmp-order-item.ts";
 
@@ -64,6 +65,19 @@ describe("remainingCartons", () => {
     assert.equal(remainingCartons({ remainingProduction: 40, ordered: 100 }), 40);
     assert.equal(remainingCartons({ ordered: 100, produced: 25 }), 75);
     assert.equal(remainingCartons({ remainingProduction: 0, ordered: 10 }), 0);
+  });
+});
+
+describe("productionStatusClass", () => {
+  it("uses a different color for pending and assigned", () => {
+    assert.notEqual(
+      productionStatusClass("Pending"),
+      productionStatusClass("Assigned"),
+    );
+    assert.match(productionStatusClass("Pending"), /amber/);
+    assert.match(productionStatusClass("Assigned"), /sky/);
+    assert.match(productionStatusClass("Done"), /emerald/);
+    assert.match(productionStatusClass(""), /amber/);
   });
 });
 

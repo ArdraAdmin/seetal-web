@@ -400,9 +400,20 @@ export const shmpOrders = async (params?: Record<string, string>) => {
   return Array.isArray(data) ? data : [];
 };
 
-export const shmpOrderDetail = (id: string, params?: Record<string, string>) => {
+const orderDetailCache = new Map<string, unknown>();
+
+export function cachedShmpOrderDetail(id: string) {
+  return orderDetailCache.get(id);
+}
+
+export const shmpOrderDetail = async (
+  id: string,
+  params?: Record<string, string>,
+) => {
   const qs = new URLSearchParams(params || {}).toString();
-  return shmpRequest(`/orders/${id}${qs ? `?${qs}` : ""}`);
+  const data = await shmpRequest(`/orders/${id}${qs ? `?${qs}` : ""}`);
+  orderDetailCache.set(id, data);
+  return data;
 };
 
 export const shmpSendToProduction = (id: string) =>

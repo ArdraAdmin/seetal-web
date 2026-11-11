@@ -423,7 +423,8 @@ function AttendancePage() {
       });
     }
     for (const row of attendance) {
-      if (String(row.status || "") !== "leave") continue;
+      const status = String(row.status || "");
+      if (status !== "leave" && status !== "holiday") continue;
       const id = attendanceEmployeeId(row);
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -431,7 +432,12 @@ function AttendancePage() {
         id,
         href: personHref("worker", id),
         name: attendanceEmployeeName(row),
-        meta: row.leaveType ? `${row.leaveType} leave` : "Leave",
+        meta:
+          status === "holiday"
+            ? "Holiday"
+            : row.leaveType
+              ? `${row.leaveType} leave`
+              : "Leave",
         status: "leave",
       });
     }
@@ -531,7 +537,8 @@ function AttendancePage() {
       if (badgeStatusFor(row.status) === "leave") ids.add(row._id);
     }
     for (const row of attendance) {
-      if (String(row.status || "") === "leave") {
+      const status = String(row.status || "");
+      if (status === "leave" || status === "holiday") {
         const id = attendanceEmployeeId(row);
         if (id) ids.add(id);
       }
@@ -989,7 +996,7 @@ function AttendancePage() {
           onClick={() => toggleDayFilter("absent")}
         />
         <Metric
-          label="On leave today"
+          label="On leave or holiday"
           value={String(leaveCount)}
           active={dayFilter === "leave"}
           onClick={() => toggleDayFilter("leave")}
@@ -1488,7 +1495,7 @@ function FilteredRoster({
         ? "Present today"
         : filter === "absent"
           ? "Absent today"
-          : "On leave today";
+          : "On leave or holiday";
 
   return (
     <div className="rounded-2xl border border-line bg-white p-5">
@@ -1593,7 +1600,7 @@ function FilteredRoster({
       ) : null}
       {filter === "leave" ? (
         leave.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No one is on leave today.</p>
+          <p className="mt-3 text-sm text-slate-500">No one is on leave or holiday today.</p>
         ) : (
           <ul className="mt-3 divide-y divide-line/60">
             {leave.map((row) => (

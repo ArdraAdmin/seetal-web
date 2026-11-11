@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
-import { shmpOrderDetail } from "@/lib/shmp-api";
-import { assignedWorkerName } from "@/lib/shmp-order-item";
+import { assignedWorkerName, productionStatusClass } from "@/lib/shmp-order-item";
+import { cachedShmpOrderDetail, shmpOrderDetail } from "@/lib/shmp-api";
 import {
   cartonProgressLabel,
   dispatchFromLines,
@@ -40,10 +40,11 @@ type OrderDetail = {
 export default function ShmpOrderDetailPage() {
   const params = useParams();
   const orderId = String(params?.id || "");
-  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const cached = cachedShmpOrderDetail(orderId) as OrderDetail | undefined;
+  const [detail, setDetail] = useState<OrderDetail | null>(cached || null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [deliverOpen, setDeliverOpen] = useState(false);
 
   async function loadDetail() {
@@ -142,7 +143,9 @@ export default function ShmpOrderDetailPage() {
                         {line.product?.itemRef || pid}
                       </p>
                     </div>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${productionStatusClass(line.productionStatus)}`}
+                    >
                       {String(line.productionStatus || "Pending")}
                     </span>
                   </div>

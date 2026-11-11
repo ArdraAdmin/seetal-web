@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
 import { TextField } from "@/components/ui";
 import { shmpOrders } from "@/lib/shmp-api";
@@ -41,9 +42,20 @@ const SECTIONS: Array<{ id: OrderSection; label: string; empty: string }> = [
   },
 ];
 
-export default function ShmpOrdersPage() {
+function parseSection(value: string | null): OrderSection {
+  if (value === "ready" || value === "delivered" || value === "pending") {
+    return value;
+  }
+  return "pending";
+}
+
+function ShmpOrdersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [section, setSection] = useState<OrderSection>("pending");
+  const [section, setSection] = useState<OrderSection>(
+    parseSection(searchParams.get("section")),
+  );
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -68,6 +80,17 @@ export default function ShmpOrdersPage() {
     void refresh();
   }, []);
 
+  useEffect(() => {
+    setSection(parseSection(searchParams.get("section")));
+  }, [searchParams]);
+
+  function selectSection(next: OrderSection) {
+    setSection(next);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("section", next);
+    router.replace(`/shmp/orders?${params.toString()}`, { scroll: false });
+  }
+
   const counts = useMemo(() => {
     const tally: Record<OrderSection, number> = {
       pending: 0,
@@ -85,6 +108,15 @@ export default function ShmpOrdersPage() {
           orderSection(order) === section && orderMatchesQuery(order, query),
       ),
     [orders, query, section],
+  );
+
+  const readyCartons = useMemo(
+    () =>
+      orders.reduce((sum, order) => {
+        if (orderSection(order) !== "ready") return sum;
+        return sum + (Number(order.dispatch?.ready) || 0);
+      }, 0),
+    [orders],
   );
 
   const active = SECTIONS.find((item) => item.id === section) || SECTIONS[0];
@@ -127,7 +159,7 @@ export default function ShmpOrdersPage() {
               key={item.id}
               type="button"
               aria-pressed={selected}
-              onClick={() => setSection(item.id)}
+              onClick={() => selectSection(item.id)}
               className={`rounded-full px-4 py-2 text-sm font-medium ${
                 selected
                   ? "bg-brand text-ink"
@@ -142,6 +174,11 @@ export default function ShmpOrdersPage() {
       </div>
 
       <div className="rounded-2xl border border-line bg-white p-5">
+        {section === "ready" && !loading ? (
+          <p className="mb-4 text-sm text-slate-600">
+            {readyCartons} cartons ready for delivery.
+          </p>
+        ) : null}
         <div className="mb-4 max-w-md">
           <TextField
             label="Search orders"
@@ -230,5 +267,13 @@ export default function ShmpOrdersPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function ShmpOrdersRoute() {
+  return (
+    <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+      <ShmpOrdersPage />
+    </Suspense>
   );
 }

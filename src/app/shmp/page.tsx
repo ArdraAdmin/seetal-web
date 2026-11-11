@@ -13,6 +13,11 @@ import {
   type ShmpInventoryProduct,
   type ShmpStaffCounts,
 } from "@/lib/shmp-api";
+import {
+  loadShmpDeliveredSales,
+  summarizeShmpDeliveries,
+  withShmpDeliveredSales,
+} from "@/lib/shmp-delivered-sales";
 import { useAuth } from "@/components/AuthProvider";
 import { KpiDashboard } from "@/components/KpiDashboard";
 import { SecondaryButton } from "@/components/ui";
@@ -100,7 +105,7 @@ export default function ShmpDashboardPage() {
     let cancelled = false;
 
     void (async () => {
-      const [summaryResult, companiesResult, storesResult, kpiResult, mulkyaResult, approvalsResult] =
+      const [summaryResult, companiesResult, storesResult, kpiResult, mulkyaResult, approvalsResult, deliveredResult] =
         await Promise.allSettled([
           shmpDashboard({ signal: controller.signal }),
           getCompanies(),
@@ -108,6 +113,7 @@ export default function ShmpDashboardPage() {
           getAdminKpiDashboard(userId, { companyKey: "shmp" }),
           getMulkyaAlerts("shmp"),
           getApprovalQueue(),
+          loadShmpDeliveredSales(),
         ]);
       if (cancelled) return;
 
@@ -190,7 +196,11 @@ export default function ShmpDashboardPage() {
       }
 
       if (kpiResult.status === "fulfilled") {
-        setKpi(kpiResult.value);
+        const delivered =
+          deliveredResult.status === "fulfilled"
+            ? deliveredResult.value
+            : summarizeShmpDeliveries([], []);
+        setKpi(withShmpDeliveredSales(kpiResult.value, delivered));
         setKpiError(null);
       } else {
         const reason = kpiResult.reason;
@@ -270,7 +280,7 @@ export default function ShmpDashboardPage() {
               <Metric
                 label="Cartons ready for delivery"
                 value={String(Number(data?.totalReadyQty) || 0)}
-                href="/shmp/production"
+                href="/shmp/orders?section=ready"
               />
             ) : null}
           </div>
