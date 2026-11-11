@@ -17,6 +17,8 @@ import {
 import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
+import { useAuth } from "@/components/AuthProvider";
+import { shmpActionOn } from "@/lib/shmp-permissions";
 import { useToast } from "@/components/Toast";
 import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
@@ -499,6 +501,8 @@ function payloadFromForm(form: StoreForm) {
 
 export default function ShmpStoresPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canCreate = shmpActionOn(user?.customAccess, "stores", "create");
   const searchParams = useSearchParams();
   const licenseDue = searchParams.get("license") === "expiring";
   const [stores, setStores] = useState<ShmpStore[]>([]);
@@ -594,6 +598,7 @@ export default function ShmpStoresPage() {
         subtitle="Sarvah store directory — same fields as STL stores, with multiple salesmen per store."
         actions={
           <div className="flex flex-wrap gap-2">
+            {canCreate ? (
             <SecondaryButton
               type="button"
               disabled={loading}
@@ -604,6 +609,7 @@ export default function ShmpStoresPage() {
             >
               {adding ? "Close add" : "Add store"}
             </SecondaryButton>
+            ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
               Refresh
             </SecondaryButton>
@@ -703,6 +709,10 @@ function StoreCard({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canUpdate = shmpActionOn(user?.customAccess, "stores", "update");
+  const canDelete = shmpActionOn(user?.customAccess, "stores", "delete");
+  const canBlock = shmpActionOn(user?.customAccess, "stores", "block");
   const [editing, setEditing] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [form, setForm] = useState<StoreForm>(() => formFrom(store));
@@ -859,6 +869,7 @@ function StoreCard({
             >
               {viewing ? "Close" : "View store"}
             </SecondaryButton>
+            {canUpdate ? (
             <SecondaryButton
               type="button"
               onClick={() => {
@@ -869,6 +880,8 @@ function StoreCard({
             >
               {editing ? "Close" : "Edit"}
             </SecondaryButton>
+            ) : null}
+            {canDelete ? (
             <SecondaryButton
               type="button"
               className="border-red-200 text-red-700"
@@ -877,12 +890,15 @@ function StoreCard({
             >
               {deleting ? "Deleting…" : "Delete"}
             </SecondaryButton>
+            ) : null}
           </div>
+          {canBlock ? (
           <BlockStoreSwitch
             checked={blocked}
             disabled={blocking}
             onChange={(next) => void onBlock(next)}
           />
+          ) : null}
         </div>
       </div>
 

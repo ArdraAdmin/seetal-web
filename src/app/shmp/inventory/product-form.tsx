@@ -10,6 +10,7 @@ import {
   type ShmpInventoryProduct,
   type ShmpStore,
 } from "@/lib/shmp-api";
+import { resolveShmpInventoryCategory } from "@/lib/shmp-category-groups";
 import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { FieldLabel, TextField } from "@/components/ui";
@@ -119,14 +120,6 @@ export function matchCategory(
   product: ShmpInventoryProduct,
   groups: CategoryGroup[],
 ) {
-  const nested =
-    typeof product.category === "object" && product.category
-      ? product.category
-      : null;
-  const subId = asCategoryId(nested) || asCategoryId(product.category);
-  const subName = String(nested?.subCategory ?? "");
-  const masterHint = String(product.masterCategoryId ?? "");
-
   const same = (a?: string, b?: string) =>
     String(a || "")
       .trim()
@@ -134,6 +127,39 @@ export function matchCategory(
     String(b || "")
       .trim()
       .toLowerCase();
+
+  const shmpMaster = String(product.shmpMasterCategory ?? "").trim();
+  const shmpSubName = String(product.shmpSubCategory ?? "").trim();
+  const shmpSubId = String(product.shmpCategoryId ?? "").trim();
+  if (shmpMaster || shmpSubName || shmpSubId) {
+    const group =
+      groups.find(
+        (entry) =>
+          same(entry.name, shmpMaster) ||
+          same(entry.masterCategoryId, shmpMaster),
+      ) ||
+      groups.find((entry) =>
+        entry.items.some((item) => item._id && item._id === shmpSubId),
+      );
+    const subItem = shmpSubName
+      ? group?.items.find((item) => item._id && item._id === shmpSubId) ||
+        group?.items.find((item) => same(item.subCategory, shmpSubName))
+      : undefined;
+    return {
+      category: group?.masterCategoryId || group?.name || shmpMaster,
+      subCategory: shmpSubName ? subItem?._id || shmpSubId : "",
+      categoryName: group?.name || shmpMaster,
+      subCategoryName: shmpSubName,
+    };
+  }
+
+  const nested =
+    typeof product.category === "object" && product.category
+      ? product.category
+      : null;
+  const subId = asCategoryId(nested) || asCategoryId(product.category);
+  const subName = String(nested?.subCategory ?? "");
+  const masterHint = String(product.masterCategoryId ?? "");
 
   for (const group of groups) {
     const item =
@@ -176,12 +202,7 @@ export function formFromProduct(
   product: ShmpInventoryProduct,
   groups: CategoryGroup[],
 ): ProductFormState {
-  const matched = product.shmpCategoryId
-    ? {
-        category: String(product.shmpMasterCategory || ""),
-        subCategory: String(product.shmpCategoryId),
-      }
-    : matchCategory(product, groups);
+  const matched = matchCategory(product, groups);
   const ratio = Number(product.ratio ?? 1) || 1;
   const amountInUnits =
     (product.inQty?.amountInCartons ?? 0) * ratio +
@@ -219,6 +240,7 @@ function SelectField({
   onChange,
   children,
   required,
+  optional,
   disabled,
 }: {
   label: string;
@@ -226,11 +248,12 @@ function SelectField({
   onChange: (value: string) => void;
   children: React.ReactNode;
   required?: boolean;
+  optional?: boolean;
   disabled?: boolean;
 }) {
   return (
     <label className="block space-y-1.5">
-      <FieldLabel label={label} required={required} />
+      <FieldLabel label={label} required={required} optional={optional} />
       <select
         required={required}
         disabled={disabled}
@@ -432,12 +455,12 @@ export function buildPayload(
   form: ProductFormState,
   groups: CategoryGroup[],
 ): BuiltInventoryPayload {
-  const knownSub = groups.some((entry) =>
-    entry.items.some((item) => (item._id || item.subCategory) === form.subCategory),
+  const category = resolveShmpInventoryCategory(
+    form.category,
+    form.subCategory,
+    groups,
   );
-  if (!form.subCategory || (groups.length > 0 && !knownSub)) {
-    return { ok: false, error: "Select a category and sub category" };
-  }
+  if (!category.ok) return category;
   if (!form.company) return { ok: false, error: "Select a company" };
   if (!form.itemRef.trim()) return { ok: false, error: "Item ref is required" };
   if (!form.itemName.trim()) return { ok: false, error: "Item name is required" };
@@ -457,7 +480,8 @@ export function buildPayload(
       itemName: form.itemName.trim(),
       barCode: form.barCode.trim(),
       barcode: form.barCode.trim(),
-      shmpCategoryId: form.subCategory,
+      shmpMasterCategory: category.shmpMasterCategory,
+      shmpCategoryId: category.shmpCategoryId,
       company: form.company,
       companyId: form.company,
       unit: form.unit.trim() || "PCS",
@@ -510,9 +534,11 @@ export function ProductFields({
 
   const subOptions = useMemo(
     () =>
-      [...(selectedGroup?.items ?? [])].sort((a, b) =>
-        String(a.subCategory || "").localeCompare(String(b.subCategory || "")),
-      ),
+      [...(selectedGroup?.items ?? [])]
+        .filter((item) => String(item.subCategory || "").trim())
+        .sort((a, b) =>
+          String(a.subCategory || "").localeCompare(String(b.subCategory || "")),
+        ),
     [selectedGroup],
   );
 
@@ -572,7 +598,7 @@ export function ProductFields({
       </SelectField>
       <SelectField
         label="Sub category"
-        required
+        optional
         disabled={!selectedGroup || loadingCategories}
         value={form.subCategory}
         onChange={(value) =>
@@ -583,7 +609,7 @@ export function ProductFields({
           {loadingCategories
             ? "Loading categories…"
             : selectedGroup
-              ? "Select sub category"
+              ? "No sub category"
               : "Select a category first"}
         </option>
         {form.subCategory &&

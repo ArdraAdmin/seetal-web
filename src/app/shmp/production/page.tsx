@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TextField } from "@/components/ui";
 import { useAuth } from "@/components/AuthProvider";
 import { isSupervisor } from "@/lib/auth";
+import { shmpActionOn, shmpFieldOn } from "@/lib/shmp-permissions";
 import { shmpOrders, shmpProductionLogs } from "@/lib/shmp-api";
 import { getCompanies } from "@/lib/api";
 import { ensureOrderDispatch } from "@/lib/shmp-order-board";
@@ -35,6 +36,7 @@ type OpenOrder = {
 export default function ShmpProductionPage() {
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
+  const canSeeLogs = shmpActionOn(user?.customAccess, "production", "logs");
   const [companyId, setCompanyId] = useState("");
   const [logs, setLogs] = useState<ShmpProductionLog[]>([]);
   const [orders, setOrders] = useState<OpenOrder[]>([]);
@@ -63,7 +65,7 @@ export default function ShmpProductionPage() {
       const params = cid ? { companyId: cid } : undefined;
       const [logRes, orderRows] = await Promise.all([
         shmpProductionLogs(params),
-        shmpOrders(),
+        shmpOrders({ view: "production" }),
       ]);
       setOrders(
         await ensureOrderDispatch(
@@ -135,6 +137,11 @@ export default function ShmpProductionPage() {
           todayValue,
           monthValue,
           showValue: !supervisor,
+          visibleKeys: user?.customAccess
+            ? ["today-cartons", "month-cartons", "today-value", "month-value"].filter((key) =>
+                shmpFieldOn(user.customAccess, "production", key),
+              )
+            : undefined,
         }).map((card) => (
           <Metric key={card.key} label={card.label} value={card.value} />
         ))}
@@ -202,6 +209,7 @@ export default function ShmpProductionPage() {
         )}
       </section>
 
+      {canSeeLogs ? (
       <section className="rounded-2xl border border-line bg-white p-5">
         <h2 className="font-semibold text-ink">Today&apos;s packing log</h2>
         <div className="mb-4 mt-4 max-w-md">
@@ -256,6 +264,7 @@ export default function ShmpProductionPage() {
           </ul>
         )}
       </section>
+      ) : null}
     </div>
   );
 }

@@ -19,7 +19,12 @@ import {
   type CustomUserRecord,
   type UserListSide,
 } from "@/lib/custom-users";
+import { ShmpPermissionEditor } from "@/components/ShmpPermissionEditor";
 import { useToast } from "@/components/Toast";
+import {
+  permissionsForEditor,
+  type ShmpPermissions,
+} from "@/lib/shmp-permissions";
 import { Card, PageHeader, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
 
 function selectedCompanies(companies: CustomCompanyKey[], offered: CustomCompanyKey[]) {
@@ -63,6 +68,9 @@ export function CustomUserForm({
   const [password, setPassword] = useState("");
   const [companies, setCompanies] = useState<CustomCompanyKey[]>(user?.companies || []);
   const [modules, setModules] = useState<CustomModuleMap>(user?.modules || {});
+  const [permissions, setPermissions] = useState<ShmpPermissions>(() =>
+    permissionsForEditor(user),
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -119,6 +127,7 @@ export function CustomUserForm({
       password,
       companies: access.companies,
       modules: access.modules,
+      ...(side === "shmp" ? { permissions } : {}),
     };
     try {
       if (editing && user) {
@@ -157,7 +166,7 @@ export function CustomUserForm({
         subtitle={
           side === "admin"
             ? "Choose STL, Sarvah, or SH Lakshmi, then turn on the modules that person can open."
-            : "Turn on the SHMP modules that person can open."
+            : "Turn on each SHMP module, then set what that person can do inside it. Nothing is implied: read, create, update, and delete are separate."
         }
       />
       <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
@@ -236,8 +245,20 @@ export function CustomUserForm({
                 {CUSTOM_COMPANY_LABELS[company]} modules
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Turn a module on to show it in their menu. KPI dashboard, inventory, and HR can be limited to specific fields.
+                {side === "shmp"
+                  ? "Each switch only opens that module. Actions, people, items, and fields underneath stay independent."
+                  : "Turn a module on to show it in their menu. KPI dashboard, inventory, and HR can be limited to specific fields."}
               </p>
+              {side === "shmp" && company === "shmp" ? (
+                <ShmpPermissionEditor
+                  modules={(modules.shmp || []).filter((id) => !id.includes(":"))}
+                  permissions={permissions}
+                  onChange={(nextModules, nextPermissions) => {
+                    setModules((current) => ({ ...current, shmp: nextModules }));
+                    setPermissions(nextPermissions);
+                  }}
+                />
+              ) : (
               <ul className="mt-4 divide-y divide-line">
                 {modulesForCompany(company).map((item) => {
                   const on = (modules[company] || []).includes(item.id);
@@ -297,6 +318,7 @@ export function CustomUserForm({
                   );
                 })}
               </ul>
+              )}
             </Card>
           ))
         )}

@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import type { CategoryGroup } from "./categories.ts";
 import {
   filterCategoryGroups,
+  namedCategoryItems,
+  resolveShmpInventoryCategory,
   shmpCategoryGroups,
 } from "./shmp-category-groups.ts";
 
@@ -47,6 +49,48 @@ describe("shmpCategoryGroups", () => {
     const grouped = shmpCategoryGroups([{ _id: "1", subCategory: "Misc" }]);
     assert.equal(grouped[0]?.name, "Category");
     assert.equal(grouped[0]?.items[0]?.subCategory, "Misc");
+  });
+
+  it("keeps a category that has no subcategory so it can still be deleted", () => {
+    const grouped = shmpCategoryGroups([
+      { _id: "blank", masterCategoryName: "Tiles", subCategory: "  " },
+      { _id: "floor", masterCategoryName: "Tiles", subCategory: "Floor" },
+    ]);
+    assert.equal(grouped[0]?.items.length, 2);
+    assert.deepEqual(
+      namedCategoryItems(grouped[0]?.items ?? []).map((item) => item.subCategory),
+      ["Floor"],
+    );
+  });
+});
+
+describe("resolveShmpInventoryCategory", () => {
+  it("accepts a category without a subcategory", () => {
+    assert.deepEqual(
+      resolveShmpInventoryCategory("Packaging", "", groups),
+      { ok: true, shmpMasterCategory: "Packaging", shmpCategoryId: "" },
+    );
+  });
+
+  it("keeps a subcategory that belongs to the selected category", () => {
+    assert.deepEqual(
+      resolveShmpInventoryCategory("Packaging", "Packaging-0", groups),
+      { ok: true, shmpMasterCategory: "Packaging", shmpCategoryId: "Packaging-0" },
+    );
+  });
+
+  it("requires a category", () => {
+    assert.deepEqual(resolveShmpInventoryCategory("", "", groups), {
+      ok: false,
+      error: "Select a category",
+    });
+  });
+
+  it("rejects a subcategory that is not in the selected category", () => {
+    assert.deepEqual(
+      resolveShmpInventoryCategory("Packaging", "Raw material-0", groups),
+      { ok: false, error: "Select a sub category" },
+    );
   });
 });
 

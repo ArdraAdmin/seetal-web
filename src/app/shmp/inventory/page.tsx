@@ -190,7 +190,9 @@ export default function ShmpInventoryPage() {
         try {
           let savedPath: string | string[] | undefined;
           for (const file of pendingImages) {
-            const saved = await uploadProductImage(created._id, file);
+            const saved = await uploadProductImage(created._id, file, file.name, {
+              accessModule: "inventory",
+            });
             savedPath = saved.imagePath;
           }
           if (savedPath !== undefined) created.imagePath = savedPath;

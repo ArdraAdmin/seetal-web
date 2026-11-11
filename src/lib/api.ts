@@ -1389,13 +1389,14 @@ export async function uploadProductImage(
   productId: string,
   file: Blob,
   filename = "product.jpg",
-  options?: { slot?: number },
+  options?: { slot?: number; accessModule?: "inventory" | "catalog" },
 ) {
   const body = new FormData();
   body.append("productId", productId);
   if (options?.slot !== undefined) {
     body.append("slot", String(options.slot));
   }
+  if (options?.accessModule) body.append("accessModule", options.accessModule);
   const named = file instanceof File ? file : new File([file], filename, { type: "image/jpeg" });
   body.append("image", named, named.name);
   return request<ProductImageUploadResult>(

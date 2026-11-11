@@ -110,7 +110,7 @@ export default function ShmpProductionOrderPage() {
     if (!orderId) return;
     setLoading(true);
     try {
-      const next = (await shmpOrderDetail(orderId)) as OrderDetail;
+      const next = (await shmpOrderDetail(orderId, { view: "production" })) as OrderDetail;
       setDetail(next);
       setError(null);
     } catch (err) {

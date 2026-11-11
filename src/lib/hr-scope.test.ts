@@ -4,6 +4,7 @@ import {
   attendanceRecordUserId,
   addedHrStaffOnly,
   hrPeopleMissingFromAttendance,
+  productionShadowEmployees,
   isShmpAttendancePortalRole,
   isStlHrRole,
   presentRowVisibleToCaller,
@@ -51,6 +52,48 @@ describe("HR people filters", () => {
     assert.deepEqual(
       missing.map((row) => row.id),
       ["staff-sales", "staff-only"],
+    );
+  });
+
+  it("keeps a production worker on the HR attendance list", () => {
+    const employees = [
+      { _id: "emp-new", name: "Abhishek Verma Uma Shankar Verma", hrStaffId: "staff-1" },
+      { _id: "emp-real", name: "Other Worker" },
+    ];
+    const hr = [
+      {
+        id: "staff-1",
+        name: "Abhishek Verma Uma Shankar Verma",
+        productionWorker: true,
+        productionEmployeeId: "emp-new",
+      },
+      { id: "staff-2", name: "Other Worker", productionWorker: false },
+    ];
+    const shadows = productionShadowEmployees(employees, hr);
+    assert.deepEqual(
+      shadows.map((row) => row._id),
+      ["emp-new"],
+    );
+    const shadowIds = new Set(shadows.map((row) => row._id));
+    const listed = employees.filter((row) => !shadowIds.has(row._id));
+    const missing = hrPeopleMissingFromAttendance(
+      hr,
+      listed.map((row) => ({ id: row._id, name: row.name })),
+    );
+    assert.deepEqual(
+      missing.map((row) => row.id),
+      ["staff-1"],
+    );
+  });
+
+  it("treats a production employee with the same name as the staff record", () => {
+    const shadows = productionShadowEmployees(
+      [{ _id: "emp-new", name: "  Anil Kumar Yadav  " }],
+      [{ id: "staff-1", name: "Anil Kumar Yadav", productionWorker: true }],
+    );
+    assert.deepEqual(
+      shadows.map((row) => row._id),
+      ["emp-new"],
     );
   });
 

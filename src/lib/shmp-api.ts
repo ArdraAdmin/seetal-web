@@ -106,10 +106,15 @@ export const shmpDashboard = (params?: {
   );
 };
 
-export const shmpEmployees = (companyId?: string) =>
-  shmpRequest<unknown[]>(
-    `/employees${companyId ? `?companyId=${companyId}` : ""}`,
-  );
+export const shmpEmployees = (
+  companyId?: string,
+  extra?: Record<string, string>,
+) => {
+  const params = new URLSearchParams(extra || {});
+  if (companyId) params.set("companyId", companyId);
+  const qs = params.toString();
+  return shmpRequest<unknown[]>(`/employees${qs ? `?${qs}` : ""}`);
+};
 
 export const shmpEmployee = (id: string) =>
   shmpRequest<unknown>(`/employees/${id}`);
@@ -394,7 +399,10 @@ export const shmpOrders = async (params?: Record<string, string>) => {
   return Array.isArray(data) ? data : [];
 };
 
-export const shmpOrderDetail = (id: string) => shmpRequest(`/orders/${id}`);
+export const shmpOrderDetail = (id: string, params?: Record<string, string>) => {
+  const qs = new URLSearchParams(params || {}).toString();
+  return shmpRequest(`/orders/${id}${qs ? `?${qs}` : ""}`);
+};
 
 export const shmpSendToProduction = (id: string) =>
   shmpRequest(`/orders/${id}/send-to-production`, {
@@ -897,7 +905,7 @@ export const shmpCategories = () => shmpRequest<ShmpCategory[]>("/categories");
 
 export const shmpCreateCategory = (body: {
   masterCategoryName: string;
-  subCategory: string;
+  subCategory?: string;
 }) =>
   shmpRequest<ShmpCategory>("/categories", {
     method: "POST",
@@ -933,11 +941,15 @@ export const shmpCreateInventory = (body: Record<string, unknown>) =>
 export const shmpUpdateInventory = (
   id: string,
   body: Record<string, unknown>,
+  options?: { module?: "inventory" | "catalog" },
 ) =>
-  shmpRequest<ShmpInventoryProduct>(`/inventory/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  shmpRequest<ShmpInventoryProduct>(
+    `/inventory/${id}${options?.module ? `?module=${options.module}` : ""}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
 
 export const shmpDeleteInventory = (id: string) =>
   shmpRequest<{ ok: boolean; _id: string }>(`/inventory/${id}`, {

@@ -1,4 +1,4 @@
-import type { CategoryGroup } from "./categories";
+import type { CategoryGroup, CategoryRecord } from "./categories";
 
 type ShmpCategoryRow = {
   _id?: string;
@@ -24,6 +24,49 @@ export function shmpCategoryGroups(rows: ShmpCategoryRow[]): CategoryGroup[] {
     map.set(name, group);
   }
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Subcategory rows that have a name. A category may exist with none. */
+export function namedCategoryItems(items: CategoryRecord[]) {
+  return items.filter((item) => String(item.subCategory || "").trim());
+}
+
+/**
+ * Category is required. Subcategory is optional and must belong to the
+ * selected category when one is chosen.
+ */
+export function resolveShmpInventoryCategory(
+  category: string,
+  subCategory: string,
+  groups: CategoryGroup[],
+):
+  | { ok: true; shmpMasterCategory: string; shmpCategoryId: string }
+  | { ok: false; error: string } {
+  const selected = groups.find(
+    (entry) => entry.masterCategoryId === category || entry.name === category,
+  );
+  if (!category.trim() || (groups.length > 0 && !selected)) {
+    return { ok: false, error: "Select a category" };
+  }
+  const sub = subCategory.trim();
+  if (sub) {
+    const chosen = (selected?.items ?? []).find(
+      (item) => (item._id || item.subCategory) === sub,
+    );
+    if (groups.length > 0 && !String(chosen?.subCategory || "").trim()) {
+      return { ok: false, error: "Select a sub category" };
+    }
+    return {
+      ok: true,
+      shmpMasterCategory: selected?.name || category.trim(),
+      shmpCategoryId: sub,
+    };
+  }
+  return {
+    ok: true,
+    shmpMasterCategory: selected?.name || category.trim(),
+    shmpCategoryId: "",
+  };
 }
 
 /** Search categories the same way the Seetal categories page does. */

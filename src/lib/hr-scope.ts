@@ -41,6 +41,61 @@ export type AttendanceListRef = {
   linkedUserId?: string | null;
 };
 
+function personNameKey(value?: string | null) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function recordId(value: unknown) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "_id" in value) {
+    return recordId((value as { _id?: unknown })._id);
+  }
+  const text = String(value);
+  return text === "[object Object]" ? "" : text;
+}
+
+export type ProductionStaffRef = {
+  id: string;
+  name?: string | null;
+  productionWorker?: boolean;
+  productionEmployeeId?: unknown;
+};
+
+export type ProductionEmployeeRef = {
+  _id: string;
+  name?: string | null;
+  hrStaffId?: unknown;
+};
+
+/**
+ * Factory employees created by the HR production switch are the same person
+ * as that staff record. Attendance keeps the staff row and skips the employee.
+ */
+export function productionShadowEmployees<T extends ProductionEmployeeRef>(
+  employees: T[],
+  hrPeople: ProductionStaffRef[],
+) {
+  const staffIds = new Set(hrPeople.map((person) => person.id).filter(Boolean));
+  const linkedIds = new Set(
+    hrPeople.map((person) => recordId(person.productionEmployeeId)).filter(Boolean),
+  );
+  const productionNames = new Set(
+    hrPeople
+      .filter((person) => person.productionWorker === true)
+      .map((person) => personNameKey(person.name))
+      .filter(Boolean),
+  );
+  return employees.filter((employee) => {
+    const id = recordId(employee._id);
+    const staffId = recordId(employee.hrStaffId);
+    if (staffId && staffIds.has(staffId)) return true;
+    if (id && linkedIds.has(id)) return true;
+    const name = personNameKey(employee.name);
+    return Boolean(name && productionNames.has(name));
+  });
+}
+
 /** HR people who are not already listed by login id, staff id, or name. */
 export function hrPeopleMissingFromAttendance<T extends AttendanceListRef>(
   hrPeople: T[],
@@ -50,14 +105,12 @@ export function hrPeopleMissingFromAttendance<T extends AttendanceListRef>(
     listed.map((row) => String(row.id || "")).filter(Boolean),
   );
   const names = new Set(
-    listed
-      .map((row) => (row.name || "").trim().toLowerCase())
-      .filter(Boolean),
+    listed.map((row) => personNameKey(row.name)).filter(Boolean),
   );
   return hrPeople.filter((person) => {
     if (person.linkedUserId && ids.has(String(person.linkedUserId))) return false;
     if (ids.has(person.id)) return false;
-    const name = (person.name || "").trim().toLowerCase();
+    const name = personNameKey(person.name);
     return !name || !names.has(name);
   });
 }

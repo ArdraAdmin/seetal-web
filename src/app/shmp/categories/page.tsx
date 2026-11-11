@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import type { CategoryGroup, CategoryRecord } from "@/lib/categories";
 import {
   filterCategoryGroups,
+  namedCategoryItems,
   shmpCategoryGroups,
 } from "@/lib/shmp-category-groups";
 import {
@@ -87,7 +88,10 @@ export default function ShmpCategoriesPage() {
     () => filterCategoryGroups(groups, query),
     [groups, query],
   );
-  const subCount = groups.reduce((sum, group) => sum + group.items.length, 0);
+  const subCount = groups.reduce(
+    (sum, group) => sum + namedCategoryItems(group.items).length,
+    0,
+  );
 
   function startAddMaster() {
     setForm(EMPTY_FORM);
@@ -111,8 +115,12 @@ export default function ShmpCategoriesPage() {
     if (!mode) return;
     const masterCategoryName = form.masterCategoryName.trim();
     const subCategory = form.subCategory.trim();
-    if (!masterCategoryName || !subCategory) {
-      toast("Category and sub category are required", "info");
+    if (!masterCategoryName) {
+      toast("Category is required", "info");
+      return;
+    }
+    if (mode.kind === "add-sub" && !subCategory) {
+      toast("Sub category is required", "info");
       return;
     }
     setSaving(true);
@@ -260,7 +268,11 @@ export default function ShmpCategoriesPage() {
               )}
               <TextField
                 label="Subcategory"
-                required
+                required={mode.kind === "add-sub"}
+                optional={mode.kind === "add-master"}
+                placeholder={
+                  mode.kind === "add-master" ? "Leave blank if none" : undefined
+                }
                 value={form.subCategory}
                 onChange={(e) =>
                   setForm((current) => ({
@@ -296,6 +308,7 @@ export default function ShmpCategoriesPage() {
         <div className="space-y-3">
           {visible.map((group) => {
             const open = openNames.has(group.name);
+            const subs = namedCategoryItems(group.items);
             return (
               <Card key={group.name}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -314,7 +327,7 @@ export default function ShmpCategoriesPage() {
                   >
                     <p className="font-semibold text-black">{group.name}</p>
                     <p className="text-xs text-slate-500">
-                      {`${group.items.length} ${group.items.length === 1 ? "subcategory" : "subcategories"}`}
+                      {`${subs.length} ${subs.length === 1 ? "subcategory" : "subcategories"}`}
                     </p>
                   </button>
                   <SecondaryButton
@@ -327,8 +340,13 @@ export default function ShmpCategoriesPage() {
                   </SecondaryButton>
                 </div>
                 {open ? (
+                  subs.length === 0 ? (
+                    <p className="mt-3 border-t border-line pt-3 text-sm text-slate-500">
+                      No subcategories
+                    </p>
+                  ) : (
                   <ul className="mt-3 divide-y divide-line border-t border-line">
-                    {group.items.map((item, index) => (
+                    {subs.map((item, index) => (
                       <li
                         key={item._id || `${group.name}-${item.subCategory || index}`}
                         className="flex flex-wrap items-center justify-between gap-2 py-3"
@@ -347,6 +365,7 @@ export default function ShmpCategoriesPage() {
                       </li>
                     ))}
                   </ul>
+                  )
                 ) : null}
               </Card>
             );

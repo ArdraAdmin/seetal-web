@@ -26,6 +26,7 @@ export type LeaveBalance = {
 export type Emp = {
   _id: string;
   name: string;
+  hrStaffId?: string | null;
   designation?: string;
   company?: string;
   biometricId?: string;

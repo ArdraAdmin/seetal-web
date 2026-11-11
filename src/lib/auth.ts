@@ -1,3 +1,4 @@
+import { sessionCustomAccess } from "./shmp-permissions";
 import type { AuthUser } from "./types";
 import { AUTH_COOKIE } from "./session";
 import { clearSelectedSalesCompany } from "./sales-selected-company";
@@ -49,7 +50,7 @@ export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): v
       environment: env || undefined,
       environments: normalized.environments,
       ...(normalized.customAccess
-        ? { customAccess: normalized.customAccess }
+        ? { customAccess: sessionCustomAccess(normalized.customAccess) }
         : {}),
     }),
   );

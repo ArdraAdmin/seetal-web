@@ -15,6 +15,7 @@ import {
   TextField,
 } from "@/components/ui";
 import { portalFieldVisible } from "@/lib/custom-users";
+import { shmpActionOn, shmpFieldOn, shmpModuleAllowed, shmpRecordAllowed } from "@/lib/shmp-permissions";
 import {
   hrProfilePayload,
   hrProfileToForm,
@@ -24,6 +25,7 @@ import { salesMoney } from "@/lib/sales";
 import {
   foodRateFromCharge,
   linkedAttendanceDays,
+  onePayrollRowPerPerson,
   roundPayrollMoney,
   standardFoodCharge,
 } from "@/lib/payroll-edit";
@@ -79,12 +81,13 @@ export function PayrollRegister() {
   const { toast } = useToast();
   const pathname = usePathname();
   const scope = pathname.startsWith("/shmp") ? "shmp" : "stl";
-  const salaryVisible = portalFieldVisible(
-    user?.customAccess,
-    scope === "shmp" ? "shmp" : "selling",
-    "hr",
-    "salary",
-  );
+  const salaryVisible =
+    scope === "shmp"
+      ? shmpModuleAllowed(user?.customAccess, "payroll")
+      : portalFieldVisible(user?.customAccess, "selling", "hr", "salary");
+  const canEditPayroll = scope !== "shmp" || shmpActionOn(user?.customAccess, "payroll", "edit");
+  const payField = (fieldId: string) =>
+    scope !== "shmp" || shmpFieldOn(user?.customAccess, "payroll", fieldId);
   const [month, setMonth] = useState(currentMonthValue);
   const [rows, setRows] = useState<PayrollRegisterRow[]>([]);
   const [label, setLabel] = useState("");
@@ -127,7 +130,7 @@ export function PayrollRegister() {
       void getPayrollRegister(user.id, scope, year, monthNumber)
         .then((data) => {
           if (cancelled) return;
-          setRows(data.rows || []);
+          setRows(onePayrollRowPerPerson(data.rows || []));
           setLabel(data.label || "");
           setFoodPerMonth(data.foodPerMonth || 230);
           setCalendarDays(data.calendarDays || 30);
@@ -250,8 +253,9 @@ export function PayrollRegister() {
         });
       }
       const data = await getPayrollRegister(user.id, scope, year || 0, monthNumber || 0);
-      setRows(data.rows || []);
-      const fresh = (data.rows || []).find((row) => row.id === editing.id && row.kind === editing.kind);
+      const rows = onePayrollRowPerPerson(data.rows || []);
+      setRows(rows);
+      const fresh = rows.find((row) => row.id === editing.id && row.kind === editing.kind);
       if (fresh) {
         setEditing(fresh);
         setEditPresent(String(fresh.presentDays));
@@ -319,7 +323,7 @@ export function PayrollRegister() {
           fines: Number(editFines),
           loanDeduction: editLoan.trim() === "" ? 0 : Number(editLoan),
         });
-        setRows(data.rows || []);
+        setRows(onePayrollRowPerPerson(data.rows || []));
         setLabel(data.label || "");
         toast("Payroll record saved", "success");
         setEditing(null);
@@ -371,7 +375,11 @@ export function PayrollRegister() {
   }
 
   const term = query.trim().toLowerCase();
-  const visible = term ? rows.filter((row) => row.name.toLowerCase().includes(term)) : rows;
+  const permitted =
+    scope === "shmp"
+      ? rows.filter((row) => shmpRecordAllowed(user?.customAccess, "payroll", "users", row.id))
+      : rows;
+  const visible = term ? permitted.filter((row) => row.name.toLowerCase().includes(term)) : permitted;
   const moneyKeys = (scope === "shmp"
     ? ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "loanBalance", "fines", "finalPay"]
     : ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "finalPay"]) as Array<
@@ -412,27 +420,35 @@ export function PayrollRegister() {
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>
-      {scope === "shmp" && !loading && !error && parsedMonth && rows.length > 0 ? (
+      {scope === "shmp" && !loading && !error && parsedMonth && permitted.length > 0 ? (
         <div className="mb-4 grid gap-3 sm:grid-cols-4">
+          {payField("food-total") ? (
           <div className="rounded-2xl border border-line bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">Food total</p>
             <p className="mt-1 text-2xl font-semibold text-red-700">{salesMoney(foodTotal)}</p>
           </div>
+          ) : null}
+          {payField("people-charged") ? (
           <div className="rounded-2xl border border-line bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">People charged</p>
             <p className="mt-1 text-2xl font-semibold text-ink">{foodPeople}</p>
           </div>
+          ) : null}
+          {payField("share-this-month") ? (
           <div className="rounded-2xl border border-line bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">Share this month</p>
             <p className="mt-1 text-2xl font-semibold text-ink">
               {foodPeople > 0 ? salesMoney(roundPayrollMoney(foodTotal / foodPeople)) : salesMoney(0)}
             </p>
           </div>
+          ) : null}
+          {payField("headcount") ? (
           <div className="rounded-2xl border border-line bg-white px-4 py-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">Headcount</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">{rows.length}</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{permitted.length}</p>
             <p className="mt-1 text-xs text-slate-500">AED {foodPerMonth} per person before leave</p>
           </div>
+          ) : null}
         </div>
       ) : null}
       {!parsedMonth ? (
@@ -506,6 +522,7 @@ export function PayrollRegister() {
                   ) : null}
                   <td className="px-4 py-2 text-right font-semibold tabular-nums text-ink">{salesMoney(row.finalPay)}</td>
                   <td className="px-4 py-2 text-right">
+                    {canEditPayroll ? (
                     <button
                       type="button"
                       className="font-medium text-brand-dark underline"
@@ -513,6 +530,7 @@ export function PayrollRegister() {
                     >
                       Edit
                     </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}

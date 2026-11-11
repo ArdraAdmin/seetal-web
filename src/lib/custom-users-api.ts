@@ -2,6 +2,7 @@ import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 import { noteRejectedSession } from "./session";
 import type { CustomAccess, CustomUserRecord } from "./custom-users";
+import type { ShmpPermissions } from "./shmp-permissions";
 
 export type CustomUserInput = {
   name: string;
@@ -9,6 +10,7 @@ export type CustomUserInput = {
   password?: string;
   companies: string[];
   modules: CustomAccess["modules"];
+  permissions?: ShmpPermissions | null;
 };
 
 const REMOTE_API_BASE = (

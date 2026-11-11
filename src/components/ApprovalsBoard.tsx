@@ -7,7 +7,9 @@ import { notifyApprovalsChanged, pendingApprovalCount } from "@/lib/approval";
 import { approvalCompanyId } from "@/lib/approval-count";
 import type { ApprovalOrder } from "@/lib/types";
 import { ApprovalSummary } from "@/components/ApprovalViews";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
+import { shmpActionOn } from "@/lib/shmp-permissions";
 import {
   Card,
   EmptyState,
@@ -20,6 +22,8 @@ import {
 
 export function ApprovalsBoard({ companyId }: { companyId?: string }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canDecide = !companyId || shmpActionOn(user?.customAccess, "approvals", "approve");
   const [orders, setOrders] = useState<ApprovalOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +128,7 @@ export function ApprovalsBoard({ companyId }: { companyId?: string }) {
                   >
                     View
                   </Link>
-                  {status === "pending" ? (
+                  {status === "pending" && canDecide ? (
                     <>
                       <SecondaryButton
                         type="button"

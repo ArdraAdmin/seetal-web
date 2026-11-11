@@ -30,7 +30,7 @@ import {
 import { BrandLogo } from "./BrandLogo";
 import { useAuth } from "./AuthProvider";
 import { isLabelChecker, isSupervisor } from "@/lib/auth";
-import { portalFieldVisible, shmpModuleVisible } from "@/lib/custom-users";
+import { shmpNavVisible } from "@/lib/shmp-permissions";
 import { canLabelCheckerAccessShmpPath } from "@/lib/label-checker-access";
 import { navItemActive } from "@/lib/nav-active";
 import { canSupervisorAccessShmpPath } from "@/lib/supervisor-shmp-access";
@@ -53,21 +53,19 @@ const NAV: NavItem[] = [
     href: "/shmp/approvals",
     label: "Approvals",
     icon: ShieldCheck,
-    moduleId: "dashboard",
-    fieldId: "pending-approvals",
+    moduleId: "approvals",
   },
   { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/shmp/hr/payroll",
     label: "Payroll",
     icon: Banknote,
-    moduleId: "hr",
-    fieldId: "salary",
+    moduleId: "payroll",
   },
   { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
   { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" },
   { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
-  { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "inventory" },
+  { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "categories" },
   { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
   { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" },
   { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" },
@@ -131,13 +129,7 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
     if (supervisor) return canSupervisorAccessShmpPath(item.href);
     if (labelChecker) return canLabelCheckerAccessShmpPath(item.href);
     if (user?.customAccess) {
-      if (!item.moduleId || !shmpModuleVisible(user.customAccess, item.moduleId)) {
-        return false;
-      }
-      if (
-        item.fieldId &&
-        !portalFieldVisible(user.customAccess, "shmp", item.moduleId, item.fieldId)
-      ) {
+      if (!item.moduleId || !shmpNavVisible(user.customAccess, item.moduleId)) {
         return false;
       }
       return true;

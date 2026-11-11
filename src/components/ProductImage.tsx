@@ -187,12 +187,14 @@ export function ProductImageField({
   productId,
   onUploaded,
   onPendingFiles,
+  accessModule,
 }: {
   itemName: string;
   imagePath?: unknown;
   productId?: string;
   onUploaded?: (imagePath: string | string[]) => void;
   onPendingFiles?: (files: File[]) => void;
+  accessModule?: "inventory" | "catalog";
 }) {
   const inputId = useId();
   const { toast } = useToast();
@@ -259,7 +261,7 @@ export function ProductImageField({
     try {
       let lastPath: string | string[] | undefined;
       for (const file of files) {
-        const saved = await uploadProductImage(productId, file);
+        const saved = await uploadProductImage(productId, file, file.name, { accessModule });
         lastPath = saved.imagePath;
       }
       if (lastPath !== undefined) onUploaded?.(lastPath);

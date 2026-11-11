@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { HrProfileFields, type HrFieldVisibility } from "@/components/HrProfileFields";
 import { portalFieldVisible, type CustomAccess, type PortalSide } from "@/lib/custom-users";
+import { shmpActionOn, shmpFieldOn } from "@/lib/shmp-permissions";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { HrLedgerCard } from "@/components/HrLedgerCard";
 import { SalaryIncrementCard } from "@/components/SalaryIncrementCard";
@@ -64,6 +65,11 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const shown = hrFieldsFor(user?.customAccess, scope === "stl" ? "selling" : "shmp");
+  const shmpHr = scope === "shmp";
+  const canCreate = !shmpHr || shmpActionOn(user?.customAccess, "hr", "create");
+  const canUpdate = !shmpHr || shmpActionOn(user?.customAccess, "hr", "update");
+  const canDelete = !shmpHr || shmpActionOn(user?.customAccess, "hr", "delete");
+  const hrField = (fieldId: string) => !shmpHr || shmpFieldOn(user?.customAccess, "hr", fieldId);
   const id = String(params.id || "");
   const creating = id === "new";
   const listHref = scope === "stl" ? "/admin/hr" : "/shmp/hr";
@@ -219,9 +225,16 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
         <form className="space-y-4" onSubmit={onSave}>
           <Card>
             <div className="mb-4 grid gap-3 sm:grid-cols-2">
+              {hrField("email") ? (
               <TextField label="Email" type="email" optional value={email} onChange={(event) => setEmail(event.target.value)} />
+              ) : null}
+              {hrField("mobileNumber") ? (
               <TextField label="Mobile" optional value={mobile} onChange={(event) => setMobile(event.target.value)} />
+              ) : null}
+              {hrField("joiningDate") ? (
               <TextField label="Joined" type="date" required value={joiningDate} onChange={(event) => setJoiningDate(event.target.value)} />
+              ) : null}
+              {hrField("linkedUserId") ? (
               <SearchableSelect
                 label="Linked login"
                 optional
@@ -235,6 +248,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
                   searchText: `${row.name} ${row.email} ${row.role}`,
                 }))}
               />
+              ) : null}
             </div>
             <HrProfileFields
               form={form}
@@ -244,13 +258,41 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               showCompany={scope === "stl"}
               scope={scope}
               shown={shown}
+              detail={
+                scope === "shmp" && user?.customAccess?.explicit
+                  ? {
+                      visaName: hrField("visaName"),
+                      visaDesignation: hrField("visaDesignation"),
+                      foodServed: hrField("foodServed"),
+                      productionWorker: hrField("productionWorker"),
+                      basicSalary: hrField("basicSalary"),
+                      totalSalary: hrField("totalSalary"),
+                      sundayAllowance: hrField("sundayAllowance"),
+                      passportNumber: hrField("passportNumber"),
+                      passportExpiry: hrField("passportExpiry"),
+                      passportCopy: hrField("passportCopy"),
+                      photo: hrField("photo"),
+                      eidNumber: hrField("eidNumber"),
+                      eidExpiry: hrField("eidExpiry"),
+                      eidCopy: hrField("eidCopy"),
+                      visaNumber: hrField("visaNumber"),
+                      visaExpiry: hrField("visaExpiry"),
+                      visaApplicationYear: hrField("visaApplicationYear"),
+                      visaCopy: hrField("visaCopy"),
+                      insuranceExpiry: hrField("insuranceExpiry"),
+                      insuranceCopy: hrField("insuranceCopy"),
+                      employmentContractCopy: hrField("employmentContractCopy"),
+                      offerLetter: hrField("offerLetter"),
+                    }
+                  : undefined
+              }
               showProductionWorker={scope === "shmp"}
             />
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <PrimaryButton type="submit" disabled={busy || removing}>
+              <PrimaryButton type="submit" disabled={busy || removing || (creating ? !canCreate : !canUpdate)}>
                 {busy ? "Saving…" : creating ? "Add staff" : "Save record"}
               </PrimaryButton>
-              {!creating ? (
+              {!creating && canDelete ? (
                 <button
                   type="button"
                   className="font-medium text-red-700 underline disabled:opacity-50"

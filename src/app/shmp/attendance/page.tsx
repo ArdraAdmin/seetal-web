@@ -21,6 +21,7 @@ import {
   type PortalLeaveEntitlement,
 } from "@/lib/stl-features-api";
 import { useAuth } from "@/components/AuthProvider";
+import { shmpActionOn } from "@/lib/shmp-permissions";
 import { useToast } from "@/components/Toast";
 import { isSupervisor } from "@/lib/auth";
 import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
@@ -31,6 +32,7 @@ import {
   hrPeopleMissingFromAttendance,
   isShmpAttendancePortalRole,
   presentRowVisibleToCaller,
+  productionShadowEmployees,
 } from "@/lib/hr-scope";
 import {
   shmpAccessUsers,
@@ -77,6 +79,8 @@ type HrListPerson = {
   role: string;
   email?: string;
   linkedUserId: string;
+  productionWorker: boolean;
+  productionEmployeeId: string;
 };
 
 function dubaiToday() {
@@ -149,6 +153,11 @@ function AttendancePage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
+  const canMark = shmpActionOn(user?.customAccess, "attendance", "attendance.create");
+  const canEditAttendance =
+    shmpActionOn(user?.customAccess, "attendance", "attendance.update")
+    && shmpActionOn(user?.customAccess, "attendance", "editExisting");
+  const canFine = shmpActionOn(user?.customAccess, "attendance", "fines.create");
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -197,7 +206,7 @@ function AttendancePage() {
     setError(null);
     try {
       const [list, accessUsers, hr] = await Promise.all([
-        shmpEmployees() as Promise<Emp[]>,
+        shmpEmployees(undefined, { for: "attendance" }) as Promise<Emp[]>,
         shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
         user?.id
           ? getHrStaff(user.id, { scope: "shmp" }).catch(() => ({ staff: [] }))
@@ -207,8 +216,6 @@ function AttendancePage() {
       const portal = (
         supervisor ? usersVisibleToSupervisor(accessUsers) : accessUsers
       ).filter((row) => isShmpAttendancePortalRole(row.role));
-      setEmployees(workers);
-      setUsers(portal);
       const hrPeople = addedHrStaffOnly(hr.staff || [])
         .map((row) => ({
           id: row.id,
@@ -216,8 +223,16 @@ function AttendancePage() {
           role: row.role && row.role !== "Staff" ? row.role : "Staff",
           email: row.email,
           linkedUserId: row.linkedUserId || "",
+          productionWorker: row.hrProfile?.productionWorker === true,
+          productionEmployeeId: row.hrProfile?.productionEmployeeId
+            ? String(row.hrProfile.productionEmployeeId)
+            : "",
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
+      const shadows = productionShadowEmployees(workers, hrPeople);
+      const shadowIds = new Set(shadows.map((row) => row._id));
+      setEmployees(workers.filter((row) => !shadowIds.has(row._id)));
+      setUsers(portal);
       setHrStaff(hrPeople);
       const hrLoginIds = new Set(
         hrPeople.map((person) => person.linkedUserId).filter(Boolean),
@@ -247,7 +262,10 @@ function AttendancePage() {
             )
           : Promise.resolve({ marks: [] as HrStaffAttendanceMark[] }),
       ]);
-      const workerRows = Array.isArray(att) ? att : [];
+      const workerRows = (Array.isArray(att) ? att : []).filter((row) => {
+        const id = attendanceEmployeeId(row);
+        return !id || !shadowIds.has(id);
+      });
       const supervisorRows: ShmpAttendanceRow[] = (portalAtt.attendance || [])
         .filter((row) => {
           const id = attendanceRecordUserId(row.sales);
@@ -274,10 +292,20 @@ function AttendancePage() {
         ...workerRows,
         ...supervisorRows.filter((row) => !row._id || !seen.has(row._id)),
       ]);
+      const shadowNames = new Set(
+        shadows
+          .map((row) => (row.name || "").trim().replace(/\s+/g, " ").toLowerCase())
+          .filter(Boolean),
+      );
       setPresentToday(
-        (Array.isArray(present) ? present : []).filter(
-          (row) => presentRowVisibleToCaller(row, supervisor) || hrLoginIds.has(row._id),
-        ),
+        (Array.isArray(present) ? present : []).filter((row) => {
+          if (!(presentRowVisibleToCaller(row, supervisor) || hrLoginIds.has(row._id))) {
+            return false;
+          }
+          if (row.kind !== "worker") return true;
+          const name = (row.name || "").trim().replace(/\s+/g, " ").toLowerCase();
+          return !name || !shadowNames.has(name);
+        }),
       );
       setStaffMarks(marks.marks || []);
       if (!portalIds.length) {
@@ -864,9 +892,11 @@ function AttendancePage() {
         subtitle="Workers, supervisors, and everyone listed in HR. Mark or change attendance from here."
         actions={
           <div className="flex gap-2">
+            {canFine ? (
             <SecondaryButton type="button" disabled={loading} onClick={() => openFine()}>
               Record a fine
             </SecondaryButton>
+            ) : null}
             <SecondaryButton type="button" disabled={loading} onClick={() => void refresh()}>
               Refresh
             </SecondaryButton>
@@ -997,6 +1027,7 @@ function AttendancePage() {
                         </p>
                       </Link>
                       <div className="flex shrink-0 flex-col items-end gap-2">
+                        {canEditAttendance ? (
                         <button
                           type="button"
                           className="font-medium text-brand-dark underline"
@@ -1009,6 +1040,8 @@ function AttendancePage() {
                         >
                           Edit
                         </button>
+                        ) : null}
+                        {canFine ? (
                         <button
                           type="button"
                           className="font-medium text-brand-dark underline"
@@ -1018,6 +1051,7 @@ function AttendancePage() {
                         >
                           Fine
                         </button>
+                        ) : null}
                       </div>
                     </li>
                   ))}
@@ -1233,7 +1267,7 @@ function AttendancePage() {
         </div>
       )}
 
-      {!loading ? (
+      {!loading && (canMark || canEditAttendance) ? (
         <button
           type="button"
           aria-label="Mark attendance"

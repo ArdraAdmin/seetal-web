@@ -16,6 +16,27 @@ export function standardFoodCharge(rate: number, calendarDays: number, leaveDays
   return roundPayrollMoney((rate * chargeable) / calendarDays);
 }
 
+function payrollNameKey(value?: string | null) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Drop the factory row when the same person is already on the register as staff. */
+export function onePayrollRowPerPerson<T extends { name?: string | null; kind?: string | null }>(
+  rows: T[],
+) {
+  const staffNames = new Set(
+    rows
+      .filter((row) => row.kind === "staff")
+      .map((row) => payrollNameKey(row.name))
+      .filter(Boolean),
+  );
+  return rows.filter((row) => {
+    if (row.kind === "staff") return true;
+    const name = payrollNameKey(row.name);
+    return !name || !staffNames.has(name);
+  });
+}
+
 export function linkedAttendanceDays(present: number, calendarDays: number) {
   const presentDays = roundPayrollMoney(Math.max(0, present));
   return {

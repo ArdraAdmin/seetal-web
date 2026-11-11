@@ -38,6 +38,7 @@ export function productionSummaryCards(input: {
   todayValue?: number;
   monthValue?: number;
   showValue: boolean;
+  visibleKeys?: string[];
 }): ProductionSummaryCard[] {
   const cards: ProductionSummaryCard[] = [
     {
@@ -51,20 +52,23 @@ export function productionSummaryCards(input: {
       value: String(Number(input.monthCartons) || 0),
     },
   ];
-  if (!input.showValue) return cards;
-  return [
-    ...cards,
-    {
-      key: "today-value",
-      label: "Packed cartons value today",
-      value: formatPackedCartonsValue(Number(input.todayValue) || 0),
-    },
-    {
-      key: "month-value",
-      label: "Packed cartons value this month",
-      value: formatPackedCartonsValue(Number(input.monthValue) || 0),
-    },
-  ];
+  const withValue = input.showValue
+    ? [
+        ...cards,
+        {
+          key: "today-value",
+          label: "Packed cartons value today",
+          value: formatPackedCartonsValue(Number(input.todayValue) || 0),
+        },
+        {
+          key: "month-value",
+          label: "Packed cartons value this month",
+          value: formatPackedCartonsValue(Number(input.monthValue) || 0),
+        },
+      ]
+    : cards;
+  if (!input.visibleKeys) return withValue;
+  return withValue.filter((card) => input.visibleKeys?.includes(card.key));
 }
 
 export function formatProductionLogDate(value?: string | Date | null) {

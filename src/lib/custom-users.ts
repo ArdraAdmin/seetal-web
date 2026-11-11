@@ -1,3 +1,6 @@
+import type { ShmpPermissions } from "./shmp-permissions";
+import { sanitizeShmpPermissions, shmpFieldOn, shmpModuleAllowed, shmpNavVisible } from "./shmp-permissions";
+
 export const CUSTOM_COMPANY_KEYS = ["stl", "sarvah", "shmp", "shlaxmi"] as const;
 
 export type CustomCompanyKey = (typeof CUSTOM_COMPANY_KEYS)[number];
@@ -66,16 +69,14 @@ export const SELLING_MODULES: PortalModule[] = [
 ];
 
 export const SHMP_MODULES: PortalModule[] = [
-  { id: "dashboard", label: "Dashboard", href: "/shmp", match: ["/shmp", "/shmp/approvals"] },
+  { id: "dashboard", label: "Dashboard", href: "/shmp" },
+  { id: "approvals", label: "Approvals", href: "/shmp/approvals" },
   { id: "hr", label: "HR", href: "/shmp/hr" },
+  { id: "payroll", label: "Payroll", href: "/shmp/hr/payroll" },
   { id: "attendance", label: "Attendance", href: "/shmp/attendance" },
   { id: "stores", label: "Stores", href: "/shmp/stores" },
-  {
-    id: "inventory",
-    label: "Inventory",
-    href: "/shmp/inventory",
-    match: ["/shmp/inventory", "/shmp/categories"],
-  },
+  { id: "inventory", label: "Inventory", href: "/shmp/inventory" },
+  { id: "categories", label: "Categories", href: "/shmp/categories" },
   { id: "catalog", label: "Catalog", href: "/shmp/catalog" },
   { id: "production", label: "Production", href: "/shmp/production" },
   { id: "rm", label: "RM Store", href: "/shmp/rm" },
@@ -257,6 +258,12 @@ export type CustomModuleMap = Partial<Record<CustomCompanyKey, string[]>>;
 export type CustomAccess = {
   companies: CustomCompanyKey[];
   modules: CustomModuleMap;
+  /**
+   * True after an admin saves the detailed SHMP grants.
+   * Until then, an enabled module still means full access inside it.
+   */
+  explicit?: boolean;
+  permissions?: ShmpPermissions | null;
 };
 
 export type CustomUserRecord = {
@@ -265,6 +272,8 @@ export type CustomUserRecord = {
   email: string;
   companies: CustomCompanyKey[];
   modules: CustomModuleMap;
+  explicit?: boolean;
+  permissions?: ShmpPermissions | null;
 };
 
 export function isCustomCompanyKey(value: string): value is CustomCompanyKey {
@@ -347,11 +356,22 @@ export function readCustomAccess(value: unknown): CustomAccess | null {
   if (value == null) return null;
   const record =
     typeof value === "object"
-      ? (value as { companies?: unknown; modules?: unknown })
+      ? (value as {
+          companies?: unknown;
+          modules?: unknown;
+          explicit?: unknown;
+          permissions?: unknown;
+        })
       : {};
   const result = sanitizeCustomAccess(record);
   if (!result.ok) return { companies: [], modules: {} };
-  return result.access;
+  const explicit = record.explicit === true || record.permissions != null;
+  const permissions = explicit ? sanitizeShmpPermissions(record.permissions) : null;
+  return {
+    ...result.access,
+    ...(explicit ? { explicit: true } : {}),
+    ...(permissions && permissions.ok ? { permissions: permissions.permissions } : {}),
+  };
 }
 
 export function validateCustomUserInput(
@@ -380,7 +400,19 @@ export function validateCustomUserInput(
     modules: body.modules,
   });
   if (!access.ok) return access;
-  return { ok: true, value: { name, email, password, access: access.access } };
+  const next: CustomAccess = { ...access.access };
+  if (Object.prototype.hasOwnProperty.call(body, "permissions")) {
+    if (body.permissions == null) {
+      next.explicit = false;
+      next.permissions = null;
+    } else {
+      const permissions = sanitizeShmpPermissions(body.permissions);
+      if (!permissions.ok) return permissions;
+      next.explicit = true;
+      next.permissions = permissions.permissions;
+    }
+  }
+  return { ok: true, value: { name, email, password, access: next } };
 }
 
 export function environmentsForAccess(access: CustomAccess): AppSide[] {
@@ -439,7 +471,8 @@ export function portalFieldVisible(
   fieldId: string,
 ) {
   if (!access) return true;
-  const keys = portal === "shmp" ? (["shmp"] as const) : SELLING_COMPANY_KEYS;
+  if (portal === "shmp") return shmpFieldOn(access, moduleId, fieldId);
+  const keys = SELLING_COMPANY_KEYS;
   const companies = keys.filter(
     (key) => access.companies.includes(key) && moduleEnabled(access, key, moduleId),
   );
@@ -476,7 +509,7 @@ export function sellingModuleVisible(access: CustomAccess, moduleId: string) {
 }
 
 export function shmpModuleVisible(access: CustomAccess, moduleId: string) {
-  return access.companies.includes("shmp") && moduleEnabled(access, "shmp", moduleId);
+  return shmpModuleAllowed(access, moduleId);
 }
 
 export function companyKeysWithModule(access: CustomAccess, moduleId: string) {
@@ -518,7 +551,7 @@ export function canCustomUserAccessPath(access: CustomAccess, pathname: string) 
   }
   if (pathname === "/shmp" || pathname.startsWith("/shmp/")) {
     const item = longestMatch(SHMP_MODULES, pathname);
-    return item ? shmpModuleVisible(access, item.id) : false;
+    return item ? shmpNavVisible(access, item.id) : false;
   }
   return true;
 }
@@ -527,7 +560,7 @@ export function firstAllowedPath(access: CustomAccess, env: AppSide): string | n
   const modules = env === "shmp" ? SHMP_MODULES : SELLING_MODULES;
   const visible =
     env === "shmp"
-      ? (id: string) => shmpModuleVisible(access, id)
+      ? (id: string) => shmpNavVisible(access, id)
       : (id: string) => sellingModuleVisible(access, id);
   return modules.find((item) => visible(item.id))?.href ?? null;
 }

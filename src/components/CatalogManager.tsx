@@ -19,6 +19,8 @@ import {
   type ShmpInventoryProduct,
 } from "@/lib/shmp-api";
 import { useToast } from "./Toast";
+import { useAuth } from "./AuthProvider";
+import { shmpActionOn } from "@/lib/shmp-permissions";
 import { ProductThumb } from "./ProductImage";
 import {
   Card,
@@ -80,6 +82,9 @@ function asCatalogItem(
 
 export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canUploadImages =
+    platform !== "shmp" || shmpActionOn(user?.customAccess, "catalog", "uploadImages");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -152,7 +157,11 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
         setHasMore(result.hasMore);
       } else {
         const shmp = resolveSalesCompanyByKey("shmp", companies);
-        const params: Record<string, string> = { ownOnly: "1", excludeStl: "1" };
+        const params: Record<string, string> = {
+          ownOnly: "1",
+          excludeStl: "1",
+          purpose: "catalog",
+        };
         if (search.trim()) params.q = search.trim();
         if (shmp?.id) params.companyId = shmp.id;
         const list = await shmpInventory(params);
@@ -211,7 +220,7 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
         cbm: details.cbm,
         pieceWeight: details.pieceWeight,
         pieceDimensions: details.pieceDimensions,
-      });
+      }, { module: "catalog" });
       setItems((current) =>
         current.map((item) => (item.id === details.id ? details : item)),
       );
@@ -257,7 +266,7 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
         selected.id,
         preview,
         `${selected.ref || selected.id}.jpg`,
-        { slot: 0 },
+        { slot: 0, accessModule: platform === "shmp" ? "catalog" : undefined },
       );
       setItems((current) =>
         current.map((item) =>
@@ -374,6 +383,7 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
             ) : null}
           </div>
 
+          {canUploadImages ? (
           <Card>
             <h2 className="text-sm font-semibold text-ink">Generate image</h2>
             {selected ? (
@@ -521,6 +531,11 @@ export function CatalogManager({ platform }: { platform: CatalogPlatform }) {
               </div>
             ) : null}
           </Card>
+          ) : (
+            <Card>
+              <p className="text-sm text-slate-500">Image upload is turned off for this account.</p>
+            </Card>
+          )}
         </div>
       )}
     </div>

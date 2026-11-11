@@ -249,6 +249,7 @@ function InventoryItemDetail() {
               itemName={editForm.itemName}
               imagePath={product.imagePath}
               productId={product._id}
+              accessModule="inventory"
               onUploaded={(url) =>
                 setProduct((current) =>
                   current ? { ...current, imagePath: url } : current,
