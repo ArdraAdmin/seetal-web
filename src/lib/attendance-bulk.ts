@@ -81,6 +81,63 @@ export function awayLabel(kind: AwayKind) {
   return "Annual leave";
 }
 
+function shiftDayKey(value: string, days: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/** Contiguous mark span that includes `today`, or null when today is not covered. */
+export function awayDateSpan(dates: string[], today: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  const keys = [...new Set(dates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))].sort();
+  if (!keys.includes(today)) return null;
+  let from = today;
+  let to = today;
+  const set = new Set(keys);
+  for (;;) {
+    const earlier = shiftDayKey(from, -1);
+    if (!earlier || !set.has(earlier)) break;
+    from = earlier;
+  }
+  for (;;) {
+    const later = shiftDayKey(to, 1);
+    if (!later || !set.has(later)) break;
+    to = later;
+  }
+  return { from, to };
+}
+
+function shortAwayDay(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const label = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+  return label;
+}
+
+/** Short label for a holiday/leave span, e.g. `1 Oct – 15 Nov`. */
+export function formatAwayDateSpan(from: string, to: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return "";
+  if (from === to) {
+    const [year] = from.split("-");
+    return `${shortAwayDay(from)} ${year}`;
+  }
+  const [fromYear] = from.split("-");
+  const [toYear] = to.split("-");
+  if (fromYear === toYear) return `${shortAwayDay(from)} – ${shortAwayDay(to)} ${toYear}`;
+  return `${shortAwayDay(from)} ${fromYear} – ${shortAwayDay(to)} ${toYear}`;
+}
+
+export function awayMeta(kind: AwayKind, span: { from: string; to: string } | null) {
+  const label = awayLabel(kind);
+  if (!span) return label;
+  const range = formatAwayDateSpan(span.from, span.to);
+  return range ? `${label} · ${range}` : label;
+}
+
 /** Inclusive calendar dates from `from` through `to`. */
 export function attendanceDatesInRange(from: string, to: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;

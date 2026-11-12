@@ -5,10 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import {
-  getAdminAttendance,
-  type AttendanceRecord,
-} from "@/lib/api";
-import {
   getAttendanceOverrides,
   getHrStaff,
   getHrStaffAttendance,
@@ -31,14 +27,15 @@ import {
   attendanceDayKey,
   attendanceMarkSpan,
   attendanceSaveStatus,
-  awayLabel,
+  awayDateSpan,
+  awayMeta,
   holidayStatusAvailable,
   mapWithLimit,
   personAwayKind,
+  type AwayKind,
 } from "@/lib/attendance-bulk";
 import {
   addedHrStaffOnly,
-  attendanceRecordUserId,
   hrPeopleMissingFromAttendance,
   isShmpAttendancePortalRole,
   presentRowVisibleToCaller,
@@ -97,11 +94,11 @@ function dubaiToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(new Date());
 }
 
-function dubaiRange(todayOnly: boolean) {
+/** Long enough to cover a multi-week holiday while the page is on Today. */
+function dubaiAwayLookback() {
   const to = dubaiToday();
-  if (todayOnly) return { from: to, to };
   const start = new Date();
-  start.setDate(start.getDate() - 30);
+  start.setDate(start.getDate() - 90);
   return {
     from: new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(start),
     to,
@@ -217,13 +214,40 @@ function AttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const [list, accessUsers, hr] = await Promise.all([
-        shmpEmployees(undefined, { for: "attendance" }) as Promise<Emp[]>,
-        shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
-        user?.id
-          ? getHrStaff(user.id, { scope: "shmp" }).catch(() => ({ staff: [] }))
-          : Promise.resolve({ staff: [] }),
-      ]);
+      const recentRange = rangeFor(todayOnly);
+      const awayWindow = dubaiAwayLookback();
+      const [list, accessUsers, hr, att, awayAtt, present, marks, overrideData] =
+        await Promise.all([
+          shmpEmployees(undefined, { for: "attendance" }) as Promise<Emp[]>,
+          shmpAccessUsers().catch(() => [] as ShmpAccessUser[]),
+          user?.id
+            ? getHrStaff(user.id, { scope: "shmp" }).catch(() => ({ staff: [] }))
+            : Promise.resolve({ staff: [] }),
+          todayOnly
+            ? Promise.resolve([] as ShmpAttendanceRow[])
+            : shmpAttendance({
+                mine: "0",
+                from: recentRange.from,
+                to: recentRange.to,
+              }).catch(() => [] as ShmpAttendanceRow[]),
+          shmpAttendance({
+            mine: "0",
+            away: "1",
+            from: awayWindow.from,
+            to: awayWindow.to,
+          }).catch(() => [] as ShmpAttendanceRow[]),
+          shmpPresentToday().catch(() => [] as ShmpPresentTodayRow[]),
+          user?.id
+            ? getHrStaffAttendance(user.id, "shmp", awayWindow.from, awayWindow.to).catch(
+                () => ({ marks: [] as HrStaffAttendanceMark[] }),
+              )
+            : Promise.resolve({ marks: [] as HrStaffAttendanceMark[] }),
+          user?.id
+            ? getAttendanceOverrides(user.id, awayWindow.from, awayWindow.to).catch(
+                () => ({ overrides: [] }),
+              )
+            : Promise.resolve({ overrides: [] }),
+        ]);
       const workers = Array.isArray(list) ? list : [];
       const portal = (
         supervisor ? usersVisibleToSupervisor(accessUsers) : accessUsers
@@ -249,66 +273,21 @@ function AttendancePage() {
       const hrLoginIds = new Set(
         hrPeople.map((person) => person.linkedUserId).filter(Boolean),
       );
-      setLoading(false);
-      const range = rangeFor(todayOnly);
-      const portalIds = portal.map((row) => row._id);
-      const supervisorIds = new Set(portalIds);
-      const markWindow = dubaiRange(todayOnly);
-      const [att, present, portalAtt, marks, overrideData] = await Promise.all([
-        shmpAttendance({
-          mine: "0",
-          from: range.from,
-          to: range.to,
-        }).catch(() => [] as ShmpAttendanceRow[]),
-        shmpPresentToday().catch(() => [] as ShmpPresentTodayRow[]),
-        user?.id
-          ? getAdminAttendance({
-              userId: user.id,
-              from: range.from.slice(0, 10),
-              to: range.to.slice(0, 10),
-            }).catch(() => ({ attendance: [] as AttendanceRecord[] }))
-          : Promise.resolve({ attendance: [] as AttendanceRecord[] }),
-        user?.id
-          ? getHrStaffAttendance(user.id, "shmp", markWindow.from, markWindow.to).catch(
-              () => ({ marks: [] as HrStaffAttendanceMark[] }),
-            )
-          : Promise.resolve({ marks: [] as HrStaffAttendanceMark[] }),
-        user?.id
-          ? getAttendanceOverrides(user.id, markWindow.from, markWindow.to).catch(
-              () => ({ overrides: [] }),
-            )
-          : Promise.resolve({ overrides: [] }),
-      ]);
       const workerRows = (Array.isArray(att) ? att : []).filter((row) => {
         const id = attendanceEmployeeId(row);
         return !id || !shadowIds.has(id);
       });
-      const supervisorRows: ShmpAttendanceRow[] = (portalAtt.attendance || [])
-        .filter((row) => {
-          const id = attendanceRecordUserId(row.sales);
-          return supervisorIds.has(id) || hrLoginIds.has(id);
-        })
-        .map((row) => {
-          const sales = row.sales && typeof row.sales === "object" ? row.sales : null;
-          return {
-            _id: row._id,
-            status: row.checkOutAt ? "checked_out" : "present",
-            date: row.date,
-            checkInAt: row.checkInAt,
-            checkOutAt: row.checkOutAt,
-            source: "checkin",
-            user: {
-              _id: attendanceRecordUserId(row.sales),
-              name: sales?.name || sales?.email || "Supervisor",
-              role: "Supervisor",
-            },
-          };
-        });
-      const seen = new Set(workerRows.map((row) => row._id).filter(Boolean));
-      setAttendance([
-        ...workerRows,
-        ...supervisorRows.filter((row) => !row._id || !seen.has(row._id)),
-      ]);
+      const awayRows = (Array.isArray(awayAtt) ? awayAtt : []).filter((row) => {
+        const id = attendanceEmployeeId(row);
+        return !id || !shadowIds.has(id);
+      });
+      const byId = new Map<string, ShmpAttendanceRow>();
+      for (const row of [...workerRows, ...awayRows]) {
+        const key = row._id || `${attendanceEmployeeId(row)}-${attendanceDayKey(row.date)}-${row.status}`;
+        if (!key || byId.has(key)) continue;
+        byId.set(key, row);
+      }
+      setAttendance([...byId.values()]);
       const shadowNames = new Set(
         shadows
           .map((row) => (row.name || "").trim().replace(/\s+/g, " ").toLowerCase())
@@ -338,6 +317,7 @@ function AttendancePage() {
           })
           .filter((row) => row.salesId && row.date),
       );
+      const portalIds = portal.map((row) => row._id);
       if (!portalIds.length) {
         setPortalLeave({});
       } else {
@@ -345,6 +325,7 @@ function AttendancePage() {
           .then(setPortalLeave)
           .catch(() => setPortalLeave({}));
       }
+      setLoading(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load attendance");
       setLoading(false);
@@ -430,15 +411,32 @@ function AttendancePage() {
   );
 
   const awayToday = useMemo(() => {
-    const people: Array<{
+    type AwayPerson = {
       id: string;
       hrefKind: "worker" | "user" | "staff";
       name: string;
       meta: string;
-      away: "holiday" | "annual" | "sick";
-    }> = [];
+      away: AwayKind;
+    };
+    const people: AwayPerson[] = [];
     const seen = new Set<string>();
-    function add(person: (typeof people)[number], also?: string) {
+    const dateBuckets = new Map<string, { away: AwayKind; dates: string[] }>();
+
+    function bucketKey(id: string, away: AwayKind) {
+      return `${id}:${away}`;
+    }
+    function rememberDate(id: string, away: AwayKind, date: string) {
+      if (!id || !date) return;
+      const key = bucketKey(id, away);
+      const current = dateBuckets.get(key);
+      if (current) current.dates.push(date);
+      else dateBuckets.set(key, { away, dates: [date] });
+    }
+    function spanFor(id: string, away: AwayKind) {
+      const bucket = dateBuckets.get(bucketKey(id, away));
+      return bucket ? awayDateSpan(bucket.dates, today) : null;
+    }
+    function add(person: AwayPerson, also?: string) {
       if (!person.id || seen.has(person.id)) {
         if (also) seen.add(also);
         return;
@@ -447,43 +445,69 @@ function AttendancePage() {
       if (also) seen.add(also);
       people.push(person);
     }
+
+    for (const row of attendance) {
+      const away = personAwayKind(String(row.status || ""), row.leaveType);
+      if (!away) continue;
+      const id = attendanceEmployeeId(row);
+      const date = attendanceDayKey(row.date);
+      if (id && date) rememberDate(id, away, date);
+    }
+    for (const row of holidayOverrides) {
+      const away = personAwayKind(row.status);
+      if (!away || !row.date) continue;
+      rememberDate(row.salesId, away, row.date);
+      const staff = hrStaff.find((person) => person.linkedUserId === row.salesId);
+      if (staff) rememberDate(staff.id, away, row.date);
+    }
+    for (const mark of staffMarks) {
+      const away = personAwayKind(mark.status, mark.leaveType);
+      if (!away || !mark.date) continue;
+      rememberDate(mark.staffId, away, mark.date);
+      const staff = hrStaff.find((person) => person.id === mark.staffId);
+      if (staff?.linkedUserId) rememberDate(staff.linkedUserId, away, mark.date);
+    }
+
     for (const row of presentToday) {
       const away = personAwayKind(row.status);
       if (!away) continue;
+      rememberDate(row._id, away, today);
       add({
         id: row._id,
         hrefKind: row.kind === "portal" ? "user" : "worker",
         name: row.name,
-        meta: awayLabel(away),
+        meta: awayMeta(away, spanFor(row._id, away)),
         away,
       });
     }
     for (const row of attendance) {
       const away = personAwayKind(String(row.status || ""), row.leaveType);
       if (!away) continue;
-      if (!todayOnly && attendanceDayKey(row.date) !== today) continue;
+      if (attendanceDayKey(row.date) !== today) continue;
       const id = attendanceEmployeeId(row);
       if (!id) continue;
       add({
         id,
         hrefKind: row.user ? "user" : "worker",
         name: attendanceEmployeeName(row),
-        meta: awayLabel(away),
+        meta: awayMeta(away, spanFor(id, away)),
         away,
       });
     }
     for (const row of holidayOverrides) {
-      const away = row.date === today ? personAwayKind(row.status) : null;
+      if (row.date !== today) continue;
+      const away = personAwayKind(row.status);
       if (!away) continue;
       const portal = users.find((accessUser) => accessUser._id === row.salesId);
       const staff = hrStaff.find((person) => person.linkedUserId === row.salesId);
       const hrefKind = portal || !staff ? "user" : "staff";
+      const id = hrefKind === "staff" && staff ? staff.id : row.salesId;
       add(
         {
-          id: hrefKind === "staff" && staff ? staff.id : row.salesId,
+          id,
           hrefKind,
           name: portal?.name || portal?.email || staff?.name || row.name,
-          meta: awayLabel(away),
+          meta: awayMeta(away, spanFor(id, away) || spanFor(row.salesId, away)),
           away,
         },
         row.salesId,
@@ -498,31 +522,50 @@ function AttendancePage() {
           id: person.id,
           hrefKind: "staff",
           name: person.name,
-          meta: awayLabel(away),
+          meta: awayMeta(away, spanFor(person.id, away)),
           away,
         },
         person.linkedUserId,
       );
     }
     return people;
-  }, [attendance, holidayOverrides, hrOnlyAll, hrStaff, presentToday, staffMarks, today, todayOnly, users]);
+  }, [attendance, holidayOverrides, hrOnlyAll, hrStaff, presentToday, staffMarks, today, users]);
 
-  const awayIds = useMemo(() => {
-    const ids = new Set(awayToday.map((person) => person.id));
+  const leaveAwayToday = useMemo(
+    () => awayToday.filter((person) => person.away === "holiday" || person.away === "annual"),
+    [awayToday],
+  );
+  const sickAwayToday = useMemo(
+    () => awayToday.filter((person) => person.away === "sick"),
+    [awayToday],
+  );
+
+  const leaveAwayIds = useMemo(() => {
+    const ids = new Set(leaveAwayToday.map((person) => person.id));
     for (const person of hrStaff) {
       if (!person.linkedUserId) continue;
       if (ids.has(person.id)) ids.add(person.linkedUserId);
       if (ids.has(person.linkedUserId)) ids.add(person.id);
     }
     for (const row of holidayOverrides) {
-      if (row.date === today && personAwayKind(row.status)) ids.add(row.salesId);
+      if (row.date === today && personAwayKind(row.status) === "holiday") ids.add(row.salesId);
     }
     return ids;
-  }, [awayToday, holidayOverrides, hrStaff, today]);
+  }, [holidayOverrides, hrStaff, leaveAwayToday, today]);
+
+  const sickAwayIds = useMemo(() => {
+    const ids = new Set(sickAwayToday.map((person) => person.id));
+    for (const person of hrStaff) {
+      if (!person.linkedUserId) continue;
+      if (ids.has(person.id)) ids.add(person.linkedUserId);
+      if (ids.has(person.linkedUserId)) ids.add(person.id);
+    }
+    return ids;
+  }, [hrStaff, sickAwayToday]);
 
   const leavePeople = useMemo(
     () =>
-      awayToday
+      leaveAwayToday
         .filter((person) => matchesQuery(term, [person.name, person.meta]))
         .map((person) => ({
           id: person.id,
@@ -531,7 +574,7 @@ function AttendancePage() {
           meta: person.meta,
           status: person.away === "holiday" ? ("holiday" as const) : ("leave" as const),
         })),
-    [awayToday, term],
+    [leaveAwayToday, term],
   );
 
   const presentPeople = useMemo(
@@ -549,11 +592,28 @@ function AttendancePage() {
       name: string;
       meta?: string;
     }> = [];
+    const seen = new Set<string>();
+    function push(person: (typeof people)[number]) {
+      if (!person.id || seen.has(person.id)) return;
+      seen.add(person.id);
+      people.push(person);
+    }
+    for (const sick of sickAwayToday) {
+      push({
+        id: sick.id,
+        href: personHref(sick.hrefKind, sick.id),
+        name: sick.name,
+        meta: sick.meta,
+      });
+    }
     for (const emp of employees) {
       const status = attendanceByEmployeeId.get(emp._id);
-      if (awayIds.has(emp._id) || status === "leave" || presentWorkerIds.has(emp._id)) continue;
+      if (leaveAwayIds.has(emp._id) || sickAwayIds.has(emp._id) || presentWorkerIds.has(emp._id)) {
+        continue;
+      }
+      if (status === "leave" || status === "holiday") continue;
       if (status !== "absent" && status) continue;
-      people.push({
+      push({
         id: emp._id,
         href: personHref("worker", emp._id),
         name: emp.name,
@@ -566,8 +626,14 @@ function AttendancePage() {
         .map((row) => personIdForPresent(row, "portal")),
     );
     for (const accessUser of users) {
-      if (presentPortalIds.has(accessUser._id) || awayIds.has(accessUser._id)) continue;
-      people.push({
+      if (
+        presentPortalIds.has(accessUser._id)
+        || leaveAwayIds.has(accessUser._id)
+        || sickAwayIds.has(accessUser._id)
+      ) {
+        continue;
+      }
+      push({
         id: accessUser._id,
         href: personHref("user", accessUser._id),
         name: accessUser.name || accessUser.email || "Supervisor",
@@ -576,10 +642,19 @@ function AttendancePage() {
     }
     for (const person of hrOnlyAll) {
       const mark = staffMarks.find((row) => row.staffId === person.id && row.date === today);
-      if (mark?.status === "present" || mark?.status === "leave" || mark?.status === "holiday") continue;
-      if (awayIds.has(person.id) || (person.linkedUserId && awayIds.has(person.linkedUserId))) continue;
+      if (mark?.status === "present" || mark?.status === "holiday") continue;
+      if (mark?.status === "leave" && mark.leaveType !== "sick") continue;
+      if (
+        leaveAwayIds.has(person.id)
+        || (person.linkedUserId && leaveAwayIds.has(person.linkedUserId))
+      ) {
+        continue;
+      }
+      if (sickAwayIds.has(person.id) || (person.linkedUserId && sickAwayIds.has(person.linkedUserId))) {
+        continue;
+      }
       if (person.linkedUserId && presentPortalIds.has(person.linkedUserId)) continue;
-      people.push({
+      push({
         id: person.id,
         href: personHref("staff", person.id),
         name: person.name,
@@ -587,7 +662,19 @@ function AttendancePage() {
       });
     }
     return people;
-  }, [attendanceByEmployeeId, awayIds, employees, hrOnlyAll, presentToday, presentWorkerIds, staffMarks, today, users]);
+  }, [
+    attendanceByEmployeeId,
+    employees,
+    hrOnlyAll,
+    leaveAwayIds,
+    presentToday,
+    presentWorkerIds,
+    sickAwayIds,
+    sickAwayToday,
+    staffMarks,
+    today,
+    users,
+  ]);
 
   const absentPeople = useMemo(
     () =>
@@ -609,7 +696,7 @@ function AttendancePage() {
     absent: absentRoster.length,
   };
 
-  const leaveCount = awayToday.length;
+  const leaveCount = leaveAwayToday.length;
 
   const hrOnly = useMemo(
     () =>

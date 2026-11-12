@@ -5,8 +5,11 @@ import {
   attendanceDayKey,
   attendanceMarkSpan,
   attendanceSaveStatus,
+  awayDateSpan,
   awayLabel,
+  awayMeta,
   filterAttendancePeople,
+  formatAwayDateSpan,
   holidayStatusAvailable,
   mapWithLimit,
   personAwayKind,
@@ -108,5 +111,24 @@ describe("attendance bulk selection", () => {
     assert.equal(awayLabel("sick"), "Sick leave");
     assert.equal(attendanceDayKey("2026-11-12"), "2026-11-12");
     assert.equal(attendanceDayKey("2026-11-11T20:30:00.000Z"), "2026-11-12");
+  });
+
+  it("finds the contiguous holiday span that includes today", () => {
+    const dates = attendanceDatesInRange("2026-10-01", "2026-11-15") || [];
+    assert.deepEqual(awayDateSpan(dates, "2026-11-12"), {
+      from: "2026-10-01",
+      to: "2026-11-15",
+    });
+    assert.equal(awayDateSpan(dates, "2026-11-16"), null);
+    assert.deepEqual(awayDateSpan(["2026-11-12"], "2026-11-12"), {
+      from: "2026-11-12",
+      to: "2026-11-12",
+    });
+    assert.deepEqual(
+      awayDateSpan(["2026-11-10", "2026-11-12", "2026-11-13"], "2026-11-12"),
+      { from: "2026-11-12", to: "2026-11-13" },
+    );
+    assert.equal(formatAwayDateSpan("2026-10-01", "2026-11-15"), "1 Oct – 15 Nov 2026");
+    assert.equal(awayMeta("holiday", { from: "2026-10-01", to: "2026-11-15" }), "Holiday · 1 Oct – 15 Nov 2026");
   });
 });
