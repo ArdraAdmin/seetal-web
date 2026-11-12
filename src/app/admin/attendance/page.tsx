@@ -138,10 +138,11 @@ export default function AdminAttendancePage() {
       const [hr, warehouse, data, marks, overrideData] = await Promise.all([
         getHrStaff(user.id, { role: "Warehouse", scope: "stl" }),
         getWarehouseProfiles().catch(() => []),
-        getAdminAttendance({
-          userId: user.id,
-          today: todayOnly,
-        }),
+        getAdminAttendance(
+          todayOnly
+            ? { userId: user.id, today: true }
+            : { userId: user.id, from, to },
+        ),
         getHrStaffAttendance(user.id, "stl", from, to).catch(() => ({
           marks: [] as HrStaffAttendanceMark[],
         })),
