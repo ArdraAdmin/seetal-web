@@ -26,8 +26,10 @@ import {
   applyPayrollFoodSplit,
   currentPayrollMonth,
   foodRateFromCharge,
+  formatPayrollAbsentDate,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
+  payrollAbsentOrSickEntries,
   payrollFoodPeople,
   payrollFoodSplit,
   payrollGrandTotal,
@@ -35,6 +37,7 @@ import {
   roundPayrollMoney,
   payrollFoodFreeDays,
   standardFoodCharge,
+  type PayrollAbsentOrSickEntry,
   type PayrollFoodSplit,
 } from "@/lib/payroll-edit";
 import { attendanceSaveStatus } from "@/lib/attendance-bulk";
@@ -175,6 +178,10 @@ export function PayrollRegister() {
   const [daySaving, setDaySaving] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [absentDatesFor, setAbsentDatesFor] = useState<{
+    name: string;
+    entries: PayrollAbsentOrSickEntry[];
+  } | null>(null);
   const editRequest = useRef(0);
   const applyRegister = useCallback((data: PayrollRegisterData) => {
     setRows(onePayrollRowPerPerson(data.rows || []));
@@ -220,6 +227,26 @@ export function PayrollRegister() {
     setEditing(null);
     setEditLoading(false);
   }
+
+  function openAbsentDates(row: PayrollRegisterRow) {
+    setAbsentDatesFor({
+      name: row.name,
+      entries: payrollAbsentOrSickEntries(row.absentOrSickDates),
+    });
+  }
+
+  function closeAbsentDates() {
+    setAbsentDatesFor(null);
+  }
+
+  useEffect(() => {
+    if (!absentDatesFor) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") closeAbsentDates();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [absentDatesFor]);
 
   function openEdit(row: PayrollRegisterRow) {
     const source = rows.find((item) => item.id === row.id && item.kind === row.kind) || row;
@@ -674,7 +701,19 @@ export function PayrollRegister() {
               {visible.map((row) => (
                 <tr key={`${row.kind}-${row.id}`}>
                   <th scope="row" className="px-4 py-2 text-left font-medium text-ink">{row.name}</th>
-                  <td className="px-4 py-2 text-right tabular-nums">{formatDays(row.absentDays)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {row.absentDays > 0 ? (
+                      <button
+                        type="button"
+                        className="font-medium text-brand-dark underline tabular-nums"
+                        onClick={() => openAbsentDates(row)}
+                      >
+                        {formatDays(row.absentDays)}
+                      </button>
+                    ) : (
+                      formatDays(row.absentDays)
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatDays(row.presentDays)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{salesMoney(row.basicSalary)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{salesMoney(row.otherBenefits)}</td>
@@ -745,6 +784,63 @@ export function PayrollRegister() {
         </div>
         </div>
       )}
+      {absentDatesFor ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="absent-dates-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeAbsentDates();
+          }}
+        >
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lg">
+            <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="absent-dates-title" className="text-lg font-semibold text-ink">
+                  Absent days
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {absentDatesFor.name}. Dates marked absent or sick leave in {monthHeading(month) || "this month"}.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={closeAbsentDates}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" strokeWidth={1.75} />
+              </button>
+            </div>
+            <div className="overflow-y-auto">
+              {absentDatesFor.entries.length === 0 ? (
+                <p className="px-5 py-10 text-center text-sm text-slate-500">
+                  No absent or sick leave dates found for this month.
+                </p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {absentDatesFor.entries.map((entry) => (
+                    <li
+                      key={`${entry.date}-${entry.kind}`}
+                      className="flex items-center justify-between gap-3 px-5 py-3.5"
+                    >
+                      <p className="font-medium text-ink">{formatPayrollAbsentDate(entry.date)}</p>
+                      <span
+                        className={`shrink-0 text-xs font-medium ${
+                          entry.kind === "sick" ? "text-amber-800" : "text-slate-600"
+                        }`}
+                      >
+                        {entry.label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {editing ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"

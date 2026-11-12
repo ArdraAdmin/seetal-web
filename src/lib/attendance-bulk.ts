@@ -180,3 +180,44 @@ export async function mapWithLimit<T, R>(
   );
   return results;
 }
+
+/** Bare id from a mark key like `worker:abc` or `portal:xyz`. */
+export function attendancePersonBareId(personKey: string) {
+  const separator = personKey.indexOf(":");
+  return separator === -1 ? personKey : personKey.slice(separator + 1);
+}
+
+/**
+ * Hide people who are on holiday for the mark day, but keep anyone already
+ * selected so an existing holiday row can still be edited.
+ */
+export function excludeHolidayPeople<T extends { id: string }>(
+  people: T[],
+  holidayBareIds: Iterable<string>,
+  keepIds: Iterable<string> = [],
+) {
+  const holiday = new Set(
+    [...holidayBareIds].map(String).filter(Boolean),
+  );
+  const keep = new Set([...keepIds].map(String).filter(Boolean));
+  if (holiday.size === 0) return people;
+  return people.filter((person) => {
+    if (keep.has(person.id)) return true;
+    const bare = attendancePersonBareId(person.id);
+    return !holiday.has(bare) && !holiday.has(person.id);
+  });
+}
+
+/** Days that leave the old holiday/leave span when the range is shortened. */
+export function attendanceDatesToClear(
+  previous: { from: string; to: string } | null | undefined,
+  nextFrom: string,
+  nextTo: string,
+) {
+  if (!previous) return [] as string[];
+  const previousDates = attendanceDatesInRange(previous.from, previous.to);
+  const nextDates = attendanceDatesInRange(nextFrom, nextTo);
+  if (!previousDates || !nextDates) return [] as string[];
+  const keep = new Set(nextDates);
+  return previousDates.filter((date) => !keep.has(date));
+}

@@ -670,16 +670,18 @@ function longestMatch(modules: PortalModule[], pathname: string) {
   return best;
 }
 
-export function canCustomUserAccessPath(access: CustomAccess, pathname: string) {
-  if (prefixHit(pathname, "/admin/users") || prefixHit(pathname, "/shmp/users")) {
-    return false;
-  }
-  if (
+/** User management and tracking stay closed to every custom account. */
+export function customUserRestrictedPath(pathname: string) {
+  return (
+    prefixHit(pathname, "/admin/users") ||
+    prefixHit(pathname, "/shmp/users") ||
     prefixHit(pathname, "/admin/permissions") ||
     prefixHit(pathname, "/admin/tracking")
-  ) {
-    return false;
-  }
+  );
+}
+
+export function canCustomUserAccessPath(access: CustomAccess, pathname: string) {
+  if (customUserRestrictedPath(pathname)) return false;
   if (pathname === "/admin" || pathname.startsWith("/admin/")) {
     const item = longestMatch(SELLING_MODULES, pathname);
     return item ? sellingModuleVisible(access, item.id) : false;

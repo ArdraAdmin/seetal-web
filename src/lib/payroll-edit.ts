@@ -1,3 +1,42 @@
+export type PayrollAbsentOrSickKind = "absent" | "sick";
+
+export type PayrollAbsentOrSickEntry = {
+  date: string;
+  kind: PayrollAbsentOrSickKind;
+  label: string;
+};
+
+/** Keep only valid absent/sick date rows and attach display labels. */
+export function payrollAbsentOrSickEntries(
+  rows?: Array<{ date?: string | null; kind?: string | null }> | null,
+): PayrollAbsentOrSickEntry[] {
+  const entries: PayrollAbsentOrSickEntry[] = [];
+  for (const row of rows || []) {
+    const date = String(row?.date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const kind = row?.kind === "sick" ? "sick" : row?.kind === "absent" ? "absent" : null;
+    if (!kind) continue;
+    entries.push({
+      date,
+      kind,
+      label: kind === "sick" ? "Sick leave" : "Absent",
+    });
+  }
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function formatPayrollAbsentDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 /** Year-month for the current Asia/Dubai calendar day, `YYYY-MM`. */
 export function currentPayrollMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {

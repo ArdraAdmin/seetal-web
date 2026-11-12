@@ -10,6 +10,7 @@ import {
 import {
   canCustomUserAccessPath,
   customHomePath,
+  customUserRestrictedPath,
   firstAllowedPath,
   readCustomAccess,
   type AppSide,
@@ -104,6 +105,7 @@ export async function middleware(request: NextRequest) {
     session && Object.prototype.hasOwnProperty.call(session, "customAccess")
       ? readCustomAccess(session.customAccess)
       : null;
+  const customUser = session?.customUser === true || Boolean(customAccess);
 
   if (pathname.startsWith("/admin")) {
     if (!authed || role !== "Admin") {
@@ -117,10 +119,13 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/select-environment";
       return finish(NextResponse.redirect(url));
     }
-    if (customAccess) {
-      const blocked = redirectCustom(request, customAccess, pathname);
-      if (blocked) return finish(blocked);
-    }
+    const blocked = redirectCustomUser(request, {
+      customAccess,
+      customUser,
+      pathname,
+      environments,
+    });
+    if (blocked) return finish(blocked);
   }
 
   if (pathname.startsWith("/sales")) {
@@ -173,10 +178,13 @@ export async function middleware(request: NextRequest) {
       url.pathname = LABEL_CHECKER_SHMP_HOME;
       return finish(NextResponse.redirect(url));
     }
-    if (customAccess) {
-      const blocked = redirectCustom(request, customAccess, pathname);
-      if (blocked) return finish(blocked);
-    }
+    const blocked = redirectCustomUser(request, {
+      customAccess,
+      customUser,
+      pathname,
+      environments,
+    });
+    if (blocked) return finish(blocked);
   }
 
   if (pathname === "/select-environment") {
@@ -210,6 +218,33 @@ export async function middleware(request: NextRequest) {
   }
 
   return finish(NextResponse.next());
+}
+
+function redirectCustomUser(
+  request: NextRequest,
+  input: {
+    customAccess: ReturnType<typeof readCustomAccess>;
+    customUser: boolean;
+    pathname: string;
+    environments: string[];
+  },
+) {
+  if (input.customAccess) {
+    return redirectCustom(request, input.customAccess, input.pathname);
+  }
+  if (!input.customUser || !customUserRestrictedPath(input.pathname)) return null;
+  const preferred: AppSide = input.pathname.startsWith("/shmp") ? "shmp" : "stl";
+  const dest =
+    preferred === "shmp" && input.environments.includes("shmp")
+      ? "/shmp"
+      : input.environments.includes("stl")
+        ? "/admin"
+        : "/select-environment";
+  if (dest === input.pathname) return null;
+  const url = request.nextUrl.clone();
+  url.pathname = dest;
+  url.search = "";
+  return NextResponse.redirect(url);
 }
 
 function redirectCustom(

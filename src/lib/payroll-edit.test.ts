@@ -4,8 +4,10 @@ import {
   applyPayrollFoodSplit,
   currentPayrollMonth,
   foodRateFromCharge,
+  formatPayrollAbsentDate,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
+  payrollAbsentOrSickEntries,
   payrollFoodPeople,
   payrollGrandTotal,
   splitPayrollMoney,
@@ -67,5 +69,22 @@ describe("payroll edit", () => {
   it("keeps present and absent days on the calendar", () => {
     assert.deepEqual(linkedAttendanceDays(20, 31), { presentDays: 20, absentDays: 11 });
     assert.deepEqual(linkedAttendanceDays(-2, 30), { presentDays: 0, absentDays: 30 });
+  });
+
+  it("lists absent and sick leave dates for the payroll dialog", () => {
+    assert.deepEqual(
+      payrollAbsentOrSickEntries([
+        { date: "2026-11-03", kind: "sick" },
+        { date: "bad", kind: "absent" },
+        { date: "2026-11-01", kind: "absent" },
+        { date: "2026-11-02", kind: "leave" },
+      ]),
+      [
+        { date: "2026-11-01", kind: "absent", label: "Absent" },
+        { date: "2026-11-03", kind: "sick", label: "Sick leave" },
+      ],
+    );
+    assert.deepEqual(payrollAbsentOrSickEntries(null), []);
+    assert.equal(formatPayrollAbsentDate("2026-11-01"), "Sun, 1 Nov 2026");
   });
 });

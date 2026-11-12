@@ -481,6 +481,11 @@ export async function deletePublicHoliday(userId: string, id: string) {
   );
 }
 
+export type PayrollAbsentOrSickDate = {
+  date: string;
+  kind: "absent" | "sick";
+};
+
 export type PayrollRegisterRow = {
   id: string;
   kind: "staff" | "employee";
@@ -489,6 +494,7 @@ export type PayrollRegisterRow = {
   presentDays: number;
   leaveDays: number;
   holidayDays?: number;
+  absentOrSickDates?: PayrollAbsentOrSickDate[];
   sundayDays?: number;
   basicSalary: number;
   otherBenefits: number;

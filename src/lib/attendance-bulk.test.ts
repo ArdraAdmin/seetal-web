@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   attendanceDatesInRange,
+  attendanceDatesToClear,
   attendanceDayKey,
   attendanceMarkSpan,
+  attendancePersonBareId,
   attendanceSaveStatus,
   awayDateSpan,
   awayLabel,
   awayMeta,
+  excludeHolidayPeople,
   filterAttendancePeople,
   formatAwayDateSpan,
   holidayStatusAvailable,
@@ -130,5 +133,32 @@ describe("attendance bulk selection", () => {
     );
     assert.equal(formatAwayDateSpan("2026-10-01", "2026-11-15"), "1 Oct – 15 Nov 2026");
     assert.equal(awayMeta("holiday", { from: "2026-10-01", to: "2026-11-15" }), "Holiday · 1 Oct – 15 Nov 2026");
+  });
+
+  it("hides holiday people from the mark list but keeps the person being edited", () => {
+    assert.equal(attendancePersonBareId("worker:abc"), "abc");
+    assert.deepEqual(
+      excludeHolidayPeople(people, ["1", "3"], []).map((person) => person.id),
+      ["portal:2"],
+    );
+    assert.deepEqual(
+      excludeHolidayPeople(people, ["1"], ["worker:1"]).map((person) => person.id),
+      ["worker:1", "portal:2", "staff:3"],
+    );
+  });
+
+  it("lists leftover holiday days when a range is shortened", () => {
+    assert.deepEqual(
+      attendanceDatesToClear(
+        { from: "2026-11-10", to: "2026-11-14" },
+        "2026-11-11",
+        "2026-11-12",
+      ),
+      ["2026-11-10", "2026-11-13", "2026-11-14"],
+    );
+    assert.deepEqual(
+      attendanceDatesToClear(null, "2026-11-11", "2026-11-12"),
+      [],
+    );
   });
 });

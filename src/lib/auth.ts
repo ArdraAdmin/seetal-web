@@ -1,6 +1,5 @@
-import { sessionCustomAccess } from "./shmp-permissions";
 import type { AuthUser } from "./types";
-import { AUTH_COOKIE } from "./session";
+import { AUTH_COOKIE, buildSessionCookie, encodeSessionCookie } from "./session";
 import { clearSelectedSalesCompany } from "./sales-selected-company";
 import {
   clearEnvironment,
@@ -39,19 +38,17 @@ export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): v
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   const maxAge = 60 * 60 * 24 * 7;
   const env = environment ?? loadEnvironment();
-  const payload = encodeURIComponent(
-    JSON.stringify({
+  const payload = encodeSessionCookie(
+    buildSessionCookie({
       token: normalized.token,
       role: normalized.role,
       id: normalized.id,
       name: normalized.name,
       email: normalized.email,
       isSuperAdmin: isSuperAdmin(normalized),
-      environment: env || undefined,
+      environment: env,
       environments: normalized.environments,
-      ...(normalized.customAccess
-        ? { customAccess: sessionCustomAccess(normalized.customAccess) }
-        : {}),
+      customUser: Boolean(normalized.customAccess),
     }),
   );
   document.cookie = `${AUTH_COOKIE}=${payload}; path=/; max-age=${maxAge}; SameSite=Lax`;

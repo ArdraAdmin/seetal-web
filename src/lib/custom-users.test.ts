@@ -4,6 +4,7 @@ import { newFleetGrant } from "./shmp-permissions.ts";
 import {
   apiModuleKeysForAccess,
   canCustomUserAccessPath,
+  customUserRestrictedPath,
   companyKeyFromRecord,
   customHomePath,
   companiesOfferedToEditor,
@@ -63,6 +64,10 @@ describe("custom user access", () => {
     assert.equal(canCustomUserAccessPath(access.access, "/admin/inventory/new"), true);
     assert.equal(canCustomUserAccessPath(access.access, "/admin/hr"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/admin/users"), false);
+    assert.equal(customUserRestrictedPath("/admin/users"), true);
+    assert.equal(customUserRestrictedPath("/shmp/users/new"), true);
+    assert.equal(customUserRestrictedPath("/admin/tracking"), true);
+    assert.equal(customUserRestrictedPath("/admin/inventory"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/admin/tracking"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/production/abc"), true);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/categories"), false);

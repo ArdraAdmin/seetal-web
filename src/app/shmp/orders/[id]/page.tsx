@@ -89,6 +89,14 @@ export default function ShmpOrderDetailPage() {
         <div className="flex flex-wrap gap-2">
           {dispatch.section !== "delivered" ? (
             <Link
+              href={`/shmp/orders/${orderId}/edit`}
+              className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"
+            >
+              Edit order
+            </Link>
+          ) : null}
+          {dispatch.section !== "delivered" ? (
+            <Link
               href={`/shmp/production/${orderId}`}
               className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"
             >

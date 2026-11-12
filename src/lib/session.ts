@@ -44,7 +44,7 @@ export function resumeSession(): void {
   sessionEnded = false;
 }
 
-export function parseAuthCookie(value: string | undefined): {
+export type SessionCookie = {
   token?: string;
   role?: string;
   id?: string;
@@ -53,8 +53,45 @@ export function parseAuthCookie(value: string | undefined): {
   isSuperAdmin?: boolean;
   environment?: string;
   environments?: string[];
+  /**
+   * Custom accounts load their module grant after sign-in.
+   * The grant itself stays out of this cookie so a full-access account
+   * still fits in the browser's 4KB cookie limit.
+   */
+  customUser?: boolean;
+  /** Older sessions stored the grant here. New sign-ins omit it. */
   customAccess?: CustomAccess;
-} | null {
+};
+
+export function buildSessionCookie(input: {
+  token: string;
+  role?: string;
+  id: string;
+  name: string;
+  email: string;
+  isSuperAdmin: boolean;
+  environment?: string | null;
+  environments?: string[];
+  customUser?: boolean;
+}): SessionCookie {
+  return {
+    token: input.token,
+    role: input.role,
+    id: input.id,
+    name: input.name,
+    email: input.email,
+    isSuperAdmin: input.isSuperAdmin,
+    ...(input.environment ? { environment: input.environment } : {}),
+    environments: input.environments,
+    ...(input.customUser ? { customUser: true } : {}),
+  };
+}
+
+export function encodeSessionCookie(value: SessionCookie): string {
+  return encodeURIComponent(JSON.stringify(value));
+}
+
+export function parseAuthCookie(value: string | undefined): SessionCookie | null {
   if (!value) return null;
   try {
     return JSON.parse(decodeURIComponent(value));

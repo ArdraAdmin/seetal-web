@@ -24,11 +24,13 @@ import { isSupervisor } from "@/lib/auth";
 import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
 import {
   attendanceDatesInRange,
+  attendanceDatesToClear,
   attendanceDayKey,
   attendanceMarkSpan,
   attendanceSaveStatus,
   awayDateSpan,
   awayMeta,
+  excludeHolidayPeople,
   holidayStatusAvailable,
   mapWithLimit,
   personAwayKind,
@@ -194,6 +196,10 @@ function AttendancePage() {
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideDate, setOverrideDate] = useState(dubaiToday);
   const [overrideEndDate, setOverrideEndDate] = useState(dubaiToday);
+  const [editingPreviousSpan, setEditingPreviousSpan] = useState<{
+    from: string;
+    to: string;
+  } | null>(null);
 
   const [leaveAnnual, setLeaveAnnual] = useState("");
   const [leaveSick, setLeaveSick] = useState("");
@@ -417,6 +423,7 @@ function AttendancePage() {
       name: string;
       meta: string;
       away: AwayKind;
+      span: { from: string; to: string } | null;
     };
     const people: AwayPerson[] = [];
     const seen = new Set<string>();
@@ -472,12 +479,14 @@ function AttendancePage() {
       const away = personAwayKind(row.status);
       if (!away) continue;
       rememberDate(row._id, away, today);
+      const span = spanFor(row._id, away);
       add({
         id: row._id,
         hrefKind: row.kind === "portal" ? "user" : "worker",
         name: row.name,
-        meta: awayMeta(away, spanFor(row._id, away)),
+        meta: awayMeta(away, span),
         away,
+        span,
       });
     }
     for (const row of attendance) {
@@ -486,12 +495,14 @@ function AttendancePage() {
       if (attendanceDayKey(row.date) !== today) continue;
       const id = attendanceEmployeeId(row);
       if (!id) continue;
+      const span = spanFor(id, away);
       add({
         id,
         hrefKind: row.user ? "user" : "worker",
         name: attendanceEmployeeName(row),
-        meta: awayMeta(away, spanFor(id, away)),
+        meta: awayMeta(away, span),
         away,
+        span,
       });
     }
     for (const row of holidayOverrides) {
@@ -502,13 +513,15 @@ function AttendancePage() {
       const staff = hrStaff.find((person) => person.linkedUserId === row.salesId);
       const hrefKind = portal || !staff ? "user" : "staff";
       const id = hrefKind === "staff" && staff ? staff.id : row.salesId;
+      const span = spanFor(id, away) || spanFor(row.salesId, away);
       add(
         {
           id,
           hrefKind,
           name: portal?.name || portal?.email || staff?.name || row.name,
-          meta: awayMeta(away, spanFor(id, away) || spanFor(row.salesId, away)),
+          meta: awayMeta(away, span),
           away,
+          span,
         },
         row.salesId,
       );
@@ -517,13 +530,15 @@ function AttendancePage() {
       const mark = staffMarks.find((row) => row.staffId === person.id && row.date === today);
       const away = personAwayKind(mark?.status, mark?.leaveType);
       if (!away) continue;
+      const span = spanFor(person.id, away);
       add(
         {
           id: person.id,
           hrefKind: "staff",
           name: person.name,
-          meta: awayMeta(away, spanFor(person.id, away)),
+          meta: awayMeta(away, span),
           away,
+          span,
         },
         person.linkedUserId,
       );
@@ -553,6 +568,65 @@ function AttendancePage() {
     return ids;
   }, [holidayOverrides, hrStaff, leaveAwayToday, today]);
 
+  /** Bare person ids on holiday for a given calendar day (Dubai date key). */
+  const holidayBareIdsForDate = useCallback(
+    (day: string) => {
+      const ids = new Set<string>();
+      function remember(id?: string | null) {
+        if (id) ids.add(id);
+      }
+      for (const row of attendance) {
+        if (personAwayKind(String(row.status || ""), row.leaveType) !== "holiday") continue;
+        if (attendanceDayKey(row.date) !== day) continue;
+        remember(attendanceEmployeeId(row));
+      }
+      for (const row of holidayOverrides) {
+        if (row.date !== day) continue;
+        if (personAwayKind(row.status) !== "holiday") continue;
+        remember(row.salesId);
+        const staff = hrStaff.find((person) => person.linkedUserId === row.salesId);
+        if (staff) remember(staff.id);
+      }
+      for (const mark of staffMarks) {
+        if (mark.date !== day) continue;
+        if (personAwayKind(mark.status, mark.leaveType) !== "holiday") continue;
+        remember(mark.staffId);
+        const staff = hrStaff.find((person) => person.id === mark.staffId);
+        if (staff?.linkedUserId) remember(staff.linkedUserId);
+      }
+      if (day === today) {
+        for (const row of presentToday) {
+          if (personAwayKind(row.status) !== "holiday") continue;
+          remember(row._id);
+        }
+        for (const person of leaveAwayToday) {
+          if (person.away !== "holiday") continue;
+          remember(person.id);
+        }
+      }
+      for (const person of hrStaff) {
+        if (!person.linkedUserId) continue;
+        if (ids.has(person.id)) ids.add(person.linkedUserId);
+        if (ids.has(person.linkedUserId)) ids.add(person.id);
+      }
+      return ids;
+    },
+    [
+      attendance,
+      holidayOverrides,
+      hrStaff,
+      leaveAwayToday,
+      presentToday,
+      staffMarks,
+      today,
+    ],
+  );
+
+  const markHolidayBareIds = useMemo(
+    () => holidayBareIdsForDate(overrideDate),
+    [holidayBareIdsForDate, overrideDate],
+  );
+
   const sickAwayIds = useMemo(() => {
     const ids = new Set(sickAwayToday.map((person) => person.id));
     for (const person of hrStaff) {
@@ -567,14 +641,39 @@ function AttendancePage() {
     () =>
       leaveAwayToday
         .filter((person) => matchesQuery(term, [person.name, person.meta]))
-        .map((person) => ({
-          id: person.id,
-          href: personHref(person.hrefKind, person.id),
-          name: person.name,
-          meta: person.meta,
-          status: person.away === "holiday" ? ("holiday" as const) : ("leave" as const),
-        })),
-    [leaveAwayToday, term],
+        .map((person) => {
+          const staff =
+            person.hrefKind === "staff"
+              ? hrStaff.find((row) => row.id === person.id)
+              : person.hrefKind === "user"
+                ? hrStaff.find((row) => row.linkedUserId === person.id)
+                : undefined;
+          const markKey =
+            person.hrefKind === "worker"
+              ? `worker:${person.id}`
+              : person.hrefKind === "user"
+                ? `portal:${person.id}`
+                : hrMarkId(
+                    staff || {
+                      id: person.id,
+                      name: person.name,
+                      role: "Staff",
+                      linkedUserId: "",
+                      productionWorker: false,
+                      productionEmployeeId: "",
+                    },
+                  );
+          return {
+            id: person.id,
+            href: personHref(person.hrefKind, person.id),
+            name: person.name,
+            meta: person.meta,
+            status: person.away === "holiday" ? ("holiday" as const) : ("leave" as const),
+            markKey,
+            span: person.span,
+          };
+        }),
+    [hrStaff, leaveAwayToday, term],
   );
 
   const presentPeople = useMemo(
@@ -706,7 +805,7 @@ function AttendancePage() {
     [hrOnlyAll, term],
   );
 
-  const markPeople = useMemo(() => {
+  const markPeopleAll = useMemo(() => {
     const workers = employees.map((emp) => ({
       id: `worker:${emp._id}`,
       label: `${emp.name} (Worker)`,
@@ -726,6 +825,12 @@ function AttendancePage() {
       return true;
     });
   }, [employees, hrOnlyAll, users]);
+
+  const markPeople = useMemo(
+    () =>
+      excludeHolidayPeople(markPeopleAll, markHolidayBareIds, overridePeople),
+    [markHolidayBareIds, markPeopleAll, overridePeople],
+  );
 
   const recentRows = useMemo(() => {
     return attendance.filter((row) => {
@@ -810,28 +915,42 @@ function AttendancePage() {
     setMarkModalOpen(false);
     setOverrideReason("");
     setOverridePeople([]);
+    setEditingPreviousSpan(null);
     setMarkError(null);
   }
 
-  function openMark(personId: string, status = "present") {
+  function openMark(
+    personId: string,
+    status = "present",
+    span?: { from: string; to: string } | null,
+  ) {
     const people = personId ? [personId] : [];
     setOverridePeople(people);
-    setOverrideStatus(
-      status === "holiday" && !holidayStatusAvailable(people) ? "present" : status,
-    );
+    const nextStatus =
+      status === "holiday" && !holidayStatusAvailable(people) ? "present" : status;
+    setOverrideStatus(nextStatus);
     setOverrideLeaveType("annual");
     setOverrideReason("");
-    setOverrideDate(today);
-    setOverrideEndDate(today);
+    const from = span?.from || today;
+    const to = span?.to || span?.from || today;
+    setOverrideDate(from);
+    setOverrideEndDate(to);
+    setEditingPreviousSpan(
+      attendanceMarkSpan(nextStatus) ? span || { from, to } : null,
+    );
     setMarkError(null);
     setMarkModalOpen(true);
   }
 
-  async function saveAttendanceFor(personKey: string, date: string) {
+  async function saveAttendanceFor(
+    personKey: string,
+    date: string,
+    forcedStatus?: string,
+  ) {
     const separator = personKey.indexOf(":");
     const kind = separator === -1 ? "" : personKey.slice(0, separator);
     const id = separator === -1 ? personKey : personKey.slice(separator + 1);
-    const saved = attendanceSaveStatus(overrideStatus);
+    const saved = attendanceSaveStatus(forcedStatus || overrideStatus);
     const status = saved.status;
     const reason = overrideReason.trim();
     if (kind === "staff") {
@@ -883,14 +1002,35 @@ function AttendancePage() {
       setMarkError("Choose a valid holiday range");
       return;
     }
+    const clearDates =
+      attendanceMarkSpan(overrideStatus) && people.length === 1
+        ? attendanceDatesToClear(
+            editingPreviousSpan,
+            overrideDate,
+            overrideEndDate || overrideDate,
+          )
+        : [];
     setSavingOverride(true);
     setMarkError(null);
     try {
-      const jobs = people.flatMap((personKey) =>
-        dates.map((date) => ({ personKey, date })),
-      );
+      const jobs = [
+        ...people.flatMap((personKey) =>
+          dates.map((date) => ({
+            personKey,
+            date,
+            status: undefined as string | undefined,
+          })),
+        ),
+        ...people.flatMap((personKey) =>
+          clearDates.map((date) => ({
+            personKey,
+            date,
+            status: "present" as string | undefined,
+          })),
+        ),
+      ];
       const results = await mapWithLimit(jobs, 6, (job) =>
-        saveAttendanceFor(job.personKey, job.date),
+        saveAttendanceFor(job.personKey, job.date, job.status),
       );
       const failed = [
         ...new Set(
@@ -910,6 +1050,7 @@ function AttendancePage() {
         setMarkModalOpen(false);
         setOverrideReason("");
         setOverridePeople([]);
+        setEditingPreviousSpan(null);
         setMarkError(null);
         await refresh();
         return;
@@ -1160,6 +1301,8 @@ function AttendancePage() {
           leave={leavePeople}
           employees={employees}
           staff={hrOnly}
+          canEdit={canEditAttendance}
+          onEditLeave={(row) => openMark(row.markKey, row.status, row.span)}
         />
       ) : recentRows.length === 0 && presentPeople.length === 0 && hrOnly.length === 0 ? (
         <EmptyState title="No attendance records" />
@@ -1497,7 +1640,7 @@ function AttendancePage() {
                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm"
               >
                 <option value="">Select a person</option>
-                {markPeople.map((person) => (
+                {markPeopleAll.map((person) => (
                   <option key={person.id} value={person.id}>{person.label}</option>
                 ))}
               </select>
@@ -1609,6 +1752,8 @@ function FilteredRoster({
   users,
   employees,
   staff = [],
+  canEdit = false,
+  onEditLeave,
 }: {
   filter: DayFilter;
   workers: Emp[];
@@ -1625,10 +1770,18 @@ function FilteredRoster({
     name: string;
     meta?: string;
     status: "leave" | "holiday";
+    markKey: string;
+    span: { from: string; to: string } | null;
   }>;
   users: ShmpAccessUser[];
   employees: Emp[];
   staff?: HrListPerson[];
+  canEdit?: boolean;
+  onEditLeave?: (row: {
+    markKey: string;
+    status: "leave" | "holiday";
+    span: { from: string; to: string } | null;
+  }) => void;
 }) {
   const title =
     filter === "total"
@@ -1746,17 +1899,32 @@ function FilteredRoster({
         ) : (
           <ul className="mt-3 divide-y divide-line/60">
             {leave.map((row) => (
-              <li key={row.id}>
-                <Link
-                  href={row.href}
-                  className="flex items-center justify-between gap-3 py-2.5 hover:underline"
-                >
-                  <div>
-                    <p className="font-medium text-ink">{row.name}</p>
-                    <p className="text-xs text-slate-500">{row.meta}</p>
-                  </div>
-                  <StatusBadge status={row.status === "holiday" ? "holiday" : "leave"} />
+              <li
+                key={row.id}
+                className="flex items-center justify-between gap-3 py-2.5"
+              >
+                <Link href={row.href} className="min-w-0 flex-1 hover:underline">
+                  <p className="font-medium text-ink">{row.name}</p>
+                  <p className="text-xs text-slate-500">{row.meta}</p>
                 </Link>
+                <div className="flex shrink-0 items-center gap-3">
+                  {canEdit && onEditLeave ? (
+                    <button
+                      type="button"
+                      className="font-medium text-brand-dark underline"
+                      onClick={() =>
+                        onEditLeave({
+                          markKey: row.markKey,
+                          status: row.status,
+                          span: row.span,
+                        })
+                      }
+                    >
+                      Edit
+                    </button>
+                  ) : null}
+                  <StatusBadge status={row.status === "holiday" ? "holiday" : "leave"} />
+                </div>
               </li>
             ))}
           </ul>
