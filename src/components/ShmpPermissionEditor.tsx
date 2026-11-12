@@ -12,6 +12,7 @@ import {
   shmpStoreSalesmen,
   shmpStores,
 } from "@/lib/shmp-api";
+import { getDrivers, getVehicles } from "@/lib/api";
 import { modulesForCompany } from "@/lib/custom-users";
 import {
   SHMP_DASHBOARD_FIELDS,
@@ -23,6 +24,7 @@ import {
   SHMP_STORE_FIELDS,
   grantWhenEnabled,
   type Crud,
+  type FleetGrant,
   type IdScope,
   type OrderScope,
   type ShmpField,
@@ -348,6 +350,26 @@ export function ShmpPermissionEditor({
     return rows.map((row) => ({ id: row._id, label: row.storeName || row.uid || "Store" }));
   }
 
+  async function loadDrivers() {
+    const rows = await getDrivers("shmp");
+    return rows
+      .map((row) => ({
+        id: row._id,
+        label: [row.name, row.phoneNo].filter(Boolean).join(" · ") || "Driver",
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async function loadVehicles() {
+    const rows = await getVehicles("shmp");
+    return rows
+      .map((row) => ({
+        id: row._id,
+        label: row.value == null || row.value === "" ? "Vehicle" : `#${row.value}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
   return (
     <ul className="mt-4 divide-y divide-line">
       {catalog.map((item) => {
@@ -372,6 +394,8 @@ export function ShmpPermissionEditor({
                   loadOrders={loadOrders}
                   loadStores={loadStores}
                   loadWorkers={loadWorkers}
+                  loadDrivers={loadDrivers}
+                  loadVehicles={loadVehicles}
                 />
               </div>
             ) : null}
@@ -393,6 +417,8 @@ function ModuleDetail({
   loadOrders,
   loadStores,
   loadWorkers,
+  loadDrivers,
+  loadVehicles,
 }: {
   id: string;
   grant: ShmpGrantMap[keyof ShmpGrantMap];
@@ -404,6 +430,8 @@ function ModuleDetail({
   loadOrders: () => Promise<Option[]>;
   loadStores: () => Promise<Option[]>;
   loadWorkers: () => Promise<Option[]>;
+  loadDrivers: () => Promise<Option[]>;
+  loadVehicles: () => Promise<Option[]>;
 }) {
   if (!grant) return null;
   if (id === "dashboard" && "fields" in grant) {
@@ -523,7 +551,55 @@ function ModuleDetail({
       </div>
     );
   }
+  if (
+    id === "drivers-vehicles" &&
+    "drivers" in grant &&
+    "vehicles" in grant &&
+    "actions" in grant
+  ) {
+    return (
+      <FleetGrantEditor
+        grant={grant}
+        onChange={onChange}
+        loadDrivers={loadDrivers}
+        loadVehicles={loadVehicles}
+      />
+    );
+  }
   return null;
+}
+
+export function FleetGrantEditor({
+  grant,
+  onChange,
+  loadDrivers,
+  loadVehicles,
+}: {
+  grant: FleetGrant;
+  onChange: (grant: FleetGrant) => void;
+  loadDrivers: () => Promise<Option[]>;
+  loadVehicles: () => Promise<Option[]>;
+}) {
+  return (
+    <div className="space-y-3">
+      <CrudToggles
+        value={grant.actions}
+        onChange={(actions) => onChange({ ...grant, actions })}
+      />
+      <IdScopeEditor
+        title="Drivers"
+        scope={grant.drivers}
+        onChange={(drivers) => onChange({ ...grant, drivers })}
+        loadOptions={loadDrivers}
+      />
+      <IdScopeEditor
+        title="Vehicles"
+        scope={grant.vehicles}
+        onChange={(vehicles) => onChange({ ...grant, vehicles })}
+        loadOptions={loadVehicles}
+      />
+    </div>
+  );
 }
 
 function OrderScopeEditor({

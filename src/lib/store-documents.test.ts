@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   hasStoreDocument,
   storeDocumentError,
+  storeTrnNumberError,
 } from "./store-documents.ts";
 
 const file = (name: string) => new File(["doc"], name, { type: "application/pdf" });
@@ -114,5 +115,12 @@ describe("store documents", () => {
       ),
       "Enter a trade license expiry date",
     );
+  });
+
+  it("accepts a blank TRN number and rejects anything that is not digits", () => {
+    assert.equal(storeTrnNumberError(""), null);
+    assert.equal(storeTrnNumberError(" 100200300400500 "), null);
+    assert.equal(storeTrnNumberError("TRN-15"), "Enter a valid TRN number");
+    assert.equal(storeTrnNumberError("1".repeat(16)), "Enter a valid TRN number");
   });
 });

@@ -19,6 +19,8 @@ import {
   selectedPhotoFiles,
   type PhotoDraft,
 } from "@/components/PhotoFields";
+import { useAuth } from "@/components/AuthProvider";
+import { fleetActionOn, fleetRecordOn, type FleetPortal } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -39,6 +41,12 @@ export function DriversManager({
   scope: FleetScope;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const portal: FleetPortal = scope === "shmp" ? "shmp" : "selling";
+  const canRead = fleetActionOn(user?.customAccess, portal, "read");
+  const canCreate = fleetActionOn(user?.customAccess, portal, "create");
+  const canUpdate = fleetActionOn(user?.customAccess, portal, "update");
+  const canDelete = fleetActionOn(user?.customAccess, portal, "delete");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,8 +134,13 @@ export function DriversManager({
     }
   }
 
+  const visibleDrivers = drivers.filter((driver) =>
+    fleetRecordOn(user?.customAccess, portal, "drivers", driver._id),
+  );
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (editing ? !canUpdate : !canCreate) return;
     if (!name.trim() || !phone.trim()) return;
     const problem = photosFormError(
       photoDrafts(photos),
@@ -165,6 +178,7 @@ export function DriversManager({
   }
 
   async function onDelete(id: string) {
+    if (!canDelete) return;
     if (!confirm("Delete this driver?")) return;
     try {
       await deleteDriver(id, scope);
@@ -214,6 +228,11 @@ export function DriversManager({
         }
       />
 
+      {!canRead ? (
+        <ErrorState message="You do not have access to drivers." />
+      ) : null}
+
+      {canRead && (canCreate || (editing && canUpdate)) ? (
       <Card className="mb-5">
         <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
           <TextField
@@ -261,16 +280,24 @@ export function DriversManager({
           </div>
         </form>
       </Card>
+      ) : null}
 
-      {loading ? (
+      {!canRead ? null : loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
-      ) : drivers.length === 0 ? (
-        <EmptyState title="No drivers yet" description="Add a driver above." />
+      ) : visibleDrivers.length === 0 ? (
+        <EmptyState
+          title={drivers.length === 0 ? "No drivers yet" : "No drivers assigned"}
+          description={
+            drivers.length === 0
+              ? "Add a driver above."
+              : "This account can only open selected drivers, and none are assigned."
+          }
+        />
       ) : (
         <div className="space-y-3">
-          {drivers.map((d) => {
+          {visibleDrivers.map((d) => {
             const photosLabel = photoSummary(d.photos);
             return (
             <Card
@@ -285,9 +312,12 @@ export function DriversManager({
                 </p>
               </div>
               <div className="flex gap-2">
+                {canUpdate ? (
                 <SecondaryButton type="button" onClick={() => startEdit(d)}>
                   Edit
                 </SecondaryButton>
+                ) : null}
+                {canDelete ? (
                 <SecondaryButton
                   type="button"
                   className="border-red-200 text-red-700"
@@ -295,6 +325,7 @@ export function DriversManager({
                 >
                   Delete
                 </SecondaryButton>
+                ) : null}
               </div>
             </Card>
             );

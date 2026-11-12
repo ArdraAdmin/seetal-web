@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -23,12 +23,18 @@ import {
 } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
 import {
+  applyPayrollFoodSplit,
   currentPayrollMonth,
   foodRateFromCharge,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
+  payrollFoodPeople,
+  payrollFoodSplit,
+  payrollGrandTotal,
+  payrollMoneySum,
   roundPayrollMoney,
   standardFoodCharge,
+  type PayrollFoodSplit,
 } from "@/lib/payroll-edit";
 import { shmpOverrideAttendance } from "@/lib/shmp-api";
 import {
@@ -37,9 +43,11 @@ import {
   getPayrollRegister,
   markHrStaffAttendance,
   overrideSalesAttendance,
+  savePayrollFood,
   savePayrollRow,
   updateEmployeeHr,
   updateHrStaffRecord,
+  type PayrollRegister as PayrollRegisterData,
   type PayrollRegisterRow,
 } from "@/lib/stl-features-api";
 
@@ -73,6 +81,48 @@ function sumMoney(rows: PayrollRegisterRow[], key: "basicSalary" | "otherBenefit
   return Math.round(rows.reduce((total, row) => total + (Number(row[key]) || 0), 0) * 100) / 100;
 }
 
+function FoodAmountCard({
+  label,
+  display,
+  editing,
+  value,
+  tone,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  display: string;
+  editing: boolean;
+  value: string;
+  tone: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-line bg-white px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      {editing ? (
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className={`text-sm font-semibold ${tone}`}>AED</span>
+          <input
+            aria-label={label}
+            inputMode="decimal"
+            type="number"
+            min={0}
+            step="0.01"
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+            className={`w-full min-w-0 bg-transparent text-2xl font-semibold tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone}`}
+          />
+        </div>
+      ) : (
+        <p className={`mt-1 text-2xl font-semibold tabular-nums ${tone}`}>{display}</p>
+      )}
+    </div>
+  );
+}
+
 function moneyProblem(label: string, value: string, required: boolean) {
   const trimmed = value.trim();
   if (!trimmed) return required ? `${label} is required` : null;
@@ -97,6 +147,9 @@ export function PayrollRegister() {
   const [rows, setRows] = useState<PayrollRegisterRow[]>([]);
   const [label, setLabel] = useState("");
   const [foodPerMonth, setFoodPerMonth] = useState(230);
+  const [foodSplit, setFoodSplit] = useState<PayrollFoodSplit | null>(null);
+  const [foodDraft, setFoodDraft] = useState<{ mode: "total" | "share"; total: string; share: string } | null>(null);
+  const [foodSaving, setFoodSaving] = useState(false);
   const [calendarDays, setCalendarDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +174,15 @@ export function PayrollRegister() {
   const [editLoading, setEditLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const editRequest = useRef(0);
+  const applyRegister = useCallback((data: PayrollRegisterData) => {
+    setRows(onePayrollRowPerPerson(data.rows || []));
+    setLabel(data.label || "");
+    setFoodPerMonth(data.foodPerMonth || 230);
+    setCalendarDays(data.calendarDays || 30);
+    setFoodSplit(payrollFoodSplit(data.foodSplit));
+    setFoodDraft(null);
+  }, []);
+
   const parsedMonth = parseMonth(month);
   const year = parsedMonth?.year;
   const monthNumber = parsedMonth?.monthNumber;
@@ -135,10 +197,7 @@ export function PayrollRegister() {
       void getPayrollRegister(user.id, scope, year, monthNumber)
         .then((data) => {
           if (cancelled) return;
-          setRows(onePayrollRowPerPerson(data.rows || []));
-          setLabel(data.label || "");
-          setFoodPerMonth(data.foodPerMonth || 230);
-          setCalendarDays(data.calendarDays || 30);
+          applyRegister(data);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
@@ -152,7 +211,7 @@ export function PayrollRegister() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, salaryVisible, scope, year, monthNumber, reloadKey]);
+  }, [user?.id, salaryVisible, scope, year, monthNumber, reloadKey, applyRegister]);
 
   function closeEdit() {
     if (editSaving) return;
@@ -161,18 +220,19 @@ export function PayrollRegister() {
   }
 
   function openEdit(row: PayrollRegisterRow) {
+    const source = rows.find((item) => item.id === row.id && item.kind === row.kind) || row;
     const request = editRequest.current + 1;
     editRequest.current = request;
-    setEditing(row);
-    setEditBasic(String(row.basicSalary));
-    setEditOther(String(row.otherBenefits));
+    setEditing(source);
+    setEditBasic(String(source.basicSalary));
+    setEditOther(String(source.otherBenefits));
     setEditSunday("");
-    setEditFood(row.food > 0);
-    setEditPresent(String(row.presentDays));
-    setEditAbsent(String(row.absentDays));
-    setEditOt(String(row.otSundays));
-    setEditTotal(String(row.totalSalary));
-    setEditFoodAmount(String(row.food));
+    setEditFood(source.food > 0);
+    setEditPresent(String(source.presentDays));
+    setEditAbsent(String(source.absentDays));
+    setEditOt(String(source.otSundays));
+    setEditTotal(String(source.totalSalary));
+    setEditFoodAmount(String(source.food));
     setEditFines(String(row.fines || 0));
     setEditLoan("");
     setDayDate(`${month}-01`);
@@ -256,8 +316,8 @@ export function PayrollRegister() {
         });
       }
       const data = await getPayrollRegister(user.id, scope, year || 0, monthNumber || 0);
+      applyRegister(data);
       const rows = onePayrollRowPerPerson(data.rows || []);
-      setRows(rows);
       const fresh = rows.find((row) => row.id === editing.id && row.kind === editing.kind);
       if (fresh) {
         setEditing(fresh);
@@ -326,8 +386,7 @@ export function PayrollRegister() {
           fines: Number(editFines),
           loanDeduction: editLoan.trim() === "" ? 0 : Number(editLoan),
         });
-        setRows(onePayrollRowPerPerson(data.rows || []));
-        setLabel(data.label || "");
+        applyRegister(data);
         toast("Payroll record saved", "success");
         setEditing(null);
       } catch (err) {
@@ -369,6 +428,75 @@ export function PayrollRegister() {
     }
   }
 
+  function onFoodTotalChange(value: string) {
+    const people = payrollFoodPeople(rows);
+    const amount = Number(value);
+    const share = Number.isFinite(amount) && amount >= 0 && people > 0
+      ? String(roundPayrollMoney(amount / people))
+      : "";
+    setFoodDraft({ mode: "total", total: value, share });
+  }
+
+  function onFoodShareChange(value: string) {
+    const people = payrollFoodPeople(rows);
+    const amount = Number(value);
+    const total = Number.isFinite(amount) && amount >= 0
+      ? String(roundPayrollMoney(amount * people))
+      : "";
+    setFoodDraft({ mode: "share", total, share: value });
+  }
+
+  async function onSaveFood(event: FormEvent) {
+    event.preventDefault();
+    if (!user?.id || year == null || monthNumber == null || !foodDraft || foodSaving) return;
+    const people = payrollFoodPeople(rows);
+    if (people <= 0) {
+      toast("Nobody has food served this month", "info");
+      return;
+    }
+    const raw = foodDraft.mode === "total" ? foodDraft.total : foodDraft.share;
+    const problem = moneyProblem(foodDraft.mode === "total" ? "Food total" : "Share this month", raw, true);
+    if (problem) {
+      toast(problem, "info");
+      return;
+    }
+    setFoodSaving(true);
+    try {
+      const data = await savePayrollFood(user.id, {
+        scope: "shmp",
+        year,
+        month: monthNumber,
+        mode: foodDraft.mode,
+        amount: Number(raw),
+      });
+      applyRegister(data);
+      toast("Food split saved", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Food split failed", "error");
+    } finally {
+      setFoodSaving(false);
+    }
+  }
+
+  async function onResetFood() {
+    if (!user?.id || year == null || monthNumber == null || foodSaving) return;
+    setFoodSaving(true);
+    try {
+      const data = await savePayrollFood(user.id, {
+        scope: "shmp",
+        year,
+        month: monthNumber,
+        mode: "standard",
+      });
+      applyRegister(data);
+      toast("Food is back to the standard rate", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Food split failed", "error");
+    } finally {
+      setFoodSaving(false);
+    }
+  }
+
   if (!salaryVisible) {
     return (
       <div>
@@ -378,18 +506,30 @@ export function PayrollRegister() {
   }
 
   const term = query.trim().toLowerCase();
+  const draftAmount = foodDraft
+    ? Number(foodDraft.mode === "total" ? foodDraft.total : foodDraft.share)
+    : Number.NaN;
+  const draftSplit = foodDraft && Number.isFinite(draftAmount) && draftAmount >= 0
+    ? { mode: foodDraft.mode, amount: draftAmount }
+    : null;
+  const displayRows = draftSplit ? applyPayrollFoodSplit(rows, draftSplit) : rows;
   const permitted =
     scope === "shmp"
-      ? rows.filter((row) => shmpRecordAllowed(user?.customAccess, "payroll", "users", row.id))
-      : rows;
+      ? displayRows.filter((row) => shmpRecordAllowed(user?.customAccess, "payroll", "users", row.id))
+      : displayRows;
   const visible = term ? permitted.filter((row) => row.name.toLowerCase().includes(term)) : permitted;
   const moneyKeys = (scope === "shmp"
     ? ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "loanBalance", "fines", "finalPay"]
     : ["basicSalary", "otherBenefits", "otSundays", "totalSalary", "food", "finalPay"]) as Array<
     "basicSalary" | "otherBenefits" | "otSundays" | "totalSalary" | "food" | "fines" | "loanBalance" | "finalPay"
   >;
-  const foodTotal = sumMoney(rows, "food");
-  const foodPeople = rows.filter((row) => row.food > 0).length;
+  const foodTotal = payrollMoneySum(displayRows, "food");
+  const foodPeople = displayRows.filter((row) => row.food > 0).length;
+  const foodShare = foodPeople > 0 ? roundPayrollMoney(foodTotal / foodPeople) : 0;
+  const foodTotalValue = foodDraft ? foodDraft.total : String(foodTotal);
+  const foodShareValue = foodDraft ? foodDraft.share : String(foodShare);
+  const canEditFood = canEditPayroll && (payField("food-total") || payField("share-this-month"));
+  const grand = payrollGrandTotal(permitted);
 
   return (
     <div>
@@ -422,35 +562,67 @@ export function PayrollRegister() {
         />
       </div>
       {scope === "shmp" && !loading && !error && parsedMonth && permitted.length > 0 ? (
-        <div className="mb-4 grid gap-3 sm:grid-cols-4">
-          {payField("food-total") ? (
-          <div className="rounded-2xl border border-line bg-white px-4 py-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Food total</p>
-            <p className="mt-1 text-2xl font-semibold text-red-700">{salesMoney(foodTotal)}</p>
+        <form className="mb-4" onSubmit={(event) => void onSaveFood(event)}>
+          <div className="grid gap-3 sm:grid-cols-4">
+            {payField("food-total") ? (
+              <FoodAmountCard
+                label="Food total"
+                display={salesMoney(foodTotal)}
+                editing={canEditPayroll}
+                value={foodTotalValue}
+                tone="text-red-700"
+                disabled={foodSaving}
+                onChange={onFoodTotalChange}
+              />
+            ) : null}
+            {payField("people-charged") ? (
+              <div className="rounded-2xl border border-line bg-white px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">People charged</p>
+                <p className="mt-1 text-2xl font-semibold text-ink">{foodPeople}</p>
+              </div>
+            ) : null}
+            {payField("share-this-month") ? (
+              <FoodAmountCard
+                label="Share this month"
+                display={salesMoney(foodShare)}
+                editing={canEditPayroll}
+                value={foodShareValue}
+                tone="text-ink"
+                disabled={foodSaving}
+                onChange={onFoodShareChange}
+              />
+            ) : null}
+            {payField("headcount") ? (
+              <div className="rounded-2xl border border-line bg-white px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Headcount</p>
+                <p className="mt-1 text-2xl font-semibold text-ink">{permitted.length}</p>
+                <p className="mt-1 text-xs text-slate-500">AED {foodPerMonth} per person before leave</p>
+              </div>
+            ) : null}
           </div>
+          {canEditFood ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <PrimaryButton type="submit" disabled={!foodDraft || foodSaving}>
+                {foodSaving ? "Saving…" : "Save food"}
+              </PrimaryButton>
+              {foodDraft ? (
+                <SecondaryButton type="button" disabled={foodSaving} onClick={() => setFoodDraft(null)}>
+                  Cancel
+                </SecondaryButton>
+              ) : null}
+              {foodSplit ? (
+                <SecondaryButton type="button" disabled={foodSaving} onClick={() => void onResetFood()}>
+                  Standard rate
+                </SecondaryButton>
+              ) : null}
+              <p className="text-xs text-slate-500">
+                {payrollFoodPeople(rows) > 0
+                  ? "Saving charges this share to each person on food. It applies to this month only."
+                  : "Nobody has food served this month."}
+              </p>
+            </div>
           ) : null}
-          {payField("people-charged") ? (
-          <div className="rounded-2xl border border-line bg-white px-4 py-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">People charged</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">{foodPeople}</p>
-          </div>
-          ) : null}
-          {payField("share-this-month") ? (
-          <div className="rounded-2xl border border-line bg-white px-4 py-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Share this month</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">
-              {foodPeople > 0 ? salesMoney(roundPayrollMoney(foodTotal / foodPeople)) : salesMoney(0)}
-            </p>
-          </div>
-          ) : null}
-          {payField("headcount") ? (
-          <div className="rounded-2xl border border-line bg-white px-4 py-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Headcount</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">{permitted.length}</p>
-            <p className="mt-1 text-xs text-slate-500">AED {foodPerMonth} per person before leave</p>
-          </div>
-          ) : null}
-        </div>
+        </form>
       ) : null}
       {!parsedMonth ? (
         <ErrorState message="Choose a valid month" />
@@ -470,6 +642,7 @@ export function PayrollRegister() {
           }
         />
       ) : (
+        <div>
         <div className="overflow-x-auto rounded-xl border border-line bg-white">
           <table className="w-full min-w-[64rem] text-left text-sm">
             <caption className="sr-only">{label || "Monthly"} payroll</caption>
@@ -553,6 +726,21 @@ export function PayrollRegister() {
               </tr>
             </tfoot>
           </table>
+        </div>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Grand total</p>
+            {term ? <p className="text-xs text-slate-500">All people this month</p> : null}
+            <p className={`mt-1 text-2xl font-semibold tabular-nums ${grand.finalPay < 0 ? "text-red-700" : "text-ink"}`}>
+              {salesMoney(grand.finalPay)}
+            </p>
+          </div>
+          <p className="max-w-xl text-sm text-slate-600">
+            {scope === "shmp"
+              ? `Salary ${salesMoney(grand.salary)}, minus food ${salesMoney(grand.food)}, loan deductions ${salesMoney(grand.loans)}, and fines ${salesMoney(grand.fines)}.`
+              : `Salary ${salesMoney(grand.salary)}, minus food ${salesMoney(grand.food)}.`}
+          </p>
+        </div>
         </div>
       )}
       {editing ? (

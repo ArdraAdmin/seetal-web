@@ -1,5 +1,16 @@
-import type { ShmpPermissions } from "./shmp-permissions";
-import { sanitizeShmpPermissions, shmpFieldOn, shmpModuleAllowed, shmpNavVisible } from "./shmp-permissions";
+import type { FleetGrant, ShmpPermissions } from "./shmp-permissions";
+import {
+  fullFleetGrant,
+  newFleetGrant,
+  permissionsForEditor,
+  sanitizeShmpPermissions,
+  scopeAllows,
+  shmpActionOn,
+  shmpFieldOn,
+  shmpModuleAllowed,
+  shmpNavVisible,
+  shmpRecordAllowed,
+} from "./shmp-permissions";
 
 export const CUSTOM_COMPANY_KEYS = ["stl", "sarvah", "shmp", "shlaxmi"] as const;
 
@@ -206,6 +217,24 @@ export type UserListSide = "admin" | "shmp";
 
 export function companiesForSide(side: UserListSide): CustomCompanyKey[] {
   return side === "admin" ? [...SELLING_COMPANY_KEYS] : ["shmp"];
+}
+
+/** Only this account can grant the other portal while creating a custom user. */
+export const CROSS_PORTAL_ADMIN_EMAIL = "lav@shrseetal.com";
+
+export function canGrantCrossPortal(email: string | null | undefined) {
+  return String(email || "").trim().toLowerCase() === CROSS_PORTAL_ADMIN_EMAIL;
+}
+
+/** Companies shown on the create/edit form. Other admins stay on their own side. */
+export function companiesOfferedToEditor(
+  side: UserListSide,
+  email: string | null | undefined,
+): CustomCompanyKey[] {
+  const native = companiesForSide(side);
+  if (!canGrantCrossPortal(email)) return [...native];
+  const extra = CUSTOM_COMPANY_KEYS.filter((key) => !native.includes(key));
+  return [...native, ...extra];
 }
 
 export function moduleFields(company: CustomCompanyKey, moduleId: string) {
@@ -501,11 +530,117 @@ export function sideModuleCount(
   }, 0);
 }
 
-export function sellingModuleVisible(access: CustomAccess, moduleId: string) {
+function sellingModuleOn(access: CustomAccess, moduleId: string) {
   return SELLING_COMPANY_KEYS.some(
     (key) =>
       access.companies.includes(key) && moduleEnabled(access, key, moduleId),
   );
+}
+
+export function sellingModuleVisible(access: CustomAccess, moduleId: string) {
+  if (!sellingModuleOn(access, moduleId)) return false;
+  if (moduleId !== "drivers-vehicles") return true;
+  const grant = access.permissions?.selling;
+  return !grant || grant.actions.read === true;
+}
+
+export type FleetPortal = "selling" | "shmp";
+
+/** Missing fleet grant means every driver and vehicle, until user management saves one. */
+export function fleetActionOn(
+  access: CustomAccess | null | undefined,
+  portal: FleetPortal,
+  action: "create" | "read" | "update" | "delete",
+) {
+  if (!access) return true;
+  if (portal === "shmp") return shmpActionOn(access, "drivers-vehicles", action);
+  if (!sellingModuleOn(access, "drivers-vehicles")) return false;
+  const grant = access.permissions?.selling;
+  if (!grant) return true;
+  return grant.actions[action] === true;
+}
+
+export function fleetRecordOn(
+  access: CustomAccess | null | undefined,
+  portal: FleetPortal,
+  kind: "drivers" | "vehicles",
+  id: string,
+) {
+  if (!access) return true;
+  if (!fleetActionOn(access, portal, "read")) return false;
+  if (portal === "shmp") {
+    return shmpRecordAllowed(access, "drivers-vehicles", kind, id);
+  }
+  const grant = access.permissions?.selling;
+  if (!grant) return true;
+  return scopeAllows(grant[kind], id);
+}
+
+export function sellingFleetForEditor(
+  access?: {
+    modules?: CustomModuleMap;
+    permissions?: ShmpPermissions | null;
+  } | null,
+): FleetGrant {
+  if (access?.permissions?.selling) return access.permissions.selling;
+  const on = SELLING_COMPANY_KEYS.some((key) =>
+    (access?.modules?.[key] || []).includes("drivers-vehicles"),
+  );
+  return on ? fullFleetGrant() : newFleetGrant();
+}
+
+/**
+ * Permissions to store with a custom user.
+ * An editor who cannot see one side keeps that side's grants.
+ * A Seetal save of an older SHMP account writes full SHMP grants so turning
+ * explicit permissions on does not lock those modules.
+ */
+export function permissionsPayloadForSave(input: {
+  offered: readonly CustomCompanyKey[];
+  companies: readonly CustomCompanyKey[];
+  modules: CustomModuleMap;
+  shmpPermissions: ShmpPermissions;
+  sellingFleet: FleetGrant;
+  existing?: { explicit?: boolean; permissions?: ShmpPermissions | null } | null;
+}): ShmpPermissions | undefined {
+  const offered = new Set(input.offered);
+  const canEditShmp = offered.has("shmp");
+  const canEditSelling = SELLING_COMPANY_KEYS.some((key) => offered.has(key));
+  const shmpSelected = input.companies.includes("shmp");
+  const sellingFleetOn = SELLING_COMPANY_KEYS.some(
+    (key) =>
+      input.companies.includes(key) &&
+      (input.modules[key] || []).includes("drivers-vehicles"),
+  );
+  const existingSelling = input.existing?.permissions?.selling;
+  const shouldSend =
+    (canEditShmp && shmpSelected) ||
+    (canEditSelling && sellingFleetOn) ||
+    (canEditSelling && !sellingFleetOn && Boolean(existingSelling));
+  if (!shouldSend) return undefined;
+
+  const shmp = canEditShmp
+    ? shmpSelected
+      ? input.shmpPermissions.shmp
+      : {}
+    : input.existing?.explicit && input.existing.permissions
+      ? input.existing.permissions.shmp
+      : permissionsForEditor({
+          companies: input.companies,
+          modules: { shmp: input.modules.shmp },
+        }).shmp;
+
+  const selling = !canEditSelling
+    ? existingSelling
+    : sellingFleetOn
+      ? input.sellingFleet
+      : undefined;
+
+  return {
+    version: 1,
+    shmp,
+    ...(selling ? { selling } : {}),
+  };
 }
 
 export function shmpModuleVisible(access: CustomAccess, moduleId: string) {

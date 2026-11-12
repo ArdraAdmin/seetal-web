@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { newFleetGrant } from "./shmp-permissions.ts";
 import {
   apiModuleKeysForAccess,
   canCustomUserAccessPath,
   companyKeyFromRecord,
   customHomePath,
+  companiesOfferedToEditor,
   environmentsForAccess,
   filterCompaniesForModule,
   firstAllowedPath,
+  fleetActionOn,
+  fleetRecordOn,
+  permissionsPayloadForSave,
   portalFieldVisible,
   readCustomAccess,
   moduleFields,
   sanitizeCustomAccess,
+  sellingFleetForEditor,
   sellingModuleVisible,
   sideModuleCount,
   userMatchesSide,
@@ -203,5 +209,132 @@ describe("custom user access", () => {
       "update",
     );
     assert.equal(updated.ok, true);
+  });
+
+  it("lets only lav offer both portals", () => {
+    assert.deepEqual(companiesOfferedToEditor("admin", "lav@shrseetal.com"), [
+      "stl",
+      "sarvah",
+      "shlaxmi",
+      "shmp",
+    ]);
+    assert.deepEqual(companiesOfferedToEditor("shmp", "Lav@shrseetal.com"), [
+      "shmp",
+      "stl",
+      "sarvah",
+      "shlaxmi",
+    ]);
+    assert.deepEqual(companiesOfferedToEditor("admin", "admin@gmail.com"), [
+      "stl",
+      "sarvah",
+      "shlaxmi",
+    ]);
+    assert.deepEqual(companiesOfferedToEditor("shmp", "admin@gmail.com"), ["shmp"]);
+  });
+
+  it("limits Seetal drivers only after a grant is saved", () => {
+    const open = sanitizeCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["drivers-vehicles"] },
+    });
+    assert.equal(open.ok, true);
+    if (!open.ok) return;
+    assert.equal(fleetActionOn(open.access, "selling", "delete"), true);
+    assert.equal(fleetActionOn(null, "selling", "delete"), true);
+    assert.deepEqual(sellingFleetForEditor(open.access).actions, {
+      create: true,
+      read: true,
+      update: true,
+      delete: true,
+    });
+
+    const limited = readCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["drivers-vehicles"] },
+      explicit: true,
+      permissions: {
+        version: 1,
+        shmp: {},
+        selling: {
+          actions: { create: false, read: true, update: false, delete: false },
+          drivers: { mode: "selected", ids: ["d1"] },
+          vehicles: { mode: "all" },
+        },
+      },
+    });
+    assert.ok(limited);
+    if (!limited) return;
+    assert.equal(fleetActionOn(limited, "selling", "read"), true);
+    assert.equal(fleetActionOn(limited, "selling", "update"), false);
+    assert.equal(fleetRecordOn(limited, "selling", "drivers", "d1"), true);
+    assert.equal(fleetRecordOn(limited, "selling", "drivers", "d2"), false);
+    assert.equal(sellingModuleVisible(limited, "drivers-vehicles"), true);
+    assert.equal(canCustomUserAccessPath(limited, "/admin/drivers"), true);
+
+    const hidden = readCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["drivers-vehicles"] },
+      explicit: true,
+      permissions: {
+        version: 1,
+        shmp: {},
+        selling: {
+          actions: { create: false, read: false, update: false, delete: false },
+          drivers: { mode: "all" },
+          vehicles: { mode: "all" },
+        },
+      },
+    });
+    assert.ok(hidden);
+    if (!hidden) return;
+    assert.equal(sellingModuleVisible(hidden, "drivers-vehicles"), false);
+    assert.equal(canCustomUserAccessPath(hidden, "/admin/vehicles/abc"), false);
+  });
+
+  it("keeps the other side's grants when only one side is edited", () => {
+    const fromSeetal = permissionsPayloadForSave({
+      offered: ["stl", "sarvah", "shlaxmi"],
+      companies: ["stl", "shmp"],
+      modules: { stl: ["drivers-vehicles"], shmp: ["stores"] },
+      shmpPermissions: { version: 1, shmp: {} },
+      sellingFleet: newFleetGrant(),
+      existing: null,
+    });
+    assert.equal(fromSeetal?.shmp.stores?.actions.delete, true);
+    assert.equal(fromSeetal?.selling?.actions.read, true);
+    assert.equal(fromSeetal?.selling?.actions.create, false);
+
+    const fromShmp = permissionsPayloadForSave({
+      offered: ["shmp"],
+      companies: ["shmp"],
+      modules: { shmp: ["stores"], stl: ["drivers-vehicles"] },
+      shmpPermissions: {
+        version: 1,
+        shmp: {
+          stores: {
+            actions: { create: false, read: true, update: false, delete: false },
+            fields: {},
+            block: false,
+            salesmen: { mode: "all" },
+          },
+        },
+      },
+      sellingFleet: newFleetGrant(),
+      existing: {
+        explicit: true,
+        permissions: {
+          version: 1,
+          shmp: {},
+          selling: {
+            actions: { create: true, read: true, update: true, delete: false },
+            drivers: { mode: "selected", ids: ["d1"] },
+            vehicles: { mode: "all" },
+          },
+        },
+      },
+    });
+    assert.equal(fromShmp?.shmp.stores?.actions.read, true);
+    assert.equal(fromShmp?.selling?.actions.delete, false);
+    assert.deepEqual(fromShmp?.selling?.drivers, { mode: "selected", ids: ["d1"] });
   });
 });

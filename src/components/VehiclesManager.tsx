@@ -10,6 +10,8 @@ import {
   getVehicles,
 } from "@/lib/api";
 import type { Driver, FleetScope, Vehicle, VehicleExtras } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
+import { fleetActionOn, fleetRecordOn, type FleetPortal } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
 import { fmtDateOnly } from "@/components/StlFeatureUi";
 import { salesMoney } from "@/lib/sales";
@@ -74,6 +76,11 @@ export function VehiclesManager({
   scope: FleetScope;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const portal: FleetPortal = scope === "shmp" ? "shmp" : "selling";
+  const canRead = fleetActionOn(user?.customAccess, portal, "read");
+  const canCreate = fleetActionOn(user?.customAccess, portal, "create");
+  const canDelete = fleetActionOn(user?.customAccess, portal, "delete");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [extras, setExtras] = useState<Record<string, VehicleExtras>>({});
@@ -117,8 +124,16 @@ export function VehiclesManager({
     void load();
   }, [load]);
 
+  const visibleVehicles = vehicles.filter((vehicle) =>
+    fleetRecordOn(user?.customAccess, portal, "vehicles", vehicle._id),
+  );
+  const assignableDrivers = drivers.filter((driver) =>
+    fleetRecordOn(user?.customAccess, portal, "drivers", driver._id),
+  );
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!canCreate) return;
     const problem = vehicleFormError({
       vehicleNumber: form.number,
       driverId: form.driverId,
@@ -166,6 +181,7 @@ export function VehiclesManager({
   }
 
   async function onDelete(id: string) {
+    if (!canDelete) return;
     if (!confirm("Delete this vehicle?")) return;
     setDeletingId(id);
     try {
@@ -203,12 +219,16 @@ export function VehiclesManager({
         }
       />
 
-      {showForm ? (
+      {!canRead ? (
+        <ErrorState message="You do not have access to vehicles." />
+      ) : null}
+
+      {!canRead ? null : showForm && canCreate ? (
         <Card className="mb-5">
           <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
             <VehicleProfileFields
               form={form}
-              drivers={drivers}
+              drivers={assignableDrivers}
               disabled={saving}
               onChange={setForm}
             />
@@ -232,26 +252,30 @@ export function VehiclesManager({
             </div>
           </form>
         </Card>
-      ) : (
+      ) : canCreate ? (
         <div className="mb-5">
           <PrimaryButton type="button" onClick={() => setShowForm(true)}>
             Add vehicle
           </PrimaryButton>
         </div>
-      )}
+      ) : null}
 
-      {loading ? (
+      {!canRead ? null : loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
-      ) : vehicles.length === 0 ? (
+      ) : visibleVehicles.length === 0 ? (
         <EmptyState
-          title="No vehicles yet"
-          description="Add the vehicle details above. Mulkya expiry and insurance premium are required."
+          title={vehicles.length === 0 ? "No vehicles yet" : "No vehicles assigned"}
+          description={
+            vehicles.length === 0
+              ? "Add the vehicle details above. Mulkya expiry and insurance premium are required."
+              : "This account can only open selected vehicles, and none are assigned."
+          }
         />
       ) : (
         <div className="space-y-3">
-          {vehicles.map((v) => {
+          {visibleVehicles.map((v) => {
             const summary = extraLine(extras[v._id]);
             return (
               <Card
@@ -280,6 +304,7 @@ export function VehiclesManager({
                   >
                     Open
                   </Link>
+                  {canDelete ? (
                   <SecondaryButton
                     type="button"
                     className="border-red-200 text-red-700"
@@ -288,6 +313,7 @@ export function VehiclesManager({
                   >
                     {deletingId === v._id ? "Deleting…" : "Delete"}
                   </SecondaryButton>
+                  ) : null}
                 </div>
               </Card>
             );

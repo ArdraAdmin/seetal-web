@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  applyPayrollFoodSplit,
   currentPayrollMonth,
   foodRateFromCharge,
   linkedAttendanceDays,
   onePayrollRowPerPerson,
+  payrollFoodPeople,
+  payrollGrandTotal,
+  splitPayrollMoney,
   standardFoodCharge,
 } from "./payroll-edit.ts";
 
@@ -41,6 +45,20 @@ describe("payroll edit", () => {
       rows.map((row) => row.id),
       ["staff-1", "emp-2"],
     );
+  });
+
+  it("splits a food total so the shares add back up", () => {
+    assert.deepEqual(splitPayrollMoney(100.01, 3), [33.34, 33.34, 33.33]);
+    const rows = applyPayrollFoodSplit([
+      { food: 230, foodChargeable: true, finalPay: 1000, totalSalary: 1230 },
+      { food: 210, foodChargeable: true, finalPay: 400, totalSalary: 610 },
+      { food: 0, foodChargeable: false, finalPay: 800, totalSalary: 800 },
+    ], { mode: "total", amount: 100.01 });
+    assert.equal(rows[0].food, 50.01);
+    assert.equal(rows[1].food, 50);
+    assert.equal(rows[2].finalPay, 800);
+    assert.equal(payrollGrandTotal(rows).finalPay, 2539.99);
+    assert.equal(payrollFoodPeople(rows), 2);
   });
 
   it("keeps present and absent days on the calendar", () => {

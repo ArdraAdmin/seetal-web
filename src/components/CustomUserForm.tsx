@@ -7,22 +7,29 @@ import {
   deleteCustomUser,
   updateCustomUser,
 } from "@/lib/custom-users-api";
+import { getDrivers, getVehicles } from "@/lib/api";
 import {
   CUSTOM_COMPANY_LABELS,
-  companiesForSide,
+  SELLING_COMPANY_KEYS,
+  companiesOfferedToEditor,
   moduleFields,
   modulesForCompany,
+  permissionsPayloadForSave,
   selectedFieldIds,
+  sellingFleetForEditor,
   withFieldSelection,
   type CustomCompanyKey,
   type CustomModuleMap,
   type CustomUserRecord,
   type UserListSide,
 } from "@/lib/custom-users";
-import { ShmpPermissionEditor } from "@/components/ShmpPermissionEditor";
+import { useAuth } from "@/components/AuthProvider";
+import { FleetGrantEditor, ShmpPermissionEditor } from "@/components/ShmpPermissionEditor";
 import { useToast } from "@/components/Toast";
 import {
+  newFleetGrant,
   permissionsForEditor,
+  type FleetGrant,
   type ShmpPermissions,
 } from "@/lib/shmp-permissions";
 import { Card, PageHeader, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
@@ -32,12 +39,12 @@ function selectedCompanies(companies: CustomCompanyKey[], offered: CustomCompany
 }
 
 function accessForSave(
-  side: UserListSide,
+  offeredKeys: CustomCompanyKey[],
   companies: CustomCompanyKey[],
   modules: CustomModuleMap,
   existing?: CustomUserRecord,
 ) {
-  const offered = new Set(companiesForSide(side));
+  const offered = new Set(offeredKeys);
   const keptCompanies = (existing?.companies || []).filter((key) => !offered.has(key));
   const nextCompanies = [
     ...companies.filter((key) => offered.has(key)),
@@ -62,6 +69,7 @@ export function CustomUserForm({
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const { user: editor } = useAuth();
   const editing = Boolean(user);
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
@@ -71,14 +79,44 @@ export function CustomUserForm({
   const [permissions, setPermissions] = useState<ShmpPermissions>(() =>
     permissionsForEditor(user),
   );
+  const [sellingFleet, setSellingFleet] = useState<FleetGrant>(() =>
+    sellingFleetForEditor(user),
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const offered = useMemo(() => companiesForSide(side), [side]);
+  const offered = useMemo(
+    () => companiesOfferedToEditor(side, editor?.email),
+    [side, editor?.email],
+  );
+  const crossPortal = offered.includes("shmp") && offered.includes("stl");
   const groups = useMemo(
     () => selectedCompanies(companies, offered),
     [companies, offered],
   );
+  const fleetOwner = groups.find(
+    (key) => key !== "shmp" && (modules[key] || []).includes("drivers-vehicles"),
+  );
+
+  async function loadSellingDrivers() {
+    const rows = await getDrivers("stl");
+    return rows
+      .map((row) => ({
+        id: row._id,
+        label: [row.name, row.phoneNo].filter(Boolean).join(" · ") || "Driver",
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  async function loadSellingVehicles() {
+    const rows = await getVehicles("stl");
+    return rows
+      .map((row) => ({
+        id: row._id,
+        label: row.value == null || row.value === "" ? "Vehicle" : `#${row.value}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
 
   function toggleCompany(key: CustomCompanyKey) {
     setCompanies((current) =>
@@ -89,6 +127,7 @@ export function CustomUserForm({
   }
 
   function toggleModule(company: CustomCompanyKey, moduleId: string) {
+    const turningOn = !(modules[company] || []).includes(moduleId);
     setModules((current) => {
       const list = current[company] || [];
       const on = list.includes(moduleId);
@@ -97,6 +136,11 @@ export function CustomUserForm({
         : [...list, moduleId];
       return { ...current, [company]: next };
     });
+    if (moduleId !== "drivers-vehicles" || company === "shmp" || !turningOn) return;
+    const alreadyOn = SELLING_COMPANY_KEYS.some(
+      (key) => key !== company && (modules[key] || []).includes("drivers-vehicles"),
+    );
+    if (!alreadyOn && !user?.permissions?.selling) setSellingFleet(newFleetGrant());
   }
 
   function toggleField(company: CustomCompanyKey, moduleId: string, fieldId: string) {
@@ -120,14 +164,22 @@ export function CustomUserForm({
     event.preventDefault();
     if (saving) return;
     setSaving(true);
-    const access = accessForSave(side, companies, modules, user);
+    const access = accessForSave(offered, companies, modules, user);
+    const savedPermissions = permissionsPayloadForSave({
+      offered,
+      companies: access.companies,
+      modules: access.modules,
+      shmpPermissions: permissions,
+      sellingFleet,
+      existing: user,
+    });
     const input = {
       name,
       email,
       password,
       companies: access.companies,
       modules: access.modules,
-      ...(side === "shmp" ? { permissions } : {}),
+      ...(savedPermissions ? { permissions: savedPermissions } : {}),
     };
     try {
       if (editing && user) {
@@ -164,9 +216,11 @@ export function CustomUserForm({
       <PageHeader
         title={editing ? "Edit user" : "Create user"}
         subtitle={
-          side === "admin"
-            ? "Choose STL, Sarvah, or SH Lakshmi, then turn on the modules that person can open."
-            : "Turn on each SHMP module, then set what that person can do inside it. Nothing is implied: read, create, update, and delete are separate."
+          crossPortal
+            ? "Choose Seetal companies, SHMP, or both. Someone with both can open Seetal and SH Milly Pack."
+            : side === "admin"
+              ? "Choose STL, Sarvah, or SH Lakshmi, then turn on the modules that person can open."
+              : "Turn on each SHMP module, then set what that person can do inside it. Nothing is implied: read, create, update, and delete are separate."
         }
       />
       <form className="space-y-4" onSubmit={(event) => void onSubmit(event)}>
@@ -203,9 +257,11 @@ export function CustomUserForm({
         <Card>
           <h2 className="text-sm font-semibold text-ink">Companies</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {side === "admin"
-              ? "They will see data for every company you select."
-              : "This account is for SHMP."}
+            {crossPortal
+              ? "They will see data for every company you select, including both portals when SHMP and a Seetal company are on."
+              : side === "admin"
+                ? "They will see data for every company you select."
+                : "This account is for SHMP."}
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {offered.map((key) => {
@@ -245,11 +301,11 @@ export function CustomUserForm({
                 {CUSTOM_COMPANY_LABELS[company]} modules
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                {side === "shmp"
+                {company === "shmp"
                   ? "Each switch only opens that module. Actions, people, items, and fields underneath stay independent."
-                  : "Turn a module on to show it in their menu. KPI dashboard, inventory, and HR can be limited to specific fields."}
+                  : "Turn a module on to show it in their menu. KPI dashboard, inventory, and HR can be limited to specific fields. Drivers and vehicles can be limited to specific records."}
               </p>
-              {side === "shmp" && company === "shmp" ? (
+              {company === "shmp" ? (
                 <ShmpPermissionEditor
                   modules={(modules.shmp || []).filter((id) => !id.includes(":"))}
                   permissions={permissions}
@@ -313,6 +369,21 @@ export function CustomUserForm({
                             );
                           })}
                         </ul>
+                      ) : null}
+                      {item.id === "drivers-vehicles" && on && company === fleetOwner ? (
+                        <div className="mt-2 rounded-lg bg-[#f7f5f0] px-3 py-2">
+                          <FleetGrantEditor
+                            grant={sellingFleet}
+                            onChange={setSellingFleet}
+                            loadDrivers={loadSellingDrivers}
+                            loadVehicles={loadSellingVehicles}
+                          />
+                        </div>
+                      ) : null}
+                      {item.id === "drivers-vehicles" && on && fleetOwner && company !== fleetOwner ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Driver and vehicle access is shared with the other Seetal companies.
+                        </p>
                       ) : null}
                     </li>
                   );

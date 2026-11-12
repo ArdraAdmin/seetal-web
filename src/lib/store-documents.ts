@@ -112,3 +112,11 @@ export function storeDocumentError(
   }
   return null;
 }
+
+/** Optional. Digits only, short enough to store as a number without rounding. */
+export function storeTrnNumberError(value: string): string | null {
+  const raw = value.trim();
+  if (!raw) return null;
+  if (!/^\d{1,15}$/.test(raw)) return "Enter a valid TRN number";
+  return null;
+}

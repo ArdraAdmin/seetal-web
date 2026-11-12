@@ -47,11 +47,20 @@ export type ShmpGrantMap = {
     cards: Record<string, boolean>;
     users: IdScope;
   };
+  "drivers-vehicles"?: FleetGrant;
+};
+
+export type FleetGrant = {
+  actions: Crud;
+  drivers: IdScope;
+  vehicles: IdScope;
 };
 
 export type ShmpPermissions = {
   version: 1;
   shmp: ShmpGrantMap;
+  /** Seetal driver and vehicle limits. Missing means full access inside the module. */
+  selling?: FleetGrant;
 };
 
 export type ShmpField = { id: string; label: string; group?: string };
@@ -242,6 +251,7 @@ export const SHMP_GRANULAR_MODULES = [
   "categories",
   "catalog",
   "production",
+  "drivers-vehicles",
 ] as const;
 
 export type ShmpAccessLike = {
@@ -355,6 +365,7 @@ export function shmpActionOn(
         attendance?: Crud;
       }
     | undefined;
+  if (moduleId === "drivers-vehicles" && !grant) return true;
   if (!grant) return false;
   if (action.startsWith("fines.")) return crudOn(grant.fines, action.slice(6));
   if (action.startsWith("attendance.")) return crudOn(grant.attendance, action.slice(11));
@@ -379,13 +390,21 @@ export function scopeAllows(scope: IdScope | undefined, id: string) {
 export function shmpRecordAllowed(
   access: ShmpAccessLike | null | undefined,
   moduleId: string,
-  scopeKey: "users" | "items" | "categories" | "salesmen",
+  scopeKey: "users" | "items" | "categories" | "salesmen" | "drivers" | "vehicles",
   id: string,
 ) {
   if (!access || !access.explicit || !access.permissions?.shmp) return true;
   const grant = access.permissions.shmp[moduleId as keyof ShmpGrantMap] as
-    | { users?: IdScope; items?: IdScope; categories?: IdScope; salesmen?: IdScope }
+    | {
+        users?: IdScope;
+        items?: IdScope;
+        categories?: IdScope;
+        salesmen?: IdScope;
+        drivers?: IdScope;
+        vehicles?: IdScope;
+      }
     | undefined;
+  if (moduleId === "drivers-vehicles" && !grant) return true;
   if (!grant) return false;
   return scopeAllows(grant[scopeKey], id);
 }
@@ -459,6 +478,7 @@ export function grantWhenEnabled(moduleId: string): ShmpGrantMap[keyof ShmpGrant
   if (moduleId === "catalog") {
     return { actions: crud(true, false), items: allScope(), uploadImages: false };
   }
+  if (moduleId === "drivers-vehicles") return newFleetGrant();
   return {
     orders: { mode: "all" },
     logs: false,
@@ -486,6 +506,7 @@ function legacyGrant(moduleId: string, access: ShmpAccessLike) {
   if (moduleId === "inventory") return { actions: full, fields, items: allScope() };
   if (moduleId === "categories") return { actions: full, categories: allScope() };
   if (moduleId === "catalog") return { actions: full, items: allScope(), uploadImages: true };
+  if (moduleId === "drivers-vehicles") return fullFleetGrant();
   return {
     orders: { mode: "all" as const },
     logs: true,
@@ -499,7 +520,7 @@ function withProductionUsers(permissions: ShmpPermissions): ShmpPermissions {
   const production = permissions.shmp.production;
   if (!production || production.users) return permissions;
   return {
-    version: 1,
+    ...permissions,
     shmp: {
       ...permissions.shmp,
       production: { ...production, users: { mode: "all" } },
@@ -507,10 +528,39 @@ function withProductionUsers(permissions: ShmpPermissions): ShmpPermissions {
   };
 }
 
+export function newFleetGrant(): FleetGrant {
+  return {
+    actions: crud(true, false),
+    drivers: allScope(),
+    vehicles: allScope(),
+  };
+}
+
+export function fullFleetGrant(): FleetGrant {
+  return {
+    actions: crud(true, true),
+    drivers: allScope(),
+    vehicles: allScope(),
+  };
+}
+
+/** Accounts that already have the module keep every driver and vehicle until a grant is saved. */
+function withDriversGrant(
+  access: ShmpAccessLike | null | undefined,
+  permissions: ShmpPermissions,
+): ShmpPermissions {
+  const enabled = (access?.modules?.shmp || []).some((id) => id === "drivers-vehicles");
+  if (!enabled || permissions.shmp["drivers-vehicles"]) return permissions;
+  return {
+    ...permissions,
+    shmp: { ...permissions.shmp, "drivers-vehicles": fullFleetGrant() },
+  };
+}
+
 /** What the editor should show for an account that has not been saved with explicit grants. */
 export function permissionsForEditor(access: ShmpAccessLike | null | undefined): ShmpPermissions {
   if (access?.explicit && access.permissions?.version === 1 && access.permissions.shmp) {
-    return withProductionUsers(access.permissions);
+    return withDriversGrant(access, withProductionUsers(access.permissions));
   }
   const shmp: ShmpGrantMap = {};
   for (const moduleId of SHMP_GRANULAR_MODULES) {
@@ -659,7 +709,25 @@ export function sanitizeShmpPermissions(
       users: row.users == null ? { mode: "all" } : cleanScope(row.users),
     };
   }
-  return { ok: true, permissions: { version: 1, shmp } };
+  if (source["drivers-vehicles"]) {
+    shmp["drivers-vehicles"] = cleanFleet(source["drivers-vehicles"]);
+  }
+  const selling = Object.prototype.hasOwnProperty.call(body, "selling")
+    ? cleanFleet((body as { selling?: unknown }).selling)
+    : undefined;
+  return {
+    ok: true,
+    permissions: selling ? { version: 1, shmp, selling } : { version: 1, shmp },
+  };
+}
+
+function cleanFleet(value: unknown): FleetGrant {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    actions: cleanCrud(row.actions, false),
+    drivers: cleanScope(row.drivers),
+    vehicles: cleanScope(row.vehicles),
+  };
 }
 
 function slimScope(scope: IdScope): IdScope {
@@ -675,9 +743,23 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
   const copy = { ...access } as T & { permissions?: ShmpPermissions | null };
   if (!access.explicit && !access.permissions) return copy;
   copy.explicit = true;
-  const shmp = access.permissions?.shmp;
-  if (!shmp) {
+  const shmp = access.permissions?.shmp ?? {};
+  const hasShmp = Boolean(access.permissions?.shmp);
+  const selling = access.permissions?.selling;
+  if (!hasShmp && !selling) {
     delete copy.permissions;
+    return copy;
+  }
+  if (!hasShmp && selling) {
+    copy.permissions = {
+      version: 1,
+      shmp: {},
+      selling: {
+        actions: selling.actions,
+        drivers: slimScope(selling.drivers),
+        vehicles: slimScope(selling.vehicles),
+      },
+    };
     return copy;
   }
   const next: ShmpGrantMap = {};
@@ -697,7 +779,27 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
       users: slimScope(shmp.production.users || { mode: "all" }),
     };
   }
-  copy.permissions = { version: 1, shmp: next };
+  if (shmp["drivers-vehicles"]) {
+    const fleet = shmp["drivers-vehicles"];
+    next["drivers-vehicles"] = {
+      actions: fleet.actions,
+      drivers: slimScope(fleet.drivers),
+      vehicles: slimScope(fleet.vehicles),
+    };
+  }
+  copy.permissions = {
+    version: 1,
+    shmp: next,
+    ...(access.permissions?.selling
+      ? {
+          selling: {
+            actions: access.permissions.selling.actions,
+            drivers: slimScope(access.permissions.selling.drivers),
+            vehicles: slimScope(access.permissions.selling.vehicles),
+          },
+        }
+      : {}),
+  };
   return copy;
 }
 
@@ -708,7 +810,14 @@ export function shmpNavVisible(
   if (!access) return true;
   if (!shmpModuleAllowed(access, moduleId)) return false;
   if (moduleId === "approvals") return shmpActionOn(access, moduleId, "read");
-  if (moduleId === "hr" || moduleId === "stores" || moduleId === "inventory" || moduleId === "categories" || moduleId === "catalog") {
+  if (
+    moduleId === "hr" ||
+    moduleId === "stores" ||
+    moduleId === "inventory" ||
+    moduleId === "categories" ||
+    moduleId === "catalog" ||
+    moduleId === "drivers-vehicles"
+  ) {
     return shmpActionOn(access, moduleId, "read");
   }
   if (moduleId === "attendance") {

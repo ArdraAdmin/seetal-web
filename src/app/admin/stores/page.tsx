@@ -22,6 +22,7 @@ import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
   formatTradeLicenseDate,
   storeDocumentError,
+  storeTrnNumberError,
   tradeLicenseDateInput,
 } from "@/lib/store-documents";
 import { STORE_EXPORT_HEADERS, storeExportRow } from "@/lib/store-export";
@@ -58,6 +59,7 @@ type StoreForm = {
   uid: string;
   salesPersonIds: string[];
   tradeLicenseExpiry: string;
+  trnNo: string;
   trnDocument: File | null;
   tradeLicenseDocument: File | null;
   eidNumber: string;
@@ -81,6 +83,7 @@ const EMPTY_FORM: StoreForm = {
   uid: "",
   salesPersonIds: [],
   tradeLicenseExpiry: "",
+  trnNo: "",
   trnDocument: null,
   tradeLicenseDocument: null,
   eidNumber: "",
@@ -130,6 +133,7 @@ function formFrom(store: StoreProfile): StoreForm {
     uid: text(store.uid),
     salesPersonIds: salesPersonIdsFromStore(store),
     tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
+    trnNo: text(store.trnNo),
     trnDocument: null,
     tradeLicenseDocument: null,
     eidNumber: text(store.eidNumber),
@@ -363,6 +367,13 @@ function StoreFields({
           The store code is assigned automatically, starting at SHR5742.
         </p>
       ) : null}
+      <TextField
+        label="TRN number"
+        optional
+        inputMode="numeric"
+        value={form.trnNo}
+        onChange={(e) => setField("trnNo", e.target.value)}
+      />
       <StoreDocumentField
         label="TRN document"
         required={requireFiles}
@@ -526,6 +537,11 @@ export default function StoresPage() {
       toast(documentError, "info");
       return;
     }
+    const trnError = storeTrnNumberError(addForm.trnNo);
+    if (trnError) {
+      toast(trnError, "info");
+      return;
+    }
     if (addForm.salesPersonIds.length === 0) {
       toast("Choose a sales person", "info");
       return;
@@ -554,6 +570,7 @@ export default function StoresPage() {
         salesPersons: addForm.salesPersonIds,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry),
+        trnNo: addForm.trnNo.trim() || undefined,
         trnDocument: addForm.trnDocument,
         tradeLicenseDocument: addForm.tradeLicenseDocument,
       });
@@ -914,6 +931,11 @@ function StoreCard({
       toast(documentError, "info");
       return;
     }
+    const trnError = storeTrnNumberError(form.trnNo);
+    if (trnError) {
+      toast(trnError, "info");
+      return;
+    }
     setSaving(true);
     try {
       const eidChanged =
@@ -931,7 +953,7 @@ function StoreCard({
         city: form.city.trim(),
         country: form.country.trim(),
         uid: form.uid.trim(),
-        trnNo: text(store.trnNo) || undefined,
+        trnNo: form.trnNo.trim() || undefined,
         salesPerson: form.salesPersonIds[0],
         salesPersons: form.salesPersonIds,
         location: "—",
@@ -1028,6 +1050,7 @@ function StoreCard({
             {licenseExpiry ? ` · License expires ${licenseExpiry}` : ""}
           </p>
           <p className="mt-1 text-xs text-slate-500">
+            {text(store.trnNo) ? `TRN ${text(store.trnNo)} · ` : ""}
             TRN doc:{" "}
             {store.trnDocumentUrl ? (
               <a
@@ -1152,6 +1175,7 @@ function StoreCard({
                   )
                   : "—",
             },
+            { label: "TRN number", value: text(store.trnNo) || "—" },
             { label: "TRN document", value: docLink(store.trnDocumentUrl) },
             {
               label: "Trade license document",

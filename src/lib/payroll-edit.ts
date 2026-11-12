@@ -57,3 +57,93 @@ export function linkedAttendanceDays(present: number, calendarDays: number) {
     absentDays: roundPayrollMoney(Math.max(0, calendarDays - presentDays)),
   };
 }
+
+function moneyCents(value: number) {
+  return Math.round((roundPayrollMoney(value) + 1e-8) * 100);
+}
+
+/** Split a money total into `count` amounts that add back up to the total. */
+export function splitPayrollMoney(total: number, count: number) {
+  if (count <= 0) return [];
+  const cents = moneyCents(total);
+  const base = Math.trunc(cents / count);
+  let extra = cents - base * count;
+  const amounts: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const pennies = base + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra -= 1;
+    amounts.push(pennies / 100);
+  }
+  return amounts;
+}
+
+export function payrollFoodPeople<T extends { food?: number; foodChargeable?: boolean }>(rows: T[]) {
+  if (rows.some((row) => typeof row.foodChargeable === "boolean")) {
+    return rows.filter((row) => row.foodChargeable === true).length;
+  }
+  return rows.filter((row) => (Number(row.food) || 0) > 0).length;
+}
+
+export function payrollMoneySum<T extends Record<string, unknown>>(rows: T[], key: keyof T) {
+  return roundPayrollMoney(rows.reduce((total, row) => total + (Number(row[key]) || 0), 0));
+}
+
+export function payrollGrandTotal<T extends {
+  totalSalary?: number;
+  food?: number;
+  fines?: number;
+  loanDeduction?: number;
+  finalPay?: number;
+}>(rows: T[]) {
+  return {
+    salary: payrollMoneySum(rows, "totalSalary"),
+    food: payrollMoneySum(rows, "food"),
+    fines: payrollMoneySum(rows, "fines"),
+    loans: payrollMoneySum(rows, "loanDeduction"),
+    finalPay: payrollMoneySum(rows, "finalPay"),
+  };
+}
+
+export type PayrollFoodSplit = { mode: "total" | "share"; amount: number };
+
+export function payrollFoodSplit(
+  value: { mode?: string; amount?: number } | null | undefined,
+): PayrollFoodSplit | null {
+  if (!value || (value.mode !== "total" && value.mode !== "share")) return null;
+  const amount = Number(value.amount);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return { mode: value.mode, amount: roundPayrollMoney(amount) };
+}
+
+/**
+ * Replace this month's food charges with one typed total or one typed share.
+ * Final pay moves by the same amount as the food change.
+ */
+export function applyPayrollFoodSplit<T extends {
+  food: number;
+  finalPay: number;
+  foodChargeable?: boolean;
+}>(rows: T[], foodSplit: PayrollFoodSplit | null) {
+  if (!foodSplit) return rows;
+  const amount = Number(foodSplit.amount);
+  if (!Number.isFinite(amount) || amount < 0) return rows;
+  const indexes: number[] = [];
+  rows.forEach((row, index) => {
+    const chargeable = typeof row.foodChargeable === "boolean" ? row.foodChargeable : row.food > 0;
+    if (chargeable) indexes.push(index);
+  });
+  if (indexes.length === 0) return rows;
+  const shares = foodSplit.mode === "share"
+    ? indexes.map(() => roundPayrollMoney(amount))
+    : splitPayrollMoney(amount, indexes.length);
+  return rows.map((row, index) => {
+    const shareIndex = indexes.indexOf(index);
+    if (shareIndex < 0) return row;
+    const food = shares[shareIndex];
+    return {
+      ...row,
+      food,
+      finalPay: roundPayrollMoney(row.finalPay + row.food - food),
+    };
+  });
+}

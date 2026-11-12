@@ -184,4 +184,55 @@ describe("SHMP permission grants", () => {
     assert.equal(draft.shmp.payroll?.edit, true);
     assert.equal(draft.shmp.categories?.actions.read, true);
   });
+
+  it("keeps drivers and vehicles open until a grant is saved", () => {
+    const open = {
+      companies: ["shmp"],
+      modules: { shmp: ["drivers-vehicles"] },
+    };
+    assert.equal(shmpActionOn(open, "drivers-vehicles", "delete"), true);
+    assert.equal(shmpRecordAllowed(open, "drivers-vehicles", "drivers", "d1"), true);
+    const fresh = grantWhenEnabled("drivers-vehicles");
+    assert.equal("actions" in fresh && fresh.actions.read, true);
+    assert.equal("actions" in fresh && fresh.actions.create, false);
+
+    const saved = sanitizeShmpPermissions({
+      version: 1,
+      shmp: {
+        "drivers-vehicles": {
+          actions: { read: true, update: true },
+          drivers: { mode: "selected", ids: ["d1", "d1"] },
+          vehicles: { mode: "selected", ids: ["v9"] },
+        },
+      },
+    });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    const access = {
+      companies: ["shmp"],
+      modules: { shmp: ["drivers-vehicles"] },
+      explicit: true,
+      permissions: saved.permissions,
+    };
+    assert.equal(shmpActionOn(access, "drivers-vehicles", "create"), false);
+    assert.equal(shmpActionOn(access, "drivers-vehicles", "update"), true);
+    assert.equal(shmpRecordAllowed(access, "drivers-vehicles", "drivers", "d1"), true);
+    assert.equal(shmpRecordAllowed(access, "drivers-vehicles", "drivers", "d2"), false);
+    assert.equal(shmpRecordAllowed(access, "drivers-vehicles", "vehicles", "v1"), false);
+    const cookie = sessionCustomAccess(access);
+    assert.deepEqual(cookie.permissions?.shmp["drivers-vehicles"]?.drivers, {
+      mode: "selected",
+      ids: [],
+    });
+    assert.deepEqual(cookie.permissions?.shmp["drivers-vehicles"]?.vehicles.ids, []);
+
+    const older = {
+      companies: ["shmp"],
+      modules: { shmp: ["drivers-vehicles"] },
+      explicit: true,
+      permissions: { version: 1 as const, shmp: {} },
+    };
+    assert.equal(shmpActionOn(older, "drivers-vehicles", "delete"), true);
+    assert.equal(permissionsForEditor(older).shmp["drivers-vehicles"]?.actions.delete, true);
+  });
 });

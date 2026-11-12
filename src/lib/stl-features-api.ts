@@ -494,6 +494,7 @@ export type PayrollRegisterRow = {
   otSundays: number;
   totalSalary: number;
   food: number;
+  foodChargeable?: boolean;
   foodPerMonth?: number;
   fines?: number;
   loanBalance?: number;
@@ -511,6 +512,7 @@ export type PayrollRegister = {
   label: string;
   calendarDays: number;
   foodPerMonth: number;
+  foodSplit?: { mode: "total" | "share"; amount: number } | null;
   rows: PayrollRegisterRow[];
 };
 
@@ -550,6 +552,22 @@ export async function savePayrollRow(
   },
 ) {
   return request<PayrollRegister>("/admin/payroll/row", {
+    method: "POST",
+    body: JSON.stringify({ userId, ...payload }),
+  });
+}
+
+export async function savePayrollFood(
+  userId: string,
+  payload: {
+    scope: "shmp";
+    year: number;
+    month: number;
+    mode: "total" | "share" | "standard";
+    amount?: number;
+  },
+) {
+  return request<PayrollRegister>("/admin/payroll/food", {
     method: "POST",
     body: JSON.stringify({ userId, ...payload }),
   });

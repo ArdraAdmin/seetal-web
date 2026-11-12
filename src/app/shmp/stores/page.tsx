@@ -36,6 +36,7 @@ import {
 import {
   formatTradeLicenseDate,
   storeDocumentError,
+  storeTrnNumberError,
   tradeLicenseDateInput,
 } from "@/lib/store-documents";
 import { storeEidRequiredError } from "@/lib/store-eid";
@@ -53,6 +54,7 @@ type StoreForm = {
   uid: string;
   tradeLicenseExpiry: string;
   eidNumber: string;
+  trnNo: string;
   salesPersonIds: string[];
   trnDocument: File | null;
   tradeLicenseDocument: File | null;
@@ -78,6 +80,7 @@ const EMPTY_FORM: StoreForm = {
   uid: "",
   tradeLicenseExpiry: "",
   eidNumber: "",
+  trnNo: "",
   salesPersonIds: [],
   trnDocument: null,
   tradeLicenseDocument: null,
@@ -132,6 +135,7 @@ function formFrom(store: ShmpStore): StoreForm {
     uid: text(store.uid),
     tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
     eidNumber: text(store.eidNumber),
+    trnNo: text(store.trnNo),
     salesPersonIds: salesIdsFromStore(store),
     trnDocument: null,
     tradeLicenseDocument: null,
@@ -381,6 +385,13 @@ function StoreFields({
           The store code is assigned automatically, starting at SHR5742.
         </p>
       )}
+      <TextField
+        label="TRN number"
+        optional
+        inputMode="numeric"
+        value={form.trnNo}
+        onChange={(e) => setField("trnNo", e.target.value)}
+      />
       <StoreDocumentField
         label="TRN document"
         required={requireTrn}
@@ -457,6 +468,11 @@ function validateForm(
     toast(documentError, "info");
     return false;
   }
+  const trnError = storeTrnNumberError(form.trnNo);
+  if (trnError) {
+    toast(trnError, "info");
+    return false;
+  }
   const eidError = storeEidRequiredError({
     eidNumber: form.eidNumber,
     file: eidDraft(form.eidDocument),
@@ -490,6 +506,7 @@ function payloadFromForm(form: StoreForm) {
     location: "—",
     tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
     eidNumber: form.eidNumber.trim(),
+    trnNo: form.trnNo.trim() || undefined,
   };
   if (
     form.trnDocument instanceof File ||
@@ -819,6 +836,7 @@ function StoreCard({
               : " · No salesman assigned"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
+            {text(store.trnNo) ? `TRN ${text(store.trnNo)} · ` : ""}
             TRN doc:{" "}
             {store.trnDocumentUrl ? (
               <a
@@ -930,6 +948,7 @@ function StoreCard({
             },
             { label: "EID number", value: text(store.eidNumber) || "—" },
             { label: "EID document", value: docLink(store.eidDocumentUrl) },
+            { label: "TRN number", value: text(store.trnNo) || "—" },
             { label: "TRN document", value: docLink(store.trnDocumentUrl) },
             {
               label: "Trade license document",
