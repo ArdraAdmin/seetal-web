@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   attendanceDatesInRange,
+  attendanceDayKey,
+  attendanceMarkSpan,
+  attendanceSaveStatus,
+  awayLabel,
   filterAttendancePeople,
   holidayStatusAvailable,
   mapWithLimit,
+  personAwayKind,
   setVisibleSelection,
   toggleSelectedId,
 } from "./attendance-bulk.ts";
@@ -83,5 +88,25 @@ describe("attendance bulk selection", () => {
     assert.equal(results[0].status, "fulfilled");
     assert.equal(results[2].status, "rejected");
     assert.equal(results.filter((row) => row.status === "fulfilled").length, 3);
+  });
+
+  it("saves sick leave as leave and keeps holiday as holiday", () => {
+    assert.deepEqual(attendanceSaveStatus("sick"), { status: "leave", leaveType: "sick" });
+    assert.deepEqual(attendanceSaveStatus("leave"), { status: "leave", leaveType: "annual" });
+    assert.deepEqual(attendanceSaveStatus("holiday"), { status: "holiday" });
+    assert.equal(attendanceMarkSpan("sick"), true);
+    assert.equal(attendanceMarkSpan("holiday"), true);
+    assert.equal(attendanceMarkSpan("absent"), false);
+  });
+
+  it("recognises holiday and sick leave for the attendance list", () => {
+    assert.equal(personAwayKind("holiday"), "holiday");
+    assert.equal(personAwayKind("leave", "sick"), "sick");
+    assert.equal(personAwayKind("leave", "annual"), "annual");
+    assert.equal(personAwayKind("absent"), null);
+    assert.equal(awayLabel("holiday"), "Holiday");
+    assert.equal(awayLabel("sick"), "Sick leave");
+    assert.equal(attendanceDayKey("2026-11-12"), "2026-11-12");
+    assert.equal(attendanceDayKey("2026-11-11T20:30:00.000Z"), "2026-11-12");
   });
 });

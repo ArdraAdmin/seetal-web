@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { PrimaryButton, SecondaryButton } from "@/components/ui";
 import {
+  attendanceMarkSpan,
   filterAttendancePeople,
   setVisibleSelection,
   toggleSelectedId,
@@ -88,6 +89,9 @@ export function MarkAttendanceDialog(
   if (!open) return null;
 
   const multiple = props.multiple === true;
+  const ranged = attendanceMarkSpan(status);
+  const showLeaveType =
+    status === "leave" && !statusOptions.some((option) => option.value === "sick");
   const selected = multiple ? props.selected : [];
   const visible = multiple ? filterAttendancePeople(people, query) : people;
   const visibleIds = visible.map((person) => person.id);
@@ -219,16 +223,16 @@ export function MarkAttendanceDialog(
           value={date}
           onChange={(event) => onDate(event.target.value)}
           required
-          aria-label={status === "holiday" ? "Holiday from" : "Date"}
+          aria-label={ranged ? "From" : "Date"}
         />
-        {status === "holiday" && onEndDate ? (
+        {ranged && onEndDate ? (
           <input
             type="date"
             className="w-full rounded-xl border border-line px-3 py-2 text-sm"
             value={endDate || date}
             onChange={(event) => onEndDate(event.target.value)}
             required
-            aria-label="Holiday to"
+            aria-label="To"
           />
         ) : null}
         <select
@@ -243,7 +247,7 @@ export function MarkAttendanceDialog(
             </option>
           ))}
         </select>
-        {status === "leave" ? (
+        {showLeaveType ? (
           <select
             className="w-full rounded-xl border border-line px-3 py-2 text-sm"
             value={leaveType}

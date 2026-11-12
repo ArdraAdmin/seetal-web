@@ -33,9 +33,11 @@ import {
   payrollGrandTotal,
   payrollMoneySum,
   roundPayrollMoney,
+  payrollFoodFreeDays,
   standardFoodCharge,
   type PayrollFoodSplit,
 } from "@/lib/payroll-edit";
+import { attendanceSaveStatus } from "@/lib/attendance-bulk";
 import { shmpOverrideAttendance } from "@/lib/shmp-api";
 import {
   getEmployeeHr,
@@ -283,9 +285,8 @@ export function PayrollRegister() {
       toast("Choose a date", "info");
       return;
     }
-    const status = dayStatus === "leave" || dayStatus === "absent" || dayStatus === "holiday"
-      ? dayStatus
-      : "present";
+    const saved = attendanceSaveStatus(dayStatus);
+    const status = saved.status;
     setDaySaving(true);
     try {
       if (editing.attendanceType === "employee") {
@@ -295,7 +296,7 @@ export function PayrollRegister() {
           employeeId: editing.attendanceId,
           date: new Date(dayDate).toISOString(),
           newStatus: status,
-          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          ...(saved.leaveType ? { leaveType: saved.leaveType } : {}),
           reason: dayReason.trim(),
         });
       } else if (editing.attendanceType === "user") {
@@ -304,14 +305,14 @@ export function PayrollRegister() {
           salesId: editing.attendanceId || editing.id,
           date: dayDate,
           status,
-          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          ...(saved.leaveType ? { leaveType: saved.leaveType } : {}),
           reason: dayReason.trim() || undefined,
         });
       } else {
         await markHrStaffAttendance(user.id, editing.attendanceId || editing.id, {
           date: dayDate,
           status,
-          ...(status === "leave" ? { leaveType: "annual" } : {}),
+          ...(saved.leaveType ? { leaveType: saved.leaveType } : {}),
           reason: dayReason.trim(),
         });
       }
@@ -360,10 +361,11 @@ export function PayrollRegister() {
       const other = Number(editOther);
       const ot = Number(editOt);
       const sundayDays = editing.sundayDays || 0;
-      const standard = standardFoodCharge(foodPerMonth, calendarDays, editing.leaveDays || 0);
+      const foodFree = payrollFoodFreeDays(editing.leaveDays, editing.holidayDays);
+      const standard = standardFoodCharge(foodPerMonth, calendarDays, foodFree);
       const typedFood = editFood ? Number(editFoodAmount) : 0;
       const personalRate = editFood && Math.abs(typedFood - standard) > 0.009
-        ? foodRateFromCharge(typedFood, calendarDays, editing.leaveDays || 0)
+        ? foodRateFromCharge(typedFood, calendarDays, foodFree)
         : null;
       setEditSaving(true);
       try {
@@ -537,7 +539,7 @@ export function PayrollRegister() {
         title="Payroll"
         subtitle={
           monthHeading(month)
-            ? `${monthHeading(month)}. Salary is the monthly amount for days marked present. A fully absent month pays nothing. Food is AED ${foodPerMonth} when food served is on.${scope === "shmp" ? " Fines dated in this month are taken off the final pay." : ""}`
+            ? `${monthHeading(month)}. Salary is the monthly amount for days marked present. A fully absent month pays nothing. Food is AED ${foodPerMonth} when food served is on. Holiday and annual leave days are left out. Absence and sick leave are still charged.${scope === "shmp" ? " Fines dated in this month are taken off the final pay." : ""}`
             : "Salary is the monthly amount for days marked present."
         }
         actions={
@@ -824,7 +826,8 @@ export function PayrollRegister() {
                       >
                         <option value="present">Present</option>
                         <option value="absent">Absent</option>
-                        <option value="leave">Leave</option>
+                        <option value="leave">Annual leave</option>
+                        <option value="sick">Sick leave</option>
                         <option value="holiday">Holiday</option>
                       </select>
                     </label>

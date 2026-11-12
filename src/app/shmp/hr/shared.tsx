@@ -111,16 +111,22 @@ export function badgeStatusFor(
 export function StatusBadge({
   status,
 }: {
-  status: "present" | "absent" | "leave";
+  status: "present" | "absent" | "leave" | "holiday";
 }) {
   const styles =
     status === "present"
       ? "bg-green-100 text-green-800"
-      : status === "leave"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-red-100 text-red-800";
+      : status === "absent"
+        ? "bg-red-100 text-red-800"
+        : "bg-amber-100 text-amber-800";
   const label =
-    status === "present" ? "Present" : status === "leave" ? "Leave" : "Absent";
+    status === "present"
+      ? "Present"
+      : status === "holiday"
+        ? "Holiday"
+        : status === "leave"
+          ? "Leave"
+          : "Absent";
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles}`}

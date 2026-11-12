@@ -26,7 +26,7 @@ import {
 } from "@/lib/stl-features-api";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { attendanceDatesInRange } from "@/lib/attendance-bulk";
+import { attendanceDatesInRange, attendanceMarkSpan, attendanceSaveStatus } from "@/lib/attendance-bulk";
 import { MarkAttendanceDialog } from "@/components/MarkAttendanceDialog";
 import {
   Card,
@@ -324,14 +324,11 @@ export default function AdminAttendancePage() {
       return;
     }
     const [kind, id] = markPerson.split(":");
-    const status =
-      markStatus === "leave" || markStatus === "absent" || markStatus === "holiday"
-        ? markStatus
-        : "present";
-    const dates =
-      status === "holiday"
-        ? attendanceDatesInRange(markDate, markEndDate || markDate)
-        : [markDate];
+    const saved = attendanceSaveStatus(markStatus);
+    const status = saved.status;
+    const dates = attendanceMarkSpan(markStatus)
+      ? attendanceDatesInRange(markDate, markEndDate || markDate)
+      : [markDate];
     if (!dates) {
       toast("Choose a valid holiday range", "info");
       return;
@@ -343,7 +340,7 @@ export default function AdminAttendancePage() {
           await markHrStaffAttendance(user.id, id, {
             date,
             status,
-            ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+            ...(saved.leaveType ? { leaveType: saved.leaveType } : {}),
             reason: markReason.trim(),
           });
         } else {
@@ -352,7 +349,7 @@ export default function AdminAttendancePage() {
             salesId: id,
             date,
             status,
-            ...(status === "leave" ? { leaveType: markLeaveType } : {}),
+            ...(saved.leaveType ? { leaveType: saved.leaveType } : {}),
             reason: markReason.trim() || undefined,
           });
         }
@@ -459,7 +456,7 @@ export default function AdminAttendancePage() {
       )}
       <MarkAttendanceDialog
         open={markOpen}
-        description="Record present, absent, leave, or a holiday range. Reason is optional."
+        description="Record present, absent, annual or sick leave, or a holiday range. Reason is optional."
         people={markPeople}
         person={markPerson}
         date={markDate}
@@ -471,7 +468,8 @@ export default function AdminAttendancePage() {
         statusOptions={[
           { value: "present", label: "Present" },
           { value: "absent", label: "Absent" },
-          { value: "leave", label: "Leave" },
+          { value: "leave", label: "Annual leave" },
+          { value: "sick", label: "Sick leave" },
           { value: "holiday", label: "Holiday" },
         ]}
         onClose={closeMark}

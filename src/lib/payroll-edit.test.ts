@@ -9,6 +9,7 @@ import {
   payrollFoodPeople,
   payrollGrandTotal,
   splitPayrollMoney,
+  payrollFoodFreeDays,
   standardFoodCharge,
 } from "./payroll-edit.ts";
 
@@ -23,6 +24,8 @@ describe("payroll edit", () => {
     assert.equal(standardFoodCharge(230, 31, 1), 222.58);
     assert.equal(foodRateFromCharge(222.58, 31, 1), 230);
     assert.equal(foodRateFromCharge(310, 31, 0), 310);
+    assert.equal(payrollFoodFreeDays(1, 2), 3);
+    assert.equal(standardFoodCharge(230, 31, payrollFoodFreeDays(0, 1)), 222.58);
   });
 
   it("lists a person once when production adds a second payroll row", () => {

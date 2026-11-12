@@ -488,6 +488,7 @@ export type PayrollRegisterRow = {
   absentDays: number;
   presentDays: number;
   leaveDays: number;
+  holidayDays?: number;
   sundayDays?: number;
   basicSalary: number;
   otherBenefits: number;

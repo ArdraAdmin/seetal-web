@@ -15,18 +15,23 @@ export function roundPayrollMoney(value: number) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-/** Monthly food rate that produces this charge after leave days are removed. */
-export function foodRateFromCharge(charge: number, calendarDays: number, leaveDays: number) {
+/** Monthly food rate that produces this charge after annual leave and holiday days are removed. */
+export function foodRateFromCharge(charge: number, calendarDays: number, foodFreeDays: number) {
   if (!(charge > 0) || calendarDays <= 0) return null;
-  const chargeable = calendarDays - leaveDays;
+  const chargeable = calendarDays - foodFreeDays;
   if (chargeable <= 0) return roundPayrollMoney(charge);
   return roundPayrollMoney((charge * calendarDays) / chargeable);
 }
 
-export function standardFoodCharge(rate: number, calendarDays: number, leaveDays: number) {
+export function standardFoodCharge(rate: number, calendarDays: number, foodFreeDays: number) {
   if (calendarDays <= 0) return 0;
-  const chargeable = Math.max(0, calendarDays - leaveDays);
+  const chargeable = Math.max(0, calendarDays - foodFreeDays);
   return roundPayrollMoney((rate * chargeable) / calendarDays);
+}
+
+/** Annual leave and holiday days are not charged for food. */
+export function payrollFoodFreeDays(leaveDays?: number, holidayDays?: number) {
+  return Math.max(0, (Number(leaveDays) || 0) + (Number(holidayDays) || 0));
 }
 
 function payrollNameKey(value?: string | null) {

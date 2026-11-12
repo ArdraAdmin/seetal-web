@@ -38,6 +38,49 @@ export function holidayStatusAvailable(selectedIds: string[]) {
   return selectedIds.length > 0;
 }
 
+/** Annual leave, sick leave, and holiday can cover more than one day. */
+export function attendanceMarkSpan(status: string) {
+  return status === "holiday" || status === "leave" || status === "sick";
+}
+
+/** Sick leave is stored as leave with a sick type. Annual leave stays annual. */
+export function attendanceSaveStatus(value: string): {
+  status: "present" | "absent" | "leave" | "holiday";
+  leaveType?: "annual" | "sick";
+} {
+  if (value === "sick") return { status: "leave", leaveType: "sick" };
+  if (value === "leave") return { status: "leave", leaveType: "annual" };
+  if (value === "absent") return { status: "absent" };
+  if (value === "holiday") return { status: "holiday" };
+  return { status: "present" };
+}
+
+export type AwayKind = "holiday" | "annual" | "sick";
+
+export function attendanceDayKey(value?: string | null) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai" }).format(date);
+}
+
+export function personAwayKind(
+  status?: string | null,
+  leaveType?: string | null,
+): AwayKind | null {
+  if (status === "holiday") return "holiday";
+  if (status === "sick") return "sick";
+  if (status === "leave") return leaveType === "sick" ? "sick" : "annual";
+  return null;
+}
+
+export function awayLabel(kind: AwayKind) {
+  if (kind === "holiday") return "Holiday";
+  if (kind === "sick") return "Sick leave";
+  return "Annual leave";
+}
+
 /** Inclusive calendar dates from `from` through `to`. */
 export function attendanceDatesInRange(from: string, to: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
