@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
-import { Card, ErrorState, LoadingState, TextField } from "@/components/ui";
+import { Card, ErrorState, LoadingState, SecondaryButton, TextField } from "@/components/ui";
 import { formatHrDate } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
+import {
+  downloadGeneratedSalarySlips,
+  skippedSalarySlipMessage,
+} from "@/lib/salary-slip-generate";
 import {
   deleteStoredSalarySlip,
   getSalarySlip,
@@ -63,6 +68,8 @@ export function SalarySlipCard({
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const pathname = usePathname();
+  const scope = pathname.startsWith("/shmp") ? "shmp" : "stl";
   const [month, setMonth] = useState(() => dubaiMonthValue());
   const [slip, setSlip] = useState<SalarySlip | null>(null);
   const [stored, setStored] = useState<StoredSalarySlip[]>([]);
@@ -71,10 +78,7 @@ export function SalarySlipCard({
   const [storedError, setStoredError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-  }, [month, personId, kind]);
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id || !personId) return;
@@ -101,28 +105,32 @@ export function SalarySlipCard({
     let cancelled = false;
     const period = parseMonth(month);
     if (!user?.id || !personId) return undefined;
-    if (!period) {
-      setError("Choose a valid salary month");
-      setSlip(null);
-      setLoading(false);
-      return undefined;
-    }
-    void getSalarySlip(user.id, kind, personId, period.year, period.month)
-      .then((next) => {
-        if (!cancelled) {
-          setSlip(next);
-          setError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setSlip(null);
-          setError(err instanceof Error ? err.message : "Failed to calculate salary");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      if (!period) {
+        setError("Choose a valid salary month");
+        setSlip(null);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      void getSalarySlip(user.id, kind, personId, period.year, period.month)
+        .then((next) => {
+          if (!cancelled) {
+            setSlip(next);
+            setError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            setSlip(null);
+            setError(err instanceof Error ? err.message : "Failed to calculate salary");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    });
     return () => {
       cancelled = true;
     };
@@ -202,6 +210,35 @@ export function SalarySlipCard({
     }
   }
 
+  async function onGeneratePdf() {
+    if (!user?.id || !period || !slip || generating) return;
+    setGenerating(true);
+    try {
+      const result = await downloadGeneratedSalarySlips({
+        userId: user.id,
+        year: period.year,
+        month: period.month,
+        scope: kind === "user" ? undefined : scope,
+        people: [
+          {
+            kind,
+            id: personId,
+            name: slip.name,
+          },
+        ],
+      });
+      const skipped = skippedSalarySlipMessage(result.skipped);
+      toast(
+        skipped || "Salary slip PDF downloaded",
+        skipped ? "info" : "success",
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to generate salary slip", "error");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   const rates = slip?.rates;
   const showAllowanceDays =
     slip != null && slip.attendance.sundayAllowanceDays !== slip.attendance.sundaysWorked;
@@ -215,14 +252,23 @@ export function SalarySlipCard({
             Statutory overtime uses basic salary. The Sunday allowance is a separate company payment.
           </p>
         </div>
-        <div className="w-44">
-          <TextField
-            label="Salary month"
-            type="month"
-            required
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-          />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-44">
+            <TextField
+              label="Salary month"
+              type="month"
+              required
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            />
+          </div>
+          <SecondaryButton
+            type="button"
+            disabled={loading || !slip || !period || generating}
+            onClick={() => void onGeneratePdf()}
+          >
+            {generating ? "Generating…" : "Generate PDF"}
+          </SecondaryButton>
         </div>
       </div>
       {loading ? (

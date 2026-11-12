@@ -23,6 +23,10 @@ import {
 } from "@/lib/hr-profile";
 import { salesMoney } from "@/lib/sales";
 import {
+  downloadGeneratedSalarySlips,
+  skippedSalarySlipMessage,
+} from "@/lib/salary-slip-generate";
+import {
   applyPayrollFoodSplit,
   currentPayrollMonth,
   foodRateFromCharge,
@@ -64,6 +68,10 @@ function monthHeading(value: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(parsed.year, parsed.monthNumber - 1, 1)));
+}
+
+function payrollPersonKey(row: Pick<PayrollRegisterRow, "kind" | "id">) {
+  return `${row.kind}:${row.id}`;
 }
 
 function parseMonth(value: string) {
@@ -182,6 +190,14 @@ export function PayrollRegister() {
     name: string;
     entries: PayrollAbsentOrSickEntry[];
   } | null>(null);
+  const [slipOpen, setSlipOpen] = useState(false);
+  const [slipMonth, setSlipMonth] = useState(currentPayrollMonth);
+  const [slipPeople, setSlipPeople] = useState<PayrollRegisterRow[]>([]);
+  const [slipPeopleLoading, setSlipPeopleLoading] = useState(false);
+  const [slipPeopleError, setSlipPeopleError] = useState<string | null>(null);
+  const [slipFilter, setSlipFilter] = useState("");
+  const [slipSelected, setSlipSelected] = useState<string[]>([]);
+  const [slipGenerating, setSlipGenerating] = useState(false);
   const editRequest = useRef(0);
   const applyRegister = useCallback((data: PayrollRegisterData) => {
     setRows(onePayrollRowPerPerson(data.rows || []));
@@ -235,6 +251,76 @@ export function PayrollRegister() {
     });
   }
 
+  function filterPayrollPeople(list: PayrollRegisterRow[]) {
+    return scope === "shmp"
+      ? list.filter((row) => shmpRecordAllowed(user?.customAccess, "payroll", "users", row.id))
+      : list;
+  }
+
+  function openSlipDialog() {
+    setSlipMonth(month);
+    setSlipFilter("");
+    setSlipSelected([]);
+    setSlipPeopleError(null);
+    setSlipPeople(filterPayrollPeople(onePayrollRowPerPerson(rows)));
+    setSlipPeopleLoading(false);
+    setSlipOpen(true);
+  }
+
+  function closeSlipDialog() {
+    if (slipGenerating) return;
+    setSlipOpen(false);
+  }
+
+  function toggleSlipPerson(key: string) {
+    setSlipSelected((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+    );
+  }
+
+  async function onGenerateSalarySlips() {
+    if (!user?.id || slipGenerating) return;
+    const period = parseMonth(slipMonth);
+    if (!period) {
+      toast("Choose a valid salary month", "info");
+      return;
+    }
+    const selected = slipPeople.filter((row) => slipSelected.includes(payrollPersonKey(row)));
+    if (selected.length === 0) {
+      toast("Select at least one person", "info");
+      return;
+    }
+    setSlipGenerating(true);
+    try {
+      const result = await downloadGeneratedSalarySlips({
+        userId: user.id,
+        year: period.year,
+        month: period.monthNumber,
+        scope,
+        registerRows: slipPeople,
+        people: selected.map((row) => ({
+          kind: row.kind,
+          id: row.id,
+          name: row.name,
+          companyId: row.companyId,
+          absentDays: row.absentDays,
+        })),
+      });
+      const skipped = skippedSalarySlipMessage(result.skipped);
+      toast(
+        skipped
+          ? `Downloaded ${result.generated} salary slip${result.generated === 1 ? "" : "s"}. ${skipped}`
+          : `Downloaded ${result.generated} salary slip${result.generated === 1 ? "" : "s"}`,
+        skipped ? "info" : "success",
+      );
+      setSlipOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to generate salary slips", "error");
+    } finally {
+      setSlipGenerating(false);
+    }
+  }
+
   function closeAbsentDates() {
     setAbsentDatesFor(null);
   }
@@ -247,6 +333,59 @@ export function PayrollRegister() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [absentDatesFor]);
+
+  useEffect(() => {
+    if (!slipOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !slipGenerating) setSlipOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [slipOpen, slipGenerating]);
+
+  useEffect(() => {
+    if (!slipOpen || !user?.id) return;
+    const period = parseMonth(slipMonth);
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      if (!period) {
+        setSlipPeople([]);
+        setSlipSelected([]);
+        setSlipPeopleError("Choose a valid salary month");
+        setSlipPeopleLoading(false);
+        return;
+      }
+      setSlipPeopleLoading(true);
+      setSlipPeopleError(null);
+      void getPayrollRegister(user.id, scope, period.year, period.monthNumber)
+        .then((data) => {
+          if (cancelled) return;
+          const next =
+            scope === "shmp"
+              ? onePayrollRowPerPerson(data.rows || []).filter((row) =>
+                  shmpRecordAllowed(user?.customAccess, "payroll", "users", row.id),
+                )
+              : onePayrollRowPerPerson(data.rows || []);
+          setSlipPeople(next);
+          setSlipSelected((current) =>
+            current.filter((key) => next.some((row) => payrollPersonKey(row) === key)),
+          );
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setSlipPeople([]);
+          setSlipSelected([]);
+          setSlipPeopleError(err instanceof Error ? err.message : "Failed to load people");
+        })
+        .finally(() => {
+          if (!cancelled) setSlipPeopleLoading(false);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [slipOpen, slipMonth, user?.id, scope, user?.customAccess]);
 
   function openEdit(row: PayrollRegisterRow) {
     const source = rows.find((item) => item.id === row.id && item.kind === row.kind) || row;
@@ -559,6 +698,12 @@ export function PayrollRegister() {
   const foodShareValue = foodDraft ? foodDraft.share : String(foodShare);
   const canEditFood = canEditPayroll && (payField("food-total") || payField("share-this-month"));
   const grand = payrollGrandTotal(permitted);
+  const slipTerm = slipFilter.trim().toLowerCase();
+  const slipVisible = slipTerm
+    ? slipPeople.filter((row) => row.name.toLowerCase().includes(slipTerm))
+    : slipPeople;
+  const allSlipVisibleSelected =
+    slipVisible.length > 0 && slipVisible.every((row) => slipSelected.includes(payrollPersonKey(row)));
 
   return (
     <div>
@@ -570,9 +715,18 @@ export function PayrollRegister() {
             : "Salary is the monthly amount for days marked present."
         }
         actions={
-          <SecondaryButton type="button" disabled={loading} onClick={() => setReloadKey((value) => value + 1)}>
-            Refresh
-          </SecondaryButton>
+          <>
+            <SecondaryButton
+              type="button"
+              disabled={loading || !parsedMonth || rows.length === 0}
+              onClick={openSlipDialog}
+            >
+              Generate salary slip
+            </SecondaryButton>
+            <SecondaryButton type="button" disabled={loading} onClick={() => setReloadKey((value) => value + 1)}>
+              Refresh
+            </SecondaryButton>
+          </>
         }
       />
       <div className="mb-4 grid gap-3 sm:grid-cols-[12rem_minmax(0,18rem)]">
@@ -784,6 +938,143 @@ export function PayrollRegister() {
         </div>
         </div>
       )}
+      {slipOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="generate-salary-slip-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeSlipDialog();
+          }}
+        >
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lg">
+            <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="generate-salary-slip-title" className="text-lg font-semibold text-ink">
+                  Generate salary slip
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Choose a month and one or more people. Multiple people become one PDF with a page each.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                disabled={slipGenerating}
+                onClick={closeSlipDialog}
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" strokeWidth={1.75} />
+              </button>
+            </div>
+            <div className="space-y-3 overflow-y-auto px-5 py-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TextField
+                  label="Salary month"
+                  type="month"
+                  required
+                  value={slipMonth}
+                  disabled={slipGenerating}
+                  onChange={(event) => setSlipMonth(event.target.value)}
+                />
+                <TextField
+                  label="Search people"
+                  placeholder="Name"
+                  value={slipFilter}
+                  disabled={slipGenerating}
+                  onChange={(event) => setSlipFilter(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-slate-500">
+                  {slipSelected.length} selected
+                  {slipPeople.length > 0 ? ` · ${slipPeople.length} on payroll` : ""}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <SecondaryButton
+                    type="button"
+                    disabled={slipGenerating || slipVisible.length === 0}
+                    onClick={() => {
+                      if (allSlipVisibleSelected) {
+                        const visibleKeys = new Set(slipVisible.map(payrollPersonKey));
+                        setSlipSelected((current) => current.filter((key) => !visibleKeys.has(key)));
+                        return;
+                      }
+                      setSlipSelected((current) => {
+                        const next = new Set(current);
+                        for (const row of slipVisible) next.add(payrollPersonKey(row));
+                        return [...next];
+                      });
+                    }}
+                  >
+                    {allSlipVisibleSelected ? "Clear visible" : "Select all"}
+                  </SecondaryButton>
+                  <SecondaryButton
+                    type="button"
+                    disabled={slipGenerating || slipSelected.length === 0}
+                    onClick={() => setSlipSelected([])}
+                  >
+                    Clear
+                  </SecondaryButton>
+                </div>
+              </div>
+              {slipPeopleLoading ? (
+                <LoadingState label="Loading people…" />
+              ) : slipPeopleError ? (
+                <ErrorState message={slipPeopleError} />
+              ) : slipVisible.length === 0 ? (
+                <EmptyState
+                  title={slipPeople.length === 0 ? "No one on this payroll" : "No matching people"}
+                />
+              ) : (
+                <ul className="divide-y divide-line rounded-xl border border-line">
+                  {slipVisible.map((row) => {
+                    const key = payrollPersonKey(row);
+                    const checked = slipSelected.includes(key);
+                    return (
+                      <li key={key}>
+                        <label className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-[#f7f5f0]">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-brand"
+                            checked={checked}
+                            disabled={slipGenerating}
+                            onChange={() => toggleSlipPerson(key)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium text-ink">{row.name}</span>
+                            <span className="block text-xs text-slate-500">
+                              Absent {formatDays(row.absentDays)} · Final {salesMoney(row.finalPay)}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-4">
+              <SecondaryButton type="button" disabled={slipGenerating} onClick={closeSlipDialog}>
+                Cancel
+              </SecondaryButton>
+              <PrimaryButton
+                type="button"
+                disabled={
+                  slipGenerating ||
+                  slipPeopleLoading ||
+                  Boolean(slipPeopleError) ||
+                  slipSelected.length === 0
+                }
+                onClick={() => void onGenerateSalarySlips()}
+              >
+                {slipGenerating ? "Generating…" : "Generate PDF"}
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {absentDatesFor ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
