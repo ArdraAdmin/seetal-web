@@ -165,7 +165,7 @@ function WorkerDetail() {
       await shmpUpdateEmployee(id, {
         name: name.trim(),
         designation,
-        biometricId: biometricId.trim() || undefined,
+        biometricId: biometricId.trim(),
         ...(shift ? { defaultShift: shift } : {}),
         ...(annualNum !== undefined ? { annualLeaveEntitlement: annualNum } : {}),
         ...(sickNum !== undefined ? { sickLeaveEntitlement: sickNum } : {}),
@@ -251,8 +251,10 @@ function WorkerDetail() {
           </label>
           <TextField
             label="Biometric ID"
+            optional
             value={biometricId}
             onChange={(e) => setBiometricId(e.target.value)}
+            placeholder="From device enrollment (e.g. 00000001)"
           />
           <label className="block space-y-1.5">
             <span className="text-[13px] font-medium text-slate-700">Shift</span>

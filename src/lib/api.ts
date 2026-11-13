@@ -209,10 +209,19 @@ export async function loadSundayDeliverySetting(force = false): Promise<boolean>
   if (!force && sundayDeliveryLoading) return sundayDeliveryLoading;
   sundayDeliveryLoading = (async () => {
     try {
-      const data = await siteRequest<{
+      const user = getStoredAuth();
+      if (!user?.id) {
+        setSundayDeliveryEnabled(false);
+        sundayDeliveryCanEdit = false;
+        sundayDeliveryLoaded = true;
+        return false;
+      }
+      const data = await request<{
         sundayDelivery?: boolean;
         canEdit?: boolean;
-      }>("/api/warehouse/sunday-delivery");
+      }>(
+        `/warehouse/sunday-delivery?userId=${encodeURIComponent(user.id)}`,
+      );
       const enabled = data.sundayDelivery === true;
       setSundayDeliveryEnabled(enabled);
       sundayDeliveryCanEdit = data.canEdit === true;
@@ -231,11 +240,18 @@ export async function loadSundayDeliverySetting(force = false): Promise<boolean>
 }
 
 export async function updateSundayDeliverySetting(enabled: boolean) {
-  const data = await siteRequest<{ sundayDelivery?: boolean }>(
-    "/api/warehouse/sunday-delivery",
+  const user = getStoredAuth();
+  if (!user?.id) {
+    throw new ApiError("Not signed in", 401);
+  }
+  const data = await request<{ sundayDelivery?: boolean }>(
+    "/warehouse/sunday-delivery",
     {
-      method: "PUT",
-      body: JSON.stringify({ sundayDelivery: enabled }),
+      method: "PATCH",
+      body: JSON.stringify({
+        userId: user.id,
+        sundayDelivery: enabled,
+      }),
     },
   );
   const next = data.sundayDelivery === true;

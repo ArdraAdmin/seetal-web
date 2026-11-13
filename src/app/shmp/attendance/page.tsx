@@ -1315,7 +1315,7 @@ function AttendancePage() {
                   {todayOnly ? "Today's attendance" : "Recent attendance"}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Workers via fingerprint, supervisors via portal check-in, and HR staff marked here.
+                  Biometric marks present when a Biometric ID is set. Manual mark and portal check-in stay available as backup.
                 </p>
               </div>
               <p className="text-sm font-semibold text-ink">

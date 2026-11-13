@@ -560,6 +560,8 @@ export type ShmpAccessUser = {
   role?: ShmpAccessRole | string;
   mobileNumber?: string;
   environments?: string[];
+  /** Machine-issued terminal user id (e.g. device enrollment id). */
+  biometricUserId?: string;
 };
 
 export const shmpAccessUsers = (role?: ShmpAccessRole) =>

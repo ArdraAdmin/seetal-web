@@ -83,6 +83,7 @@ function UserDetail() {
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
+  const [biometricUserId, setBiometricUserId] = useState("");
   const [password, setPassword] = useState("");
   const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
   const [savedPermit, setSavedPermit] = useState<SharjahPermitState>(emptySharjahPermit);
@@ -140,6 +141,7 @@ function UserDetail() {
       setAccessUser(found);
       setName(found.name || "");
       setMobile(found.mobileNumber || "");
+      setBiometricUserId(found.biometricUserId || "");
       setPassword("");
       if (user?.id && !supervisor) {
         const loaded = await loadSharjahPermit(user.id, found._id);
@@ -186,6 +188,7 @@ function UserDetail() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         mobileNumber: mobile.trim(),
+        biometricUserId: biometricUserId.trim(),
       };
       if (password.trim()) body.password = password.trim();
       try {
@@ -271,6 +274,13 @@ function UserDetail() {
             onChange={(e) => setMobile(e.target.value)}
           />
           <TextField
+            label="Biometric ID"
+            optional
+            value={biometricUserId}
+            onChange={(e) => setBiometricUserId(e.target.value)}
+            placeholder="From device enrollment (e.g. 00000001)"
+          />
+          <TextField
             label="New password"
             type="password"
             optional
@@ -299,6 +309,7 @@ function UserDetail() {
                 setEditing(false);
                 setName(accessUser.name || "");
                 setMobile(accessUser.mobileNumber || "");
+                setBiometricUserId(accessUser.biometricUserId || "");
                 setPassword("");
                 setPermit(savedPermit);
                 router.replace(`/shmp/hr/user/${id}`);
@@ -315,6 +326,7 @@ function UserDetail() {
             <DetailField label="Role" value={accessUser.role} />
             <DetailField label="Email" value={accessUser.email} />
             <DetailField label="Mobile" value={accessUser.mobileNumber} />
+            <DetailField label="Biometric ID" value={accessUser.biometricUserId} />
             <DetailField
               label="Environments"
               value={(accessUser.environments || []).join(", ") || "Shared"}

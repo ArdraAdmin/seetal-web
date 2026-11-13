@@ -79,6 +79,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   const [mobile, setMobile] = useState("");
   const [joiningDate, setJoiningDate] = useState("");
   const [linkedUserId, setLinkedUserId] = useState("");
+  const [biometricUserId, setBiometricUserId] = useState("");
   const [candidates, setCandidates] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [loading, setLoading] = useState(!creating);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +98,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
       setMobile(record.mobileNumber || "");
       setJoiningDate(toDateInput(record.joiningDate));
       setLinkedUserId(record.linkedUserId || "");
+      setBiometricUserId(record.biometricUserId || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load staff");
     } finally {
@@ -159,6 +161,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
           mobileNumber: mobile.trim(),
           joiningDate,
           linkedUserId: linkedUserId || undefined,
+          biometricUserId: biometricUserId.trim() || undefined,
           hrProfile,
         });
         toast("Staff record added", "success");
@@ -171,6 +174,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
         mobileNumber: mobile.trim(),
         joiningDate,
         linkedUserId: linkedUserId || null,
+        biometricUserId: biometricUserId.trim(),
         enforceDocuments: true,
       });
       toast("Staff record saved", "success");
@@ -249,6 +253,13 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
                 }))}
               />
               ) : null}
+              <TextField
+                label="Biometric ID"
+                optional
+                value={biometricUserId}
+                onChange={(event) => setBiometricUserId(event.target.value)}
+                placeholder="From device enrollment (e.g. 00000001)"
+              />
             </div>
             <HrProfileFields
               form={form}

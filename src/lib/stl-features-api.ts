@@ -773,6 +773,8 @@ export type HrStaff = {
   mobileNumber?: string;
   yearsOfService?: number | null;
   joiningDate?: string | null;
+  /** Machine-issued terminal user id (e.g. device enrollment id). */
+  biometricUserId?: string;
   hrProfile?: HrProfile;
 };
 
@@ -887,6 +889,7 @@ export async function createHrStaff(
     joiningDate: string;
     hrProfile: Record<string, unknown>;
     linkedUserId?: string;
+    biometricUserId?: string;
   },
 ) {
   return request<HrStaff>("/admin/hr/staff", {
@@ -917,6 +920,7 @@ export async function updateHrStaffRecord(
     mobileNumber?: string;
     joiningDate?: string;
     linkedUserId?: string | null;
+    biometricUserId?: string;
     enforceDocuments?: boolean;
   },
 ) {
