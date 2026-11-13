@@ -88,6 +88,16 @@ describe("salary slip generate helpers", () => {
     });
   });
 
+  it("prefers an explicit employee name over the API slip name", () => {
+    assert.equal(
+      toSalarySlipPdfInput(slip, {
+        employeeName: "Adil Abrar / Mohammad Arif",
+        designation: "Assistant Mec",
+      }).employeeName,
+      "Adil Abrar / Mohammad Arif",
+    );
+  });
+
   it("summarizes skipped people for toasts", () => {
     assert.equal(skippedSalarySlipMessage([]), "");
     assert.equal(

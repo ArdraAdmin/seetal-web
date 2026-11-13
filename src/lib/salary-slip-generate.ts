@@ -80,6 +80,7 @@ export async function generateSalarySlipsPdf(
       const designation = await resolveDesignation(input.userId, person);
       pages.push(
         toSalarySlipPdfInput(slip, {
+          employeeName: person.name || slip.name,
           designation,
           code: person.code || "",
           group: person.group || "General",

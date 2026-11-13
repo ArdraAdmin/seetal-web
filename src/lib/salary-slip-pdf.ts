@@ -19,11 +19,10 @@ export const SALARY_SLIP_COMPANY = {
 
 const PAGE_W = 595;
 const PAGE_H = 842;
-const MARGIN = 36;
-const OUTER_X = MARGIN;
-const OUTER_Y = 72;
-const OUTER_W = PAGE_W - MARGIN * 2;
-const OUTER_H = PAGE_H - MARGIN - OUTER_Y;
+const MARGIN_X = 28;
+const MARGIN_Y = 24;
+const SLIP_GAP = 10;
+const SLIP_W = PAGE_W - MARGIN_X * 2;
 
 type DrawOp =
   | { type: "text"; x: number; y: number; size: number; bold: boolean; text: string }
@@ -34,6 +33,79 @@ type Page = { ops: DrawOp[] };
 
 const NARROW = new Set("ijlI1|'.,:; ");
 const WIDE = new Set("MWmw@#%&");
+
+/** Latin lookalikes that often appear in imported English names. */
+const CONFUSABLES: Record<string, string> = {
+  А: "A",
+  В: "B",
+  Е: "E",
+  Ё: "E",
+  К: "K",
+  М: "M",
+  Н: "H",
+  О: "O",
+  Р: "P",
+  С: "C",
+  Т: "T",
+  Х: "X",
+  а: "a",
+  е: "e",
+  ё: "e",
+  о: "o",
+  р: "p",
+  с: "c",
+  у: "y",
+  х: "x",
+  і: "i",
+  І: "I",
+  Ѕ: "S",
+  ѕ: "s",
+  Α: "A",
+  Β: "B",
+  Ε: "E",
+  Ζ: "Z",
+  Η: "H",
+  Ι: "I",
+  Κ: "K",
+  Μ: "M",
+  Ν: "N",
+  Ο: "O",
+  Ρ: "P",
+  Τ: "T",
+  Υ: "Y",
+  Χ: "X",
+  α: "a",
+  ο: "o",
+  "\u2018": "'",
+  "\u2019": "'",
+  "\u201C": '"',
+  "\u201D": '"',
+  "\u2013": "-",
+  "\u2014": "-",
+  "\u00A0": " ",
+  "\u202F": " ",
+  "\u2007": " ",
+  "\u2009": " ",
+  "／": "/",
+  "∕": "/",
+};
+
+/**
+ * Helvetica Type1 only supports basic ASCII in this generator.
+ * Normalize English names so lookalike / accented characters do not become "?".
+ */
+export function toPdfAscii(text: string) {
+  const normalized = String(text || "").normalize("NFKD");
+  let out = "";
+  for (const char of normalized) {
+    const code = char.charCodeAt(0);
+    if (code >= 0x0300 && code <= 0x036f) continue;
+    const mapped = CONFUSABLES[char] ?? char;
+    const mappedCode = mapped.charCodeAt(0);
+    if (mappedCode >= 32 && mappedCode <= 126) out += mapped;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
 
 function unitWidth(char: string) {
   if (char === " ") return 0.28;
@@ -51,7 +123,7 @@ function pdfTextWidth(text: string, size: number) {
 }
 
 function fitPdfText(text: string, size: number, maxWidth: number) {
-  const value = text.replace(/\s+/g, " ").trim();
+  const value = toPdfAscii(text);
   if (!value) return "";
   if (pdfTextWidth(value, size) <= maxWidth) return value;
   let out = "";
@@ -64,12 +136,7 @@ function fitPdfText(text: string, size: number, maxWidth: number) {
 
 function pdfLiteral(text: string) {
   let out = "";
-  for (const char of text) {
-    const code = char.charCodeAt(0);
-    if (code < 32 || code > 126) {
-      out += "?";
-      continue;
-    }
+  for (const char of toPdfAscii(text)) {
     if (char === "\\" || char === "(" || char === ")") out += "\\";
     out += char;
   }
@@ -198,15 +265,16 @@ export function amountInDirhams(value: number) {
   return `${text} Only`;
 }
 
-function centeredText(page: Page, text: string, y: number, size: number, bold: boolean) {
-  const width = pdfTextWidth(text, size);
+function centeredInBox(page: Page, text: string, boxX: number, boxW: number, y: number, size: number, bold: boolean) {
+  const value = toPdfAscii(text);
+  const width = pdfTextWidth(value, size);
   page.ops.push({
     type: "text",
-    x: OUTER_X + (OUTER_W - width) / 2,
+    x: boxX + (boxW - width) / 2,
     y,
     size,
     bold,
-    text,
+    text: value,
   });
 }
 
@@ -261,145 +329,162 @@ function grossAmount(slip: SalarySlipPdfInput) {
   );
 }
 
-function drawSlip(page: Page, slip: SalarySlipPdfInput) {
-  const x = OUTER_X;
-  const yBottom = OUTER_Y;
-  const w = OUTER_W;
-  const h = OUTER_H;
+/** Compact slip height matching the Excel reference proportions. */
+export function measureSalarySlipHeight(slip: SalarySlipPdfInput) {
+  const header = 58;
+  const info = 38;
+  const colHeader = 13;
+  const body = Math.max(28, earningLines(slip).length * 11 + 6);
+  const totals = 14;
+  const footer = 46;
+  return header + info + colHeader + body + totals + footer;
+}
+
+function drawSlip(
+  page: Page,
+  slip: SalarySlipPdfInput,
+  box: { x: number; y: number; w: number; h: number },
+) {
+  const x = box.x;
+  const yBottom = box.y;
+  const w = box.w;
+  const h = box.h;
   const yTop = yBottom + h;
 
-  page.ops.push({ type: "rect", x, y: yBottom, w, h, width: 1.6 });
+  page.ops.push({ type: "rect", x, y: yBottom, w, h, width: 1.2 });
 
-  let cursor = yTop - 16;
-  centeredText(page, "PAY SLIP", cursor, 11, true);
-  cursor -= 18;
-  centeredText(page, SALARY_SLIP_COMPANY.name, cursor, 14, true);
+  let cursor = yTop - 12;
+  centeredInBox(page, "PAY SLIP", x, w, cursor, 9, true);
   cursor -= 13;
+  centeredInBox(page, SALARY_SLIP_COMPANY.name, x, w, cursor, 11, true);
+  cursor -= 11;
   for (const line of SALARY_SLIP_COMPANY.addressLines) {
-    centeredText(page, line, cursor, 9, false);
-    cursor -= 11;
+    centeredInBox(page, line, x, w, cursor, 7.5, false);
+    cursor -= 9;
   }
-  cursor -= 6;
-  hLine(page, x, x + w, cursor, 1);
+  cursor -= 3;
+  hLine(page, x, x + w, cursor, 0.9);
 
   const infoTop = cursor;
-  const infoHeight = 54;
+  const infoHeight = 38;
   const infoBottom = infoTop - infoHeight;
   const midX = x + w * 0.55;
-  vLine(page, midX, infoBottom, infoTop, 0.8);
-  hLine(page, x, x + w, infoBottom, 0.8);
+  vLine(page, midX, infoBottom, infoTop, 0.7);
+  hLine(page, x, x + w, infoBottom, 0.7);
 
-  const name = (slip.employeeName || "").trim().toUpperCase();
-  const code = (slip.code || "").trim();
-  const group = (slip.group || "General").trim();
-  const designation = (slip.designation || "").trim().toUpperCase();
-  const month = (slip.salaryMonth || "").trim().toUpperCase();
+  const name = toPdfAscii(slip.employeeName || "").toUpperCase();
+  const code = toPdfAscii(slip.code || "");
+  const group = toPdfAscii(slip.group || "General") || "General";
+  const designation = toPdfAscii(slip.designation || "").toUpperCase();
+  const month = toPdfAscii(slip.salaryMonth || "").toUpperCase();
 
-  const leftPad = x + 8;
-  const rightPad = midX + 8;
+  const leftPad = x + 6;
+  const rightPad = midX + 6;
   page.ops.push({
     type: "text",
     x: leftPad,
-    y: infoTop - 14,
-    size: 9,
+    y: infoTop - 11,
+    size: 8,
     bold: false,
-    text: fitPdfText(`Name : ${name}`, 9, midX - x - 16),
+    text: fitPdfText(`Name : ${name}`, 8, midX - x - 12),
   });
   page.ops.push({
     type: "text",
     x: leftPad,
-    y: infoTop - 28,
-    size: 9,
+    y: infoTop - 22,
+    size: 8,
     bold: false,
-    text: fitPdfText(`Code : ${code}`, 9, midX - x - 16),
+    text: fitPdfText(`Code : ${code}`, 8, midX - x - 12),
   });
   page.ops.push({
     type: "text",
     x: leftPad,
-    y: infoTop - 42,
-    size: 9,
+    y: infoTop - 33,
+    size: 8,
     bold: false,
-    text: fitPdfText(`Group : ${group}`, 9, midX - x - 16),
+    text: fitPdfText(`Group : ${group}`, 8, midX - x - 12),
   });
-  cellText(page, "Designation", rightPad, infoTop - 14, 80, 9);
-  cellText(page, "Month", rightPad + 130, infoTop - 14, 60, 9);
-  cellText(page, `: ${designation}`, rightPad, infoTop - 28, 120, 9);
-  cellText(page, `: ${month}`, rightPad + 130, infoTop - 28, w - (rightPad + 130 - x) - 16, 9);
+  cellText(page, "Designation", rightPad, infoTop - 11, 70, 8);
+  cellText(page, "Month", rightPad + 110, infoTop - 11, 50, 8);
+  cellText(page, `: ${designation}`, rightPad, infoTop - 22, 100, 8);
+  cellText(page, `: ${month}`, rightPad + 110, infoTop - 22, w - (rightPad + 110 - x) - 10, 8);
 
   const colXs = [x, x + w * 0.34, x + w * 0.52, x + w * 0.70, x + w];
   const headerTop = infoBottom;
-  const headerBottom = headerTop - 18;
-  hLine(page, x, x + w, headerBottom, 0.8);
-  for (let i = 1; i < colXs.length - 1; i += 1) vLine(page, colXs[i], headerBottom, headerTop, 0.8);
+  const headerBottom = headerTop - 13;
+  hLine(page, x, x + w, headerBottom, 0.7);
+  for (let i = 1; i < colXs.length - 1; i += 1) vLine(page, colXs[i], headerBottom, headerTop, 0.7);
   const headers = ["Earnings", "Deductions", "Contributions", "Adjustments"];
   headers.forEach((label, index) => {
     const left = colXs[index];
     const right = colXs[index + 1];
-    cellText(page, label, left + 4, headerTop - 13, right - left - 8, 9, true, "center");
+    cellText(page, label, left + 3, headerTop - 10, right - left - 6, 8, true, "center");
   });
 
+  const lines = earningLines(slip);
   const bodyTop = headerBottom;
-  const bodyBottom = yBottom + 110;
-  const totalsTop = bodyBottom + 22;
-  hLine(page, x, x + w, totalsTop, 0.8);
-  hLine(page, x, x + w, bodyBottom, 0.8);
+  const footerH = 46;
+  const totalsH = 14;
+  const bodyBottom = yBottom + footerH;
+  const totalsTop = bodyBottom + totalsH;
+  hLine(page, x, x + w, totalsTop, 0.7);
+  hLine(page, x, x + w, bodyBottom, 0.7);
   for (let i = 1; i < colXs.length - 1; i += 1) {
-    vLine(page, colXs[i], bodyBottom, headerTop, 0.8);
+    vLine(page, colXs[i], bodyBottom, headerTop, 0.7);
   }
 
-  const lines = earningLines(slip);
-  let rowY = bodyTop - 14;
-  const earnLeft = colXs[0] + 6;
-  const earnRight = colXs[1] - 6;
+  let rowY = bodyTop - 11;
+  const earnLeft = colXs[0] + 5;
+  const earnRight = colXs[1] - 5;
   const earnWidth = earnRight - earnLeft;
   const labelWidth = earnWidth * 0.55;
   const amountWidth = earnWidth * 0.45;
   for (const line of lines) {
-    cellText(page, line.label, earnLeft, rowY, labelWidth, 9);
-    cellText(page, money(line.amount, line.label === "OB" ? 2 : 2), earnLeft + labelWidth, rowY, amountWidth, 9, false, "right");
-    rowY -= 13;
+    cellText(page, line.label, earnLeft, rowY, labelWidth, 8);
+    cellText(page, money(line.amount, 2), earnLeft + labelWidth, rowY, amountWidth, 8, false, "right");
+    rowY -= 11;
   }
 
   const gross = grossAmount(slip);
-  cellText(page, "Gross", earnLeft, totalsTop - 14, labelWidth, 9, true);
-  cellText(page, money(gross, 2), earnLeft + labelWidth, totalsTop - 14, amountWidth, 9, true, "right");
+  cellText(page, "Gross", earnLeft, totalsTop - 10, labelWidth, 8, true);
+  cellText(page, money(gross, 2), earnLeft + labelWidth, totalsTop - 10, amountWidth, 8, true, "right");
 
   for (let index = 1; index <= 3; index += 1) {
-    const left = colXs[index] + 6;
-    const width = colXs[index + 1] - colXs[index] - 12;
-    cellText(page, "Total", left, totalsTop - 14, width * 0.45, 9, true);
-    cellText(page, money(0, 2), left + width * 0.45, totalsTop - 14, width * 0.55, 9, false, "right");
+    const left = colXs[index] + 4;
+    const width = colXs[index + 1] - colXs[index] - 8;
+    cellText(page, "Total", left, totalsTop - 10, width * 0.45, 8, true);
+    cellText(page, money(0, 2), left + width * 0.45, totalsTop - 10, width * 0.55, 8, false, "right");
   }
 
   const netTop = bodyBottom;
   const signBottom = yBottom;
   const signStart = x + w * 0.52;
-  vLine(page, signStart, signBottom, netTop, 0.8);
+  vLine(page, signStart, signBottom, netTop, 0.7);
 
   const payable = Number.isFinite(slip.totalSalary) ? slip.totalSalary : gross;
   page.ops.push({
     type: "text",
-    x: x + 10,
-    y: netTop - 18,
-    size: 10,
+    x: x + 8,
+    y: netTop - 14,
+    size: 9,
     bold: true,
-    text: fitPdfText(`Net Payable : ${netPayableText(payable)}`, 10, signStart - x - 20),
+    text: fitPdfText(`Net Payable : ${netPayableText(payable)}`, 9, signStart - x - 14),
   });
   page.ops.push({
     type: "text",
-    x: x + 10,
-    y: netTop - 34,
-    size: 9,
+    x: x + 8,
+    y: netTop - 27,
+    size: 8,
     bold: false,
-    text: fitPdfText(amountInDirhams(payable), 9, signStart - x - 20),
+    text: fitPdfText(amountInDirhams(payable), 8, signStart - x - 14),
   });
 
   const signLabels = ["Prepared By", "Verified By", "Authorised By"];
   const signW = (x + w - signStart) / 3;
   for (let i = 0; i < 3; i += 1) {
     const left = signStart + i * signW;
-    if (i > 0) vLine(page, left, signBottom, netTop, 0.8);
-    cellText(page, signLabels[i], left + 4, netTop - 14, signW - 8, 8, false, "center");
+    if (i > 0) vLine(page, left, signBottom, netTop, 0.7);
+    cellText(page, signLabels[i], left + 2, netTop - 12, signW - 4, 7, false, "center");
   }
 }
 
@@ -408,19 +493,34 @@ export function buildSalarySlipPdf(slips: SalarySlipPdfInput[]) {
     throw new Error("Select at least one person to generate a salary slip");
   }
 
-  const pages: Page[] = slips.map((slip) => {
-    const page: Page = { ops: [] };
-    drawSlip(page, slip);
-    return page;
-  });
+  const pages: Page[] = [];
+  let page: Page = { ops: [] };
+  let cursorTop = PAGE_H - MARGIN_Y;
+
+  const flushPage = () => {
+    pages.push(page);
+    page = { ops: [] };
+    cursorTop = PAGE_H - MARGIN_Y;
+  };
+
+  for (const slip of slips) {
+    const height = measureSalarySlipHeight(slip);
+    if (cursorTop - height < MARGIN_Y) {
+      flushPage();
+    }
+    const y = cursorTop - height;
+    drawSlip(page, slip, { x: MARGIN_X, y, w: SLIP_W, h: height });
+    cursorTop = y - SLIP_GAP;
+  }
+  pages.push(page);
 
   if (pages.length > 1) {
-    pages.forEach((page, index) => {
-      page.ops.push({
+    pages.forEach((item, index) => {
+      item.ops.push({
         type: "text",
-        x: MARGIN,
-        y: 28,
-        size: 8,
+        x: MARGIN_X,
+        y: 12,
+        size: 7,
         bold: false,
         text: `Page ${index + 1} of ${pages.length}`,
       });
@@ -434,11 +534,11 @@ export function buildSalarySlipPdf(slips: SalarySlipPdfInput[]) {
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
   ];
   const kids: string[] = [];
-  pages.forEach((page, index) => {
+  pages.forEach((item, index) => {
     const pageId = 5 + index * 2;
     const streamId = pageId + 1;
     kids.push(`${pageId} 0 R`);
-    const stream = contentStream(page);
+    const stream = contentStream(item);
     objects.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${streamId} 0 R /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`,
     );
@@ -466,8 +566,7 @@ export function downloadSalarySlipPdf(bytes: Uint8Array, filename: string) {
 export function salarySlipFilename(year: number, month: number, employeeName?: string) {
   const ym = `${year}-${String(month).padStart(2, "0")}`;
   if (!employeeName) return `salary-slips-${ym}.pdf`;
-  const safe = employeeName
-    .trim()
+  const safe = toPdfAscii(employeeName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

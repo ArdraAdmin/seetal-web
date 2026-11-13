@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import {
   amountInDirhams,
   buildSalarySlipPdf,
+  measureSalarySlipHeight,
   SALARY_SLIP_COMPANY,
   salarySlipFilename,
+  toPdfAscii,
   type SalarySlipPdfInput,
 } from "./salary-slip-pdf.ts";
 
@@ -70,18 +72,33 @@ describe("salary slip pdf", () => {
     assert.equal(text.includes("/Count 1"), true);
   });
 
-  it("puts each selected person on a separate page", () => {
+  it("packs multiple compact slips onto one page when they fit", () => {
     const text = assertValidPdf(
       buildSalarySlipPdf([
         sample,
         { ...sample, employeeName: "Ahmed Khan", totalSalary: 5000, basicSalary: 5000 },
+        { ...sample, employeeName: "Adil Abrar / Mohammad Arif", totalSalary: 2100, basicSalary: 800 },
       ]),
     );
     assert.match(text, /SUMESH JAGDISH MAKHIJA/);
     assert.match(text, /AHMED KHAN/);
-    assert.match(text, /Page 1 of 2/);
-    assert.match(text, /Page 2 of 2/);
-    assert.equal(text.includes("/Count 2"), true);
+    assert.match(text, /ADIL ABRAR \/ MOHAMMAD ARIF/);
+    assert.equal(text.includes("/Count 1"), true);
+    assert.doesNotMatch(text, /Page 1 of/);
+  });
+
+  it("starts a new page when slips no longer fit", () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      ...sample,
+      employeeName: `Employee ${index + 1}`,
+      totalSalary: 1000 + index,
+      basicSalary: 1000 + index,
+    }));
+    const text = assertValidPdf(buildSalarySlipPdf(many));
+    assert.match(text, /EMPLOYEE 1/);
+    assert.match(text, /EMPLOYEE 8/);
+    assert.match(text, /Page 1 of/);
+    assert.equal(text.includes("/Count 1"), false);
   });
 
   it("rejects an empty selection", () => {
@@ -100,5 +117,26 @@ describe("salary slip pdf", () => {
     assert.equal(amountInDirhams(6000), "Dirhams Six Thousand Only");
     assert.equal(amountInDirhams(0), "Dirhams Zero Only");
     assert.equal(amountInDirhams(1250.5), "Dirhams One Thousand Two Hundred Fifty and Fifty Fils Only");
+  });
+
+  it("keeps English names ASCII without question marks", () => {
+    // Cyrillic lookalikes for O H A M M (common import corruption)
+    const corrupted = `ADIL ABRAR M\u041E\u041D\u0410\u041C\u041CAD ARIF`;
+    assert.equal(toPdfAscii(corrupted), "ADIL ABRAR MOHAMMAD ARIF");
+    assert.equal(toPdfAscii("Muḥammad"), "Muhammad");
+    assert.equal(toPdfAscii("Adil Abrar / Mohammad Arif"), "Adil Abrar / Mohammad Arif");
+
+    const text = assertValidPdf(
+      buildSalarySlipPdf([{ ...sample, employeeName: corrupted }]),
+    );
+    assert.match(text, /ADIL ABRAR MOHAMMAD ARIF/);
+    assert.doesNotMatch(text, /M\?+AD/);
+  });
+
+  it("sizes each slip compactly so several fit on A4", () => {
+    const height = measureSalarySlipHeight(sample);
+    assert.ok(height < 280, `expected compact height, got ${height}`);
+    assert.ok(height > 160, `expected usable height, got ${height}`);
+    assert.ok(height * 3 + 20 < 842 - 48, "three compact slips should fit one page");
   });
 });

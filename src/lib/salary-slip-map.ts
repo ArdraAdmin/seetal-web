@@ -29,14 +29,16 @@ export function absentDaysForPerson(
 export function toSalarySlipPdfInput(
   slip: SalarySlip,
   extras?: {
+    employeeName?: string;
     designation?: string;
     code?: string;
     group?: string;
   },
 ): SalarySlipPdfInput {
+  const preferredName = String(extras?.employeeName || "").trim();
   return {
     salaryMonth: slip.period.label,
-    employeeName: slip.name,
+    employeeName: preferredName || slip.name,
     designation: extras?.designation || "",
     code: extras?.code || "",
     group: extras?.group || "General",
