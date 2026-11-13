@@ -41,9 +41,10 @@ import {
   checkFlagForStep,
   formatOrderDate,
   invoiceLabel,
-  isSundayDateInput,
   isSundayDeliveryEnabled,
   lineIsChecked,
+  normalizeDeliveryDateInput,
+  SUNDAY_DELIVERY_OFF_MESSAGE,
   lineReadyToConfirm,
   orderDateInputValue,
   parseCheckStep,
@@ -279,27 +280,41 @@ export function WarehouseCheckView() {
     }
   }
 
+  function onDeliveryDateChange(value: string) {
+    const next = normalizeDeliveryDateInput(value, sundayDelivery);
+    if (next.shiftedFromSunday) {
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+    }
+    setDeliveryDate(next.date);
+  }
+
   async function onSaveDate() {
     if (!user?.id || !order) return;
-    const next = deliveryDate.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+    const normalized = normalizeDeliveryDateInput(
+      deliveryDate.trim(),
+      sundayDelivery,
+    );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized.date)) {
       toast("Choose a delivery date", "info");
       return;
     }
-    if (!sundayDelivery && isSundayDateInput(next)) {
-      toast("Sunday delivery is off. Choose Monday or another day.", "info");
-      return;
+    if (normalized.shiftedFromSunday) {
+      setDeliveryDate(normalized.date);
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
     }
-    if (next === orderDateInputValue(order.date)) {
+    if (normalized.date === orderDateInputValue(order.date)) {
       toast("Delivery date is unchanged", "info");
       return;
     }
     setSavingDate(true);
     try {
-      await updateWarehouseDeliveryDate(order._id, user.id, next);
+      await updateWarehouseDeliveryDate(order._id, user.id, normalized.date);
       setOrder((prev) =>
-        prev ? { ...prev, date: `${next}T00:00:00.000Z` } : prev,
+        prev
+          ? { ...prev, date: `${normalized.date}T00:00:00.000Z` }
+          : prev,
       );
+      setDeliveryDate(normalized.date);
       toast("Delivery date updated", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not update date", "error");
@@ -548,7 +563,7 @@ export function WarehouseCheckView() {
                     <input
                       type="date"
                       value={deliveryDate}
-                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      onChange={(e) => onDeliveryDateChange(e.target.value)}
                       className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                     />
                   </label>

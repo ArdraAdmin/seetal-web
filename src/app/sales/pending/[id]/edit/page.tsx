@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getSalesOrder, resubmitApprovalOrder } from "@/lib/api";
+import {
+  getSalesOrder,
+  loadSundayDeliverySetting,
+  resubmitApprovalOrder,
+} from "@/lib/api";
 import type { ApprovalOrder } from "@/lib/types";
 import {
   addProductToApprovalOrder,
@@ -28,6 +32,10 @@ import {
   SecondaryButton,
   TextField,
 } from "@/components/ui";
+import {
+  normalizeDeliveryDateInput,
+  SUNDAY_DELIVERY_OFF_MESSAGE,
+} from "@/lib/warehouse";
 
 export default function SalesPendingOrderEditPage() {
   const params = useParams<{ id: string }>();
@@ -43,6 +51,7 @@ export default function SalesPendingOrderEditPage() {
   const [payableTouched, setPayableTouched] = useState(false);
   const [note, setNote] = useState("");
   const [deliveryDate, setDeliveryDate] = useState(todayDateInput);
+  const [sundayDelivery, setSundayDelivery] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -60,7 +69,12 @@ export default function SalesPendingOrderEditPage() {
       setNote(match.note && match.note !== "No note" ? match.note : "");
       const existingDate = dateInputValue(match.date || match.createdAt);
       const today = todayDateInput();
-      setDeliveryDate(existingDate && existingDate >= today ? existingDate : today);
+      const sundayEnabled = await loadSundayDeliverySetting();
+      setSundayDelivery(sundayEnabled);
+      const candidate =
+        existingDate && existingDate >= today ? existingDate : today;
+      const normalized = normalizeDeliveryDateInput(candidate, sundayEnabled);
+      setDeliveryDate(normalized.date);
       const computed = computedPayable(
         Number(match.totalCost) || 0,
         nextDiscount,
@@ -82,6 +96,14 @@ export default function SalesPendingOrderEditPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  function onDeliveryDateChange(value: string) {
+    const next = normalizeDeliveryDateInput(value, sundayDelivery);
+    if (next.shiftedFromSunday) {
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+    }
+    setDeliveryDate(next.date);
+  }
 
   const discountValue = Number(discount) || 0;
   const computed = useMemo(() => {
@@ -119,6 +141,11 @@ export default function SalesPendingOrderEditPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!order || !user?.id) return;
+    const normalized = normalizeDeliveryDateInput(deliveryDate, sundayDelivery);
+    if (normalized.shiftedFromSunday) {
+      setDeliveryDate(normalized.date);
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+    }
     setSaving(true);
     try {
       const result = await resubmitApprovalOrder(
@@ -129,7 +156,7 @@ export default function SalesPendingOrderEditPage() {
           payableEdited,
           needsApproval,
           note,
-          date: deliveryDate,
+          date: normalized.date,
         }),
       );
       toast(
@@ -203,7 +230,7 @@ export default function SalesPendingOrderEditPage() {
                 required
                 min={todayDateInput()}
                 value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
+                onChange={(e) => onDeliveryDateChange(e.target.value)}
               />
               <TextField
                 label="Discount (%)"

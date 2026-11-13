@@ -256,6 +256,43 @@ export function isSundayDateInput(value: string) {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
 }
 
+/** Next calendar day as YYYY-MM-DD (UTC date parts). */
+export function nextCalendarDateInput(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return value;
+  const next = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1),
+  );
+  const y = next.getUTCFullYear();
+  const m = String(next.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(next.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * When Sunday delivery is off, Sunday inputs become Monday.
+ * Callers should toast when shiftedFromSunday is true.
+ */
+export function normalizeDeliveryDateInput(
+  value: string,
+  sundayEnabled = sundayDeliveryEnabled,
+) {
+  const date = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { date, shiftedFromSunday: false };
+  }
+  if (!sundayEnabled && isSundayDateInput(date)) {
+    return {
+      date: nextCalendarDateInput(date),
+      shiftedFromSunday: true,
+    };
+  }
+  return { date, shiftedFromSunday: false };
+}
+
+export const SUNDAY_DELIVERY_OFF_MESSAGE =
+  "Orders cannot be placed for Sunday. Delivery date moved to Monday.";
+
 export function invoiceLabel(order: PendingOrder | WarehouseCheckOrder) {
   if (order.tempOrderInvoiceNo) return String(order.tempOrderInvoiceNo);
   if ("invoiceNumber" in order && order.invoiceNumber) {

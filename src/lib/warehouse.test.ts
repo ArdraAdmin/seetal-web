@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  normalizeDeliveryDateInput,
   ordersFromWarehousePayload,
   pendingSkipsSunday,
   warehousePendingRange,
@@ -67,5 +68,25 @@ describe("warehousePendingRange", () => {
     const pending = warehousePendingRange(friday, false);
     assert.equal(pending.start.getTime(), work.start.getTime());
     assert.equal(pending.end.getTime(), work.end.getTime());
+  });
+});
+
+describe("normalizeDeliveryDateInput", () => {
+  it("shifts Sunday to Monday when Sunday delivery is off", () => {
+    const result = normalizeDeliveryDateInput("2026-11-08", false);
+    assert.equal(result.shiftedFromSunday, true);
+    assert.equal(result.date, "2026-11-09");
+  });
+
+  it("keeps Sunday when Sunday delivery is on", () => {
+    const result = normalizeDeliveryDateInput("2026-11-08", true);
+    assert.equal(result.shiftedFromSunday, false);
+    assert.equal(result.date, "2026-11-08");
+  });
+
+  it("leaves Monday unchanged when Sunday delivery is off", () => {
+    const result = normalizeDeliveryDateInput("2026-11-09", false);
+    assert.equal(result.shiftedFromSunday, false);
+    assert.equal(result.date, "2026-11-09");
   });
 });

@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
-import { placeSalesOrder, placeSalesOrderPayload } from "@/lib/api";
+import {
+  loadSundayDeliverySetting,
+  placeSalesOrder,
+  placeSalesOrderPayload,
+} from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
 import { clearCart, loadCart, saveCart } from "@/lib/sales-cart";
 import {
@@ -26,6 +30,10 @@ import {
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
 import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
+import {
+  normalizeDeliveryDateInput,
+  SUNDAY_DELIVERY_OFF_MESSAGE,
+} from "@/lib/warehouse";
 
 export default function SalesCartPage() {
   const params = useParams<{ id: string }>();
@@ -46,6 +54,7 @@ export default function SalesCartPage() {
   const [payableEdited, setPayableEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
+  const [sundayDelivery, setSundayDelivery] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +75,32 @@ export default function SalesCartPage() {
       cancelled = true;
     };
   }, [storeId, storeName, marks, tempStore, router, toast]);
+
+  useEffect(() => {
+    let active = true;
+    void loadSundayDeliverySetting().then((enabled) => {
+      if (!active) return;
+      setSundayDelivery(enabled);
+      setDeliveryDate((prev) => {
+        const next = normalizeDeliveryDateInput(prev, enabled);
+        if (next.shiftedFromSunday) {
+          toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+        }
+        return next.date;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [toast]);
+
+  function onDeliveryDateChange(value: string) {
+    const next = normalizeDeliveryDateInput(value, sundayDelivery);
+    if (next.shiftedFromSunday) {
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+    }
+    setDeliveryDate(next.date);
+  }
 
   const { totalCost, totalQuantity } = useMemo(() => cartTotals(lines), [lines]);
   const unitPriceEdited = useMemo(() => cartUnitPriceEdited(lines), [lines]);
@@ -118,6 +153,11 @@ export default function SalesCartPage() {
       toast("Delivery date cannot be in the past", "info");
       return;
     }
+    const normalized = normalizeDeliveryDateInput(deliveryDate, sundayDelivery);
+    if (normalized.shiftedFromSunday) {
+      setDeliveryDate(normalized.date);
+      toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
+    }
     setSubmitting(true);
     try {
       const body = placeSalesOrderPayload({
@@ -127,7 +167,7 @@ export default function SalesCartPage() {
         discount,
         payableAmount: payable,
         payableEdited,
-        date: deliveryDate,
+        date: normalized.date,
         tempStore,
       });
       const result = await placeSalesOrder(body);
@@ -294,7 +334,7 @@ export default function SalesCartPage() {
               required
               min={todayDateInput()}
               value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
+              onChange={(e) => onDeliveryDateChange(e.target.value)}
             />
             <TextField
               label="Discount %"

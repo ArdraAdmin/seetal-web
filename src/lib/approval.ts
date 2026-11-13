@@ -310,5 +310,11 @@ export function apiMessage(result: unknown, fallback: string) {
   if (typeof result === "string" && result.trim()) {
     return result.replace(/"/g, "");
   }
+  if (result && typeof result === "object") {
+    const message = (result as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.replace(/"/g, "");
+    }
+  }
   return fallback;
 }
