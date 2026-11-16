@@ -1,6 +1,7 @@
 /** SHMP routes Supervisors may open (prefix match). All other /shmp paths are Admin-only. */
 export const SUPERVISOR_SHMP_PREFIXES = [
   "/shmp/attendance",
+  "/shmp/biometric",
   "/shmp/production",
   "/shmp/orders",
   "/shmp/delivery",

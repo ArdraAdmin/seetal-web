@@ -1175,3 +1175,51 @@ export async function savePortalLeaveEntitlements(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export type BiometricDeviceRow = {
+  devId: string;
+  name: string;
+  firmware: string;
+  lastSeenAt: string | null;
+  online: boolean;
+};
+
+export type BiometricUnmappedPunch = {
+  id: string;
+  devId: string;
+  deviceUserId: string;
+  verifyMode: number | null;
+  verifyModeLabel: string | null;
+  ioMode: number | null;
+  punchTime: string | null;
+  receivedAt: string | null;
+  status: string;
+};
+
+export type BiometricAssignKind = "employee" | "staff" | "user";
+
+export async function getBiometricDevices() {
+  return request<{ devices: BiometricDeviceRow[] }>("/api/biometric/devices");
+}
+
+export async function getBiometricUnmappedPunches() {
+  return request<{ punches: BiometricUnmappedPunch[] }>(
+    "/api/biometric/unmapped-punches",
+  );
+}
+
+export async function assignBiometricId(payload: {
+  kind: BiometricAssignKind;
+  id: string;
+  biometricUserId: string;
+}) {
+  return request<{
+    kind: BiometricAssignKind;
+    id: string;
+    name: string;
+    biometricUserId: string | null;
+  }>("/api/biometric/assign", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

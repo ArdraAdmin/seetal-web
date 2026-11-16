@@ -22,6 +22,7 @@ describe("supervisor SHMP routes", () => {
     assert.equal(canSupervisorAccessShmpPath("/shmp/hr/worker/w1"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/hr/user/s1"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/attendance"), true);
+    assert.equal(canSupervisorAccessShmpPath("/shmp/biometric"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/production"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/orders"), true);
     assert.equal(canSupervisorAccessShmpPath("/shmp/delivery"), true);

@@ -1315,7 +1315,11 @@ function AttendancePage() {
                   {todayOnly ? "Today's attendance" : "Recent attendance"}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Biometric marks present when a Biometric ID is set. Manual mark and portal check-in stay available as backup.
+                  Biometric marks present when a Biometric ID is set. Manual mark and portal check-in stay available as backup.{" "}
+                  <Link href="/shmp/biometric" className="underline">
+                    Manage devices
+                  </Link>
+                  .
                 </p>
               </div>
               <p className="text-sm font-semibold text-ink">
