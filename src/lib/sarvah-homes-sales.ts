@@ -24,14 +24,15 @@ export function shouldShowSarvahHomesUnderSarvah(
   return String(workspace || "").trim().toLowerCase() === "sarvah";
 }
 
+/**
+ * On every Sarvah-card store, also show manufacturing products assigned to
+ * the SHMP Sarvah Homes store.
+ */
 export function shouldMergeSarvahHomesInventory(
   workspace: string | null | undefined,
-  storeName: string,
+  _storeName?: string,
 ) {
-  return (
-    shouldShowSarvahHomesUnderSarvah(workspace) &&
-    isSarvahHomesStoreName(storeName)
-  );
+  return shouldShowSarvahHomesUnderSarvah(workspace);
 }
 
 export function pickSarvahHomesShmpStores(stores: StoreProfile[]) {

@@ -2525,6 +2525,21 @@ export async function fetchShmpStoreInventory(
   return Array.isArray(data) ? (data as Product[]) : [];
 }
 
+/**
+ * Manufacturing products assigned to SHMP Sarvah Homes — for Sarvah-card
+ * salesmen at any classic store. Does not require assignment to that store.
+ */
+export async function fetchSarvahHomesAssignedInventory(userId: string) {
+  const data = await request<{
+    store?: { _id?: string; storeName?: string };
+    products?: Product[];
+  }>("/sales/sarvahHomesInventory", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+  return Array.isArray(data?.products) ? data.products : [];
+}
+
 export function fetchSalesStoreAccess(storeId: string, userId: string) {
   return siteRequest<{ assigned: boolean; orderBlocked: boolean }>(
     `/api/sales/store-access?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
@@ -3514,11 +3529,11 @@ async function loadSarvahCatalogueProducts(tag: string, cat: string, subCat: str
 }
 
 /**
- * Sarvah card + SHMP Sarvah Homes store: selling catalogue plus manufacturing
- * products assigned to that store.
+ * Any store under the Sarvah card: selling catalogue plus manufacturing
+ * products assigned to the SHMP Sarvah Homes store.
  */
 export async function loadSarvahHomesMergedInventoryPage(
-  storeId: string,
+  _storeId: string,
   userId: string,
   uiPage: number,
   tag = "",
@@ -3527,9 +3542,7 @@ export async function loadSarvahHomesMergedInventoryPage(
 ) {
   const [sarvahProducts, assignedShmp] = await Promise.all([
     loadSarvahCatalogueProducts(tag, cat, subCat),
-    fetchShmpStoreInventory(storeId, userId, { productionOnly: true }).catch(
-      () => [] as Product[],
-    ),
+    fetchSarvahHomesAssignedInventory(userId).catch(() => [] as Product[]),
   ]);
   const filteredShmp = filterShmpSalesInventory(assignedShmp, tag, cat, subCat);
   const merged = mergeSarvahAndAssignedShmpProducts(sarvahProducts, filteredShmp);

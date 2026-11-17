@@ -15,16 +15,19 @@ describe("sarvah homes sales helpers", () => {
     assert.equal(isSarvahHomesStoreName("ALFARAH GENERAL TRADING LLC"), false);
   });
 
-  it("only merges under the Sarvah workspace for that store", () => {
+  it("merges under every Sarvah-card store, not only Sarvah Homes", () => {
     assert.equal(
       shouldMergeSarvahHomesInventory("sarvah", "SARVAH HOMES L L C"),
+      true,
+    );
+    assert.equal(
+      shouldMergeSarvahHomesInventory("sarvah", "002 - RAMEZ"),
       true,
     );
     assert.equal(
       shouldMergeSarvahHomesInventory("shmp", "SARVAH HOMES L L C"),
       false,
     );
-    assert.equal(shouldMergeSarvahHomesInventory("sarvah", "ALFARAH"), false);
   });
 
   it("appends the SHMP Sarvah Homes store once", () => {
