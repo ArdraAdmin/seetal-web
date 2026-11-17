@@ -7,7 +7,6 @@ import { getCompanies, type CompanyRecord } from "@/lib/api";
 import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import {
   baseItemCodeOf,
-  isFreshShmpInventory,
   shmpRemoveStoreProfile,
   shmpStoreCatalogue,
   shmpUpsertStoreProfile,
@@ -79,10 +78,10 @@ export default function ShmpStoreCataloguePage() {
     void load();
   }, [load]);
 
+  // Catalogue already scopes to SHMP production inventory (ownOnly/excludeStl).
   const visible = useMemo(() => {
-    const own = rows.filter((row) => isFreshShmpInventory(row));
-    if (!assignedOnly) return own;
-    return own.filter((r) => r.assigned);
+    if (!assignedOnly) return rows;
+    return rows.filter((r) => r.assigned);
   }, [rows, assignedOnly]);
 
   async function assign(row: RowState) {

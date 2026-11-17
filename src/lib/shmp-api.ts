@@ -727,6 +727,8 @@ export type ShmpStoreCatalogueRow = {
   itemName?: string;
   sellingPrice?: number;
   company?: string | { _id?: string; name?: string; prefix?: string };
+  source?: string;
+  ownInventory?: boolean;
   assigned: boolean;
   storePrice: number;
   isDisplayed: boolean;
