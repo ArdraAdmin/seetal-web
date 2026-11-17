@@ -52,6 +52,7 @@ import {
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
 import { loadSalesWorkspace } from "@/lib/sales-selected-company";
+import { shouldMergeSarvahHomesInventory } from "@/lib/sarvah-homes-sales";
 import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 
 function categoriesFromProducts(products: Product[]): CategoryGroup[] {
@@ -149,18 +150,25 @@ export default function SalesStoreProductsPage() {
       if (!user?.id || !storeId) return;
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
-      const local = localSalesInventoryPage(nextPage, tag, cat, sub, storeId);
-      if (local) {
-        if (gen !== loadGen.current) return;
-        setProducts(local.products);
-        setHasNext(local.hasNext);
-        setPage(nextPage);
-        setAppliedQuery(tag);
-        setError(null);
-        setLoading(false);
-        const shmpGroups = categoriesFromCatalog();
-        if (shmpGroups.length > 0) setCategories(shmpGroups);
-        return;
+      const mergeHomes = shouldMergeSarvahHomesInventory(
+        loadSalesWorkspace(),
+        storeName,
+      );
+      // Local Sarvah catalogue alone would skip manufacturing assignments.
+      if (!mergeHomes) {
+        const local = localSalesInventoryPage(nextPage, tag, cat, sub, storeId);
+        if (local) {
+          if (gen !== loadGen.current) return;
+          setProducts(local.products);
+          setHasNext(local.hasNext);
+          setPage(nextPage);
+          setAppliedQuery(tag);
+          setError(null);
+          setLoading(false);
+          const shmpGroups = categoriesFromCatalog();
+          if (shmpGroups.length > 0) setCategories(shmpGroups);
+          return;
+        }
       }
       setLoading(true);
       setError(null);
@@ -175,6 +183,7 @@ export default function SalesStoreProductsPage() {
           tempStore,
           cat,
           sub,
+          storeName,
         );
         if (gen !== loadGen.current) return;
         setProducts(data.products);
@@ -190,7 +199,7 @@ export default function SalesStoreProductsPage() {
         if (gen === loadGen.current) setLoading(false);
       }
     },
-    [storeId, user?.id, tempStore],
+    [storeId, user?.id, tempStore, storeName],
   );
 
   useEffect(() => {
@@ -376,7 +385,9 @@ export default function SalesStoreProductsPage() {
             ? `No items matched “${appliedQuery}”.`
             : loadSalesWorkspace() === "shmp"
               ? "No SHMP products are assigned to this store."
-              : "No products for this store."}
+              : shouldMergeSarvahHomesInventory(loadSalesWorkspace(), storeName)
+                ? "No Sarvah catalogue items or manufacturing products assigned to Sarvah Homes."
+                : "No products for this store."}
         </p>
       ) : (
         <>

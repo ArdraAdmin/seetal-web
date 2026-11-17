@@ -29,6 +29,11 @@ import {
   ensureLocationForOrders,
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
+import {
+  loadSelectedSalesCompany,
+  loadSalesWorkspace,
+} from "@/lib/sales-selected-company";
+import { shouldMergeSarvahHomesInventory } from "@/lib/sarvah-homes-sales";
 import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 import {
   normalizeDeliveryDateInput,
@@ -160,6 +165,13 @@ export default function SalesCartPage() {
     }
     setSubmitting(true);
     try {
+      const forceSarvahInvoice = shouldMergeSarvahHomesInventory(
+        loadSalesWorkspace(),
+        storeName,
+      );
+      const sarvahCompanyId = forceSarvahInvoice
+        ? loadSelectedSalesCompany()?.id
+        : undefined;
       const body = placeSalesOrderPayload({
         salesId: user.id,
         storeId,
@@ -169,6 +181,7 @@ export default function SalesCartPage() {
         payableEdited,
         date: normalized.date,
         tempStore,
+        companyId: sarvahCompanyId,
       });
       const result = await placeSalesOrder(body);
       clearCart(storeId);

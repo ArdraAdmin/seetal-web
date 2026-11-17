@@ -58,6 +58,7 @@ import {
 import {
   accessFromSelectedCompany,
   isSalesInventoryKey,
+  loadSalesWorkspace,
   loadSelectedSalesCompany,
   resolveSalesCompanyByKey,
   SALES_COMPANY_LABELS,
@@ -65,6 +66,11 @@ import {
   saveSelectedSalesCompany,
   type SalesCompanyKey,
 } from "./sales-selected-company";
+import {
+  mergeSarvahAndAssignedShmpProducts,
+  shouldMergeSarvahHomesInventory,
+} from "./sarvah-homes-sales";
+import { filterShmpSalesInventory } from "./shmp-sales-inventory";
 import { exportRangeBounds } from "./invoice";
 import { viewableVehicleFileType } from "./vehicle-records";
 
@@ -2492,10 +2498,31 @@ async function downloadShmpAssignedStores(userId: string) {
   }
 }
 
-export function fetchAssignedSalesStores(userId: string) {
+export function fetchAssignedSalesStores(
+  userId: string,
+  options?: { includeSarvahHomes?: boolean },
+) {
+  const params = new URLSearchParams({ userId });
+  if (options?.includeSarvahHomes) params.set("includeSarvahHomes", "1");
   return siteRequest<StoreProfile[]>(
-    `/api/sales/assigned-stores?userId=${encodeURIComponent(userId)}`,
+    `/api/sales/assigned-stores?${params.toString()}`,
   );
+}
+
+/** Manufacturing products assigned to one SHMP store (store visibility). */
+export async function fetchShmpStoreInventory(
+  storeId: string,
+  userId: string,
+  options?: { companyId?: string; productionOnly?: boolean },
+) {
+  const body: Record<string, string> = { storeId, userId };
+  if (options?.companyId?.trim()) body.companyId = options.companyId.trim();
+  if (options?.productionOnly) body.productionOnly = "1";
+  const data = await request<unknown>("/sales/shmpInventory", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return Array.isArray(data) ? (data as Product[]) : [];
 }
 
 export function fetchSalesStoreAccess(storeId: string, userId: string) {
@@ -3461,6 +3488,54 @@ export function localSalesInventoryPage(
   return sliceSalesInventoryPage(matched, uiPage);
 }
 
+async function loadSarvahCatalogueProducts(tag: string, cat: string, subCat: string) {
+  const selected = loadSelectedSalesCompany();
+  const catalog = catalogForAccess(loadSalesCompanyAccess());
+  if (
+    catalog &&
+    catalog.length > 0 &&
+    (!(cat || subCat) || catalogSupportsCategoryFilter(catalog))
+  ) {
+    const needle = tag.trim().toLowerCase();
+    if (!needle && !cat && !subCat) return catalog;
+    const matched: Product[] = [];
+    for (const row of salesCatalogRows(catalog)) {
+      if (needle && !row.hay.includes(needle)) continue;
+      if (cat && !row.categories.includes(cat)) continue;
+      if (subCat && row.subId !== subCat && row.subName !== subCat) continue;
+      matched.push(row.product);
+    }
+    return matched;
+  }
+  if (!selected?.id) return [] as Product[];
+  const stubs = await ensureCompanyStubs(selected.id);
+  const enriched = await enrichSalesProducts(stubs);
+  return filterShmpSalesInventory(enriched, tag, cat, subCat);
+}
+
+/**
+ * Sarvah card + SHMP Sarvah Homes store: selling catalogue plus manufacturing
+ * products assigned to that store.
+ */
+export async function loadSarvahHomesMergedInventoryPage(
+  storeId: string,
+  userId: string,
+  uiPage: number,
+  tag = "",
+  cat = "",
+  subCat = "",
+) {
+  const [sarvahProducts, assignedShmp] = await Promise.all([
+    loadSarvahCatalogueProducts(tag, cat, subCat),
+    fetchShmpStoreInventory(storeId, userId, { productionOnly: true }).catch(
+      () => [] as Product[],
+    ),
+  ]);
+  const filteredShmp = filterShmpSalesInventory(assignedShmp, tag, cat, subCat);
+  const merged = mergeSarvahAndAssignedShmpProducts(sarvahProducts, filteredShmp);
+  return sliceSalesInventoryPage(merged, uiPage);
+}
+
 export async function loadSalesInventoryUiPage(
   storeId: string,
   userId: string,
@@ -3470,7 +3545,19 @@ export async function loadSalesInventoryUiPage(
   tempStore = false,
   cat = "",
   subCat = "",
+  storeName = "",
 ) {
+  if (shouldMergeSarvahHomesInventory(loadSalesWorkspace(), storeName)) {
+    return loadSarvahHomesMergedInventoryPage(
+      storeId,
+      userId,
+      uiPage,
+      tag,
+      cat,
+      subCat,
+    );
+  }
+
   const local = localSalesInventoryPage(uiPage, tag, cat, subCat, storeId);
   if (local) return local;
 
@@ -3659,6 +3746,7 @@ export function placeSalesOrderPayload({
   payableEdited,
   date,
   tempStore = false,
+  companyId,
 }: {
   salesId: string;
   storeId: string;
@@ -3668,6 +3756,8 @@ export function placeSalesOrderPayload({
   payableEdited: boolean;
   date: string;
   tempStore?: boolean;
+  /** Force invoice company (e.g. Sarvah when ordering SHMP-assigned lines). */
+  companyId?: string;
 }) {
   const { totalCost, totalQuantity } = cartTotals(lines);
   const unitPriceEdited = cartUnitPriceEdited(lines);
@@ -3684,6 +3774,7 @@ export function placeSalesOrderPayload({
     invoiceType: "ld",
     salesId,
     storeId,
+    ...(companyId?.trim() ? { companyId: companyId.trim() } : {}),
     productDetails: lines.map((line) => {
       const storeCost = Number(line.storeCost) || 0;
       const catalogStoreCost =

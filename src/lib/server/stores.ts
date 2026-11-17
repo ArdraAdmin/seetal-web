@@ -1,5 +1,9 @@
 import { ObjectId, type Document, type UpdateFilter } from "mongodb";
 import { describeApiError } from "@/lib/api-error-message";
+import {
+  isSarvahHomesStoreName,
+  withSarvahHomesShmpStores,
+} from "@/lib/sarvah-homes-sales";
 import { salesPersonIdsFromStore } from "@/lib/store-access";
 import { parseTradeLicenseExpiryDate } from "@/lib/store-documents";
 import { isStoreObjectKey, storeEidNumberError } from "@/lib/store-eid";
@@ -760,6 +764,7 @@ function toSalesStore(doc: Record<string, unknown>, isTemp: boolean) {
 export async function listAssignedStoresForSalesUser(
   token: string | null,
   userId: string,
+  options?: { includeSarvahHomes?: boolean },
 ) {
   const id = text(userId);
   if (!id) throw new Error("Sales person is required");
@@ -783,10 +788,21 @@ export async function listAssignedStoresForSalesUser(
       .sort({ storeName: 1 })
       .toArray(),
   ]);
-  return [
+  const classic = [
     ...permanent.map((doc) => toSalesStore(doc, false)),
     ...temporary.map((doc) => toSalesStore(doc, true)),
   ];
+  if (!options?.includeSarvahHomes) return classic;
+
+  const shmpAssigned = await database
+    .collection("stores")
+    .find({ environment: "shmp", ...assigned }, { projection })
+    .sort({ storeName: 1 })
+    .toArray();
+  const sarvahHomes = shmpAssigned
+    .filter((doc) => isSarvahHomesStoreName(text(doc.storeName)))
+    .map((doc) => toSalesStore(doc, false));
+  return withSarvahHomesShmpStores(classic, sarvahHomes);
 }
 
 export async function salesStoreAccess(

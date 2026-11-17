@@ -120,7 +120,9 @@ export default function SalesHomePage() {
             if (assignedCache.current?.key !== cacheKey) {
               assignedCache.current = {
                 key: cacheKey,
-                stores: await fetchAssignedSalesStores(user.id),
+                stores: await fetchAssignedSalesStores(user.id, {
+                  includeSarvahHomes: companyKey === "sarvah",
+                }),
               };
             }
             const assignedStores = assignedCache.current.stores;
@@ -223,7 +225,9 @@ export default function SalesHomePage() {
       let stores: StoreProfile[] | null = null;
       if (companyKey !== "shmp") {
         try {
-          stores = await fetchAssignedSalesStores(user.id);
+          stores = await fetchAssignedSalesStores(user.id, {
+            includeSarvahHomes: companyKey === "sarvah",
+          });
           assignedCache.current = {
             key: `${user.id}:${companyKey}`,
             stores,
