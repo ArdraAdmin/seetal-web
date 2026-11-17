@@ -17,6 +17,10 @@ import {
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
 import { salesPersonIdsFromStore } from "@/lib/store-access";
+import {
+  filterVisibleStoreSalesPeople,
+  filterVisibleStoreSalesPersonIds,
+} from "@/lib/store-sales-people";
 import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
@@ -131,7 +135,9 @@ function formFrom(store: StoreProfile): StoreForm {
     city: text(store.city),
     country: text(store.country),
     uid: text(store.uid),
-    salesPersonIds: salesPersonIdsFromStore(store),
+    salesPersonIds: filterVisibleStoreSalesPersonIds(
+      salesPersonIdsFromStore(store),
+    ),
     tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
     trnNo: text(store.trnNo),
     trnDocument: null,
@@ -249,10 +255,14 @@ function SalesPersonChecklist({
   salesPeople: ProfileUser[];
   onChange: (ids: string[]) => void;
 }) {
-  const selected = new Set(ids);
+  const visiblePeople = filterVisibleStoreSalesPeople(salesPeople);
+  const visibleIds = filterVisibleStoreSalesPersonIds(ids);
+  const selected = new Set(visibleIds);
   function toggle(id: string) {
     onChange(
-      selected.has(id) ? ids.filter((value) => value !== id) : [...ids, id],
+      selected.has(id)
+        ? visibleIds.filter((value) => value !== id)
+        : [...visibleIds, id],
     );
   }
 
@@ -263,10 +273,10 @@ function SalesPersonChecklist({
         Check every sales person who should see this store.
       </p>
       <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
-        {salesPeople.length === 0 ? (
+        {visiblePeople.length === 0 ? (
           <p className="px-1 py-2 text-sm text-slate-500">No sales people found.</p>
         ) : (
-          salesPeople.map((person) => (
+          visiblePeople.map((person) => (
             <label
               key={person._id}
               className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink hover:bg-slate-50"
@@ -450,7 +460,7 @@ export default function StoresPage() {
       ]);
       setStores(Array.isArray(data.stores) ? data.stores : []);
       setExpiredStores(Array.isArray(expired) ? expired : null);
-      setSalesPeople(people);
+      setSalesPeople(filterVisibleStoreSalesPeople(people));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load stores");
     } finally {
@@ -542,7 +552,10 @@ export default function StoresPage() {
       toast(trnError, "info");
       return;
     }
-    if (addForm.salesPersonIds.length === 0) {
+    const salesPersonIds = filterVisibleStoreSalesPersonIds(
+      addForm.salesPersonIds,
+    );
+    if (salesPersonIds.length === 0) {
       toast("Choose a sales person", "info");
       return;
     }
@@ -566,8 +579,8 @@ export default function StoresPage() {
         addressLine3: addForm.addressLine3.trim(),
         city: addForm.city.trim(),
         country: addForm.country.trim(),
-        salesPerson: addForm.salesPersonIds[0],
-        salesPersons: addForm.salesPersonIds,
+        salesPerson: salesPersonIds[0],
+        salesPersons: salesPersonIds,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry),
         trnNo: addForm.trnNo.trim() || undefined,
@@ -579,7 +592,7 @@ export default function StoresPage() {
         addForm.uid.trim(),
         addForm.storeName.trim(),
       );
-      if (createdId) await syncStoreSalesPeople(createdId, addForm.salesPersonIds, false);
+      if (createdId) await syncStoreSalesPeople(createdId, salesPersonIds, false);
       if (addForm.eidNumber.trim() || addForm.eidDocument instanceof File) {
         if (!createdId) {
           throw new Error(
@@ -907,7 +920,8 @@ function StoreCard({
       toast("Enter a store code", "info");
       return;
     }
-    if (form.salesPersonIds.length === 0) {
+    const salesPersonIds = filterVisibleStoreSalesPersonIds(form.salesPersonIds);
+    if (salesPersonIds.length === 0) {
       toast("Choose a sales person", "info");
       return;
     }
@@ -954,8 +968,8 @@ function StoreCard({
         country: form.country.trim(),
         uid: form.uid.trim(),
         trnNo: form.trnNo.trim() || undefined,
-        salesPerson: form.salesPersonIds[0],
-        salesPersons: form.salesPersonIds,
+        salesPerson: salesPersonIds[0],
+        salesPersons: salesPersonIds,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
         isTemp,
@@ -963,7 +977,7 @@ function StoreCard({
         trnDocument: form.trnDocument,
         tradeLicenseDocument: form.tradeLicenseDocument,
       });
-      await syncStoreSalesPeople(store._id, form.salesPersonIds, isTemp);
+      await syncStoreSalesPeople(store._id, salesPersonIds, isTemp);
       if (eidChanged) {
         try {
           await saveAdminStoreEid({
@@ -1010,12 +1024,13 @@ function StoreCard({
     }
   }
 
-  const knownSalesIds = new Set(salesPeople.map((person) => person._id));
+  const visibleSalesPeople = filterVisibleStoreSalesPeople(salesPeople);
+  const knownSalesIds = new Set(visibleSalesPeople.map((person) => person._id));
   const salesOptions = [
-    ...assignedIds
+    ...filterVisibleStoreSalesPersonIds(assignedIds)
       .filter((id) => !knownSalesIds.has(id))
       .map((id) => ({ _id: id, name: salesPersonName(store, id, salesPeople) })),
-    ...salesPeople,
+    ...visibleSalesPeople,
   ];
 
   async function onBlock(next: boolean) {
