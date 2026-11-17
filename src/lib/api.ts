@@ -2526,14 +2526,26 @@ export async function fetchShmpStoreInventory(
 }
 
 /**
- * Manufacturing products assigned to SHMP Sarvah Homes — for Sarvah-card
- * salesmen at any classic store. Does not require assignment to that store.
+ * SHMP manufacturing catalogue for Sarvah-card salesmen (any classic store).
+ * Prefers remote API, then the Next.js Mongo fallback.
  */
 export async function fetchSarvahHomesAssignedInventory(userId: string) {
-  const data = await request<{
+  try {
+    const data = await request<{
+      store?: { _id?: string; storeName?: string };
+      products?: Product[];
+    }>("/sales/sarvahHomesInventory", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    });
+    if (Array.isArray(data?.products)) return data.products;
+  } catch {
+    /* Fall through to the app Mongo copy. */
+  }
+  const data = await siteRequest<{
     store?: { _id?: string; storeName?: string };
     products?: Product[];
-  }>("/sales/sarvahHomesInventory", {
+  }>("/api/sales/sarvah-homes-inventory", {
     method: "POST",
     body: JSON.stringify({ userId }),
   });
@@ -3529,8 +3541,8 @@ async function loadSarvahCatalogueProducts(tag: string, cat: string, subCat: str
 }
 
 /**
- * Any store under the Sarvah card: selling catalogue plus manufacturing
- * products assigned to the SHMP Sarvah Homes store.
+ * Any store under the Sarvah card: Sarvah selling catalogue plus the full
+ * SHMP manufacturing catalogue (Sarvah Homes store price when assigned).
  */
 export async function loadSarvahHomesMergedInventoryPage(
   _storeId: string,
@@ -3540,11 +3552,11 @@ export async function loadSarvahHomesMergedInventoryPage(
   cat = "",
   subCat = "",
 ) {
-  const [sarvahProducts, assignedShmp] = await Promise.all([
+  const [sarvahProducts, manufacturing] = await Promise.all([
     loadSarvahCatalogueProducts(tag, cat, subCat),
-    fetchSarvahHomesAssignedInventory(userId).catch(() => [] as Product[]),
+    fetchSarvahHomesAssignedInventory(userId),
   ]);
-  const filteredShmp = filterShmpSalesInventory(assignedShmp, tag, cat, subCat);
+  const filteredShmp = filterShmpSalesInventory(manufacturing, tag, cat, subCat);
   const merged = mergeSarvahAndAssignedShmpProducts(sarvahProducts, filteredShmp);
   return sliceSalesInventoryPage(merged, uiPage);
 }
