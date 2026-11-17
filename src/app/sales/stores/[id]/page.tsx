@@ -386,7 +386,7 @@ export default function SalesStoreProductsPage() {
             : loadSalesWorkspace() === "shmp"
               ? "No SHMP products are assigned to this store."
               : shouldMergeSarvahHomesInventory(loadSalesWorkspace())
-                ? "No Sarvah or SHMP manufacturing products matched."
+                ? "No Sarvah catalogue items or manufacturing products assigned to Sarvah Homes."
                 : "No products for this store."}
         </p>
       ) : (

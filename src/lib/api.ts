@@ -542,6 +542,42 @@ export const getVehicleDetails = (
   request<{ extras: VehicleExtras; maintenance: VehicleMaintenance[] }>(
     `/admin/vehicle/details?vehicleId=${encodeURIComponent(vehicleId)}&scope=${scope}`,
   );
+
+function vehicleExtrasForWrite(vehicle: Vehicle, extras?: VehicleExtras) {
+  const source = extras ?? vehicle;
+  return {
+    purchaseYear:
+      source.purchaseYear == null ? "" : String(source.purchaseYear),
+    price: source.price == null ? "" : String(source.price),
+    purchaseFrom: source.purchaseFrom ?? "",
+    mulkyaExpiry: source.mulkyaExpiry
+      ? String(source.mulkyaExpiry).slice(0, 10)
+      : "",
+    insurancePremium:
+      source.insurancePremium == null ? "" : String(source.insurancePremium),
+  };
+}
+
+/** Link or clear a vehicle's driver while preserving the vehicle's other fields. */
+export async function assignVehicleDriver(
+  vehicle: Vehicle,
+  driverId: string,
+  scope: FleetScope = "stl",
+) {
+  let extras: VehicleExtras | undefined;
+  try {
+    const details = await getVehicleDetails(vehicle._id, scope);
+    extras = details.extras;
+  } catch {
+    extras = undefined;
+  }
+  return editVehicle(vehicle._id, {
+    vehicleNumber: vehicle.value == null ? "" : String(vehicle.value),
+    driverId,
+    scope,
+    ...vehicleExtrasForWrite(vehicle, extras),
+  });
+}
 export const getVehicleExtrasMap = (ids: string[], scope: FleetScope = "stl") => {
   if (ids.length === 0) {
     return Promise.resolve({ extras: {} as Record<string, VehicleExtras> });
@@ -2526,8 +2562,8 @@ export async function fetchShmpStoreInventory(
 }
 
 /**
- * SHMP manufacturing catalogue for Sarvah-card salesmen (any classic store).
- * Prefers remote API, then the Next.js Mongo fallback.
+ * Manufacturing products assigned to SHMP Sarvah Homes — for Sarvah-card
+ * salesmen at any classic store. Remote API first, then Mongo fallback.
  */
 export async function fetchSarvahHomesAssignedInventory(userId: string) {
   try {
@@ -3541,8 +3577,8 @@ async function loadSarvahCatalogueProducts(tag: string, cat: string, subCat: str
 }
 
 /**
- * Any store under the Sarvah card: Sarvah selling catalogue plus the full
- * SHMP manufacturing catalogue (Sarvah Homes store price when assigned).
+ * Any store under the Sarvah card: Sarvah selling catalogue plus manufacturing
+ * products assigned to the SHMP Sarvah Homes store only.
  */
 export async function loadSarvahHomesMergedInventoryPage(
   _storeId: string,
@@ -3552,11 +3588,11 @@ export async function loadSarvahHomesMergedInventoryPage(
   cat = "",
   subCat = "",
 ) {
-  const [sarvahProducts, manufacturing] = await Promise.all([
+  const [sarvahProducts, assignedShmp] = await Promise.all([
     loadSarvahCatalogueProducts(tag, cat, subCat),
     fetchSarvahHomesAssignedInventory(userId),
   ]);
-  const filteredShmp = filterShmpSalesInventory(manufacturing, tag, cat, subCat);
+  const filteredShmp = filterShmpSalesInventory(assignedShmp, tag, cat, subCat);
   const merged = mergeSarvahAndAssignedShmpProducts(sarvahProducts, filteredShmp);
   return sliceSalesInventoryPage(merged, uiPage);
 }

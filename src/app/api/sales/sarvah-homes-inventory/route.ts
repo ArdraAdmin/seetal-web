@@ -25,27 +25,22 @@ function matchingProfile(
   storeId: string,
 ) {
   if (!Array.isArray(list) || !storeId) return null;
-  return (
-    list.find((row) => idString(row?.store) === storeId) || null
-  );
+  return list.find((row) => idString(row?.store) === storeId) || null;
 }
 
-function toProduct(doc: Record<string, unknown>, homesId: string) {
+function toAssignedProduct(doc: Record<string, unknown>, homesId: string) {
   const id = idString(doc._id);
   if (!id) return null;
   const profile = matchingProfile(
     doc.storeProfileList as Array<Record<string, unknown>> | undefined,
     homesId,
   );
+  if (!profile || profile.isDisplayed === false) return null;
+
   const sellingPrice = asNumber(doc.sellingPrice);
-  const useStore =
-    profile && profile.isDisplayed !== false
-      ? asNumber(profile.storePrice, sellingPrice) || sellingPrice
-      : sellingPrice;
+  const price = asNumber(profile.storePrice, sellingPrice) || sellingPrice;
   const category =
-    doc.category && typeof doc.category === "object"
-      ? doc.category
-      : undefined;
+    doc.category && typeof doc.category === "object" ? doc.category : undefined;
   const categoryId =
     idString(doc.categoryId) ||
     (category ? idString((category as { _id?: unknown })._id) : "");
@@ -53,6 +48,7 @@ function toProduct(doc: Record<string, unknown>, homesId: string) {
     doc.inQty && typeof doc.inQty === "object"
       ? (doc.inQty as Record<string, unknown>)
       : {};
+
   return {
     _id: id,
     itemRef: doc.itemRef ? String(doc.itemRef) : undefined,
@@ -61,8 +57,8 @@ function toProduct(doc: Record<string, unknown>, homesId: string) {
     barcode: doc.barcode ? String(doc.barcode) : undefined,
     unit: doc.unit ? String(doc.unit) : undefined,
     ratio: asNumber(doc.ratio, 1),
-    sellingPrice: useStore,
-    currentStorePrice: useStore,
+    sellingPrice: price,
+    currentStorePrice: price,
     isDisplay: doc.isDisplay !== false,
     inQty: {
       amountInCartons: asNumber(inQty.amountInCartons ?? doc.amountInCartons),
@@ -78,12 +74,11 @@ function toProduct(doc: Record<string, unknown>, homesId: string) {
       : undefined,
     imagePath: doc.imagePath,
     company: idString(doc.company) || undefined,
-    storeItemCode:
-      profile && profile.storeItemCode
-        ? String(profile.storeItemCode)
-        : doc.storeItemCode
-          ? String(doc.storeItemCode)
-          : undefined,
+    storeItemCode: profile.storeItemCode
+      ? String(profile.storeItemCode)
+      : doc.storeItemCode
+        ? String(doc.storeItemCode)
+        : undefined,
     source: doc.source ? String(doc.source) : undefined,
     ownInventory: doc.ownInventory === true,
   };
@@ -136,23 +131,42 @@ export async function POST(req: Request) {
         environment: "shmp",
         storeName: { $regex: "sarvah\\s*homes", $options: "i" },
       },
-      { projection: { _id: 1, storeName: 1 } },
+      { projection: { _id: 1, storeName: 1, orderBlocked: 1 } },
     );
-    const homesId = homes ? String(homes._id) : "";
+    if (!homes) {
+      return new Response("Sarvah Homes store not found", { status: 404 });
+    }
+    if (homes.orderBlocked === true) {
+      return new Response("This store cannot accept new orders.", {
+        status: 400,
+      });
+    }
+    const homesId = String(homes._id);
+    const homesOid = homes._id instanceof ObjectId ? homes._id : new ObjectId(homesId);
     const docs = await database
       .collection("products")
       .find({
-        $or: [{ source: "shmp-production" }, { ownInventory: true }],
+        $and: [
+          {
+            storeProfileList: {
+              $elemMatch: {
+                store: { $in: [homesOid, homesId] },
+                isDisplayed: { $ne: false },
+              },
+            },
+          },
+          {
+            $or: [{ source: "shmp-production" }, { ownInventory: true }],
+          },
+        ],
       })
       .sort({ itemName: 1 })
       .toArray();
     const products = docs
-      .map((doc) => toProduct(doc as Record<string, unknown>, homesId))
+      .map((doc) => toAssignedProduct(doc as Record<string, unknown>, homesId))
       .filter(Boolean);
     return Response.json({
-      store: homes
-        ? { _id: String(homes._id), storeName: homes.storeName }
-        : null,
+      store: { _id: homesId, storeName: homes.storeName },
       products,
     });
   } catch (error) {
@@ -160,13 +174,7 @@ export async function POST(req: Request) {
       return new Response("Database is not configured", { status: 503 });
     }
     const message = error instanceof Error ? error.message : String(error);
-    const status =
-      message === "Not allowed"
-        ? 403
-        : message === "No Sales Person Found" ||
-            message === "Sales person is required"
-          ? 400
-          : 400;
+    const status = message === "Not allowed" ? 403 : 400;
     return new Response(message, { status });
   }
 }
