@@ -26,6 +26,12 @@
 - Never claim something is done or working unless you have verified it.
 - If you find a problem outside the scope of my request, tell me instead of silently changing it.
 
+## Architecture: no direct database from the web app
+- STLWeb (browser or Next.js route handlers) must never talk to MongoDB or any database directly.
+- All reads and writes go through STLAPI (or other existing backend HTTP APIs) using the shared API client patterns (`request` / `siteRequest` only when proxying to those backends).
+- Do not add `getMongoClient`, Mongoose, or raw DB drivers to STLWeb for new features. If you find Next.js code that already hits Mongo for something the backend already exposes, route through the backend instead of extending the Mongo path.
+- Local fallbacks that read `STLAPI/lib/constant.js` for a DB URI are for legacy local-only helpers — never rely on them in production order/sales flows.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

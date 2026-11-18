@@ -1,0 +1,11 @@
+---
+description: STLWeb must never access Mongo/DB directly; always use STLAPI HTTP endpoints
+alwaysApply: true
+---
+
+# No direct database from STLWeb
+
+- Never connect to MongoDB (or any DB) from the browser or from Next.js route handlers for product features.
+- Always call STLAPI / existing backend HTTP APIs instead (`request`, or a thin Next proxy to those APIs).
+- Do not add new `getMongoClient` / Mongoose usage in STLWeb. Prefer extending STLAPI and consuming it from the web app.
+- If a prompt or bug is caused by Next talking to the DB, fix by routing through the backend API — do not “fix” it by adding `MONGODB_URI` to the web host unless the user explicitly asks for that legacy path.

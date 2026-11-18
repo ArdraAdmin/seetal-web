@@ -2596,13 +2596,14 @@ export async function fetchSarvahHomesAssignedInventory(userId: string) {
 }
 
 export function fetchSalesStoreAccess(storeId: string, userId: string) {
-  return siteRequest<{
+  return request<{
     assigned: boolean;
     orderBlocked: boolean;
     primarySalesPersons?: { _id: string; name: string }[];
-  }>(
-    `/api/sales/store-access?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
-  );
+  }>("/sales/storeAccess", {
+    method: "POST",
+    body: JSON.stringify({ storeId, userId }),
+  });
 }
 
 export async function getSalesStorePage(
