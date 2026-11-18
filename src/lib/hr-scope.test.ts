@@ -146,6 +146,14 @@ describe("HR people filters", () => {
       presentRowVisibleToCaller({ kind: "portal", role: "Sales" }, true),
       false,
     );
+    assert.equal(
+      presentRowVisibleToCaller({ kind: "staff", role: "Staff" }, false),
+      true,
+    );
+    assert.equal(
+      presentRowVisibleToCaller({ kind: "staff", role: "Staff" }, true),
+      true,
+    );
   });
 
   it("labels warehouse managers separately from warehouse users", () => {

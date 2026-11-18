@@ -374,7 +374,10 @@ function AttendancePage() {
     return map;
   }, [attendance]);
 
-  function personIdForPresent(row: (typeof presentToday)[number], kind: "worker" | "portal") {
+  function personIdForPresent(
+    row: (typeof presentToday)[number],
+    kind: "worker" | "portal" | "staff",
+  ) {
     if (row.personId) return row.personId;
     const name = (row.name || "").trim().toLowerCase();
     if (kind === "worker") {
@@ -384,11 +387,18 @@ function AttendancePage() {
         row._id
       );
     }
+    if (kind === "staff") return row._id;
     return (
       users.find((accessUser) => accessUser._id === row._id)?._id ||
       users.find((accessUser) => (accessUser.name || "").trim().toLowerCase() === name)?._id ||
       row._id
     );
+  }
+
+  function markKeyForPresent(row: (typeof presentToday)[number]) {
+    if (row.kind === "worker") return `worker:${personIdForPresent(row, "worker")}`;
+    if (row.kind === "staff") return `staff:${personIdForPresent(row, "staff")}`;
+    return `portal:${personIdForPresent(row, "portal")}`;
   }
 
   const presentWorkerIds = useMemo(
@@ -482,7 +492,8 @@ function AttendancePage() {
       const span = spanFor(row._id, away);
       add({
         id: row._id,
-        hrefKind: row.kind === "portal" ? "user" : "worker",
+        hrefKind:
+          row.kind === "portal" ? "user" : row.kind === "staff" ? "staff" : "worker",
         name: row.name,
         meta: awayMeta(away, span),
         away,
@@ -1362,14 +1373,7 @@ function AttendancePage() {
                         <button
                           type="button"
                           className="font-medium text-brand-dark underline"
-                          onClick={() =>
-                            openMark(
-                              row.kind === "worker"
-                                ? `worker:${personIdForPresent(row, "worker")}`
-                                : `portal:${personIdForPresent(row, "portal")}`,
-                              "present",
-                            )
-                          }
+                          onClick={() => openMark(markKeyForPresent(row), "present")}
                         >
                           Edit
                         </button>
@@ -1378,13 +1382,7 @@ function AttendancePage() {
                         <button
                           type="button"
                           className="font-medium text-brand-dark underline"
-                          onClick={() =>
-                            openFine(
-                              row.kind === "worker"
-                                ? `worker:${personIdForPresent(row, "worker")}`
-                                : `portal:${personIdForPresent(row, "portal")}`,
-                            )
-                          }
+                          onClick={() => openFine(markKeyForPresent(row))}
                         >
                           Fine
                         </button>

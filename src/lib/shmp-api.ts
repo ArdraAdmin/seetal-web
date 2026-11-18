@@ -206,7 +206,7 @@ export const shmpPresentStaff = (params: {
 };
 
 export type ShmpPresentTodayRow = {
-  kind: "worker" | "portal";
+  kind: "worker" | "portal" | "staff";
   _id: string;
   personId?: string;
   name: string;
@@ -646,6 +646,7 @@ export type ShmpStore = {
   eidDocumentUrl?: string;
   salesPerson?: string | ShmpStorePerson;
   salesPersons?: Array<string | ShmpStorePerson>;
+  primarySalesPersons?: Array<string | ShmpStorePerson>;
   orderBlocked?: boolean;
   environment?: string;
 };
@@ -664,6 +665,7 @@ export type ShmpStoreWriteInput = {
   trnNo?: string | number;
   salesPersons: string[];
   salesPerson?: string;
+  primarySalesPersons?: string[];
   location?: string;
   tradeLicenseExpiry?: string;
   eidNumber?: string;
@@ -697,6 +699,9 @@ function appendStoreFormData(body: ShmpStoreWriteInput) {
     fd.append(key, String(value));
   }
   fd.append("salesPersons", JSON.stringify(body.salesPersons || []));
+  if (Array.isArray(body.primarySalesPersons)) {
+    fd.append("primarySalesPersons", JSON.stringify(body.primarySalesPersons));
+  }
   if (body.trnDocument) fd.append("trnDocument", body.trnDocument);
   if (body.tradeLicenseDocument) {
     fd.append("tradeLicenseDocument", body.tradeLicenseDocument);

@@ -514,13 +514,16 @@ export function resolvePresentTarget(
   row: ShmpPresentTodayRow,
   users: ShmpAccessUser[],
   employees: Emp[],
-): { kind: "user" | "worker"; id: string } {
+): { kind: "user" | "worker" | "staff"; id: string } {
   const name = (row.name || "").trim().toLowerCase();
   if (row.kind === "worker") {
     const emp =
       employees.find((e) => e._id === row._id) ||
       employees.find((e) => (e.name || "").trim().toLowerCase() === name);
     return { kind: "worker", id: emp?._id || row._id };
+  }
+  if (row.kind === "staff") {
+    return { kind: "staff", id: row.personId || row._id };
   }
   const user =
     users.find((u) => u._id === row._id) ||

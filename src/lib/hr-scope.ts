@@ -128,7 +128,7 @@ export function presentRowVisibleToCaller(
   row: { kind?: string | null; role?: string | null },
   supervisor: boolean,
 ) {
-  if (row.kind === "worker") return true;
+  if (row.kind === "worker" || row.kind === "staff") return true;
   if (supervisor) return presentRowVisibleToSupervisor(row);
   return isShmpAttendancePortalRole(row.role);
 }
