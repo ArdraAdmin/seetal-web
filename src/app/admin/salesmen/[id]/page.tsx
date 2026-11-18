@@ -241,6 +241,7 @@ export default function AdminSalesmanBreakdownPage() {
                       <th className="py-2 pr-3">Invoice</th>
                       <th className="py-2 pr-3">Date</th>
                       <th className="py-2 pr-3">Store</th>
+                      <th className="py-2 pr-3">Placed by</th>
                       <th className="py-2 text-right">Value</th>
                     </tr>
                   </thead>
@@ -254,6 +255,9 @@ export default function AdminSalesmanBreakdownPage() {
                           {fmtDateOnly(order.date) || "-"}
                         </td>
                         <td className="py-2 pr-3">{order.storeName || "-"}</td>
+                        <td className="py-2 pr-3">
+                          {order.placedByName || data.salesman.name}
+                        </td>
                         <td className="py-2 text-right font-medium tabular-nums">
                           {salesMoney(order.amount)}
                         </td>

@@ -16,11 +16,15 @@ import {
   setAdminStoreSalesPeople,
 } from "@/lib/api";
 import type { ProfileUser, StoreProfile } from "@/lib/types";
-import { salesPersonIdsFromStore } from "@/lib/store-access";
+import {
+  primarySalesPersonIdsFromStore,
+  salesPersonIdsFromStore,
+} from "@/lib/store-access";
 import {
   filterVisibleStoreSalesPeople,
   filterVisibleStoreSalesPersonIds,
 } from "@/lib/store-sales-people";
+import { StoreDocumentRequestQueue } from "@/components/StoreDocumentRequestQueue";
 import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
@@ -62,6 +66,7 @@ type StoreForm = {
   country: string;
   uid: string;
   salesPersonIds: string[];
+  primarySalesPersonIds: string[];
   tradeLicenseExpiry: string;
   trnNo: string;
   trnDocument: File | null;
@@ -86,6 +91,7 @@ const EMPTY_FORM: StoreForm = {
   country: "",
   uid: "",
   salesPersonIds: [],
+  primarySalesPersonIds: [],
   tradeLicenseExpiry: "",
   trnNo: "",
   trnDocument: null,
@@ -137,6 +143,9 @@ function formFrom(store: StoreProfile): StoreForm {
     uid: text(store.uid),
     salesPersonIds: filterVisibleStoreSalesPersonIds(
       salesPersonIdsFromStore(store),
+    ),
+    primarySalesPersonIds: filterVisibleStoreSalesPersonIds(
+      primarySalesPersonIdsFromStore(store),
     ),
     tradeLicenseExpiry: tradeLicenseDateInput(store.tradeLicenseExpiry),
     trnNo: text(store.trnNo),
@@ -247,10 +256,14 @@ function CountryCityFields({
 }
 
 function SalesPersonChecklist({
+  label,
+  hint,
   ids,
   salesPeople,
   onChange,
 }: {
+  label: string;
+  hint: string;
   ids: string[];
   salesPeople: ProfileUser[];
   onChange: (ids: string[]) => void;
@@ -268,10 +281,8 @@ function SalesPersonChecklist({
 
   return (
     <div className="space-y-2 sm:col-span-2">
-      <FieldLabel label="Sales person" required />
-      <p className="text-xs text-slate-500">
-        Check every sales person who should see this store.
-      </p>
+      <FieldLabel label={label} required={label === "Sales person"} />
+      <p className="text-xs text-slate-500">{hint}</p>
       <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
         {visiblePeople.length === 0 ? (
           <p className="px-1 py-2 text-sm text-slate-500">No sales people found.</p>
@@ -302,6 +313,7 @@ function StoreFields({
   setFile,
   onViewEid,
   setSalesPersonIds,
+  setPrimarySalesPersonIds,
   salesPeople,
   mode,
   isTemp = false,
@@ -314,6 +326,7 @@ function StoreFields({
   ) => void;
   onViewEid?: () => void;
   setSalesPersonIds: (ids: string[]) => void;
+  setPrimarySalesPersonIds: (ids: string[]) => void;
   salesPeople: ProfileUser[];
   mode: "create" | "edit";
   isTemp?: boolean;
@@ -423,9 +436,18 @@ function StoreFields({
         onChange={(file) => setFile("eidDocument", file)}
       />
       <SalesPersonChecklist
+        label="Sales person"
+        hint="Check every sales person who should see this store."
         ids={form.salesPersonIds}
         salesPeople={salesPeople}
         onChange={setSalesPersonIds}
+      />
+      <SalesPersonChecklist
+        label="Primary users"
+        hint="Whose sales an order for this store is counted in. One primary user is credited on every order. More than one, and the salesman chooses when placing the order. Leave empty to credit whoever places the order."
+        ids={form.primarySalesPersonIds}
+        salesPeople={salesPeople}
+        onChange={setPrimarySalesPersonIds}
       />
     </>
   );
@@ -555,6 +577,9 @@ export default function StoresPage() {
     const salesPersonIds = filterVisibleStoreSalesPersonIds(
       addForm.salesPersonIds,
     );
+    const primarySalesPersonIds = filterVisibleStoreSalesPersonIds(
+      addForm.primarySalesPersonIds,
+    );
     if (salesPersonIds.length === 0) {
       toast("Choose a sales person", "info");
       return;
@@ -581,6 +606,7 @@ export default function StoresPage() {
         country: addForm.country.trim(),
         salesPerson: salesPersonIds[0],
         salesPersons: salesPersonIds,
+        primarySalesPersons: primarySalesPersonIds,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(addForm.tradeLicenseExpiry),
         trnNo: addForm.trnNo.trim() || undefined,
@@ -592,7 +618,9 @@ export default function StoresPage() {
         addForm.uid.trim(),
         addForm.storeName.trim(),
       );
-      if (createdId) await syncStoreSalesPeople(createdId, salesPersonIds, false);
+      if (createdId) {
+        await syncStoreSalesPeople(createdId, salesPersonIds, false, primarySalesPersonIds);
+      }
       if (addForm.eidNumber.trim() || addForm.eidDocument instanceof File) {
         if (!createdId) {
           throw new Error(
@@ -676,6 +704,7 @@ export default function StoresPage() {
       />
 
       <StoreRequestQueue environment="stl" />
+      <StoreDocumentRequestQueue environment="stl" />
 
       {expiredOnly && !loading ? (
         <Card className="mb-5 border-brand/30 bg-[#f7f5f0]">
@@ -697,6 +726,9 @@ export default function StoresPage() {
               setFile={setAddFile}
               setSalesPersonIds={(ids) =>
                 setAddForm((prev) => ({ ...prev, salesPersonIds: ids }))
+              }
+              setPrimarySalesPersonIds={(ids) =>
+                setAddForm((prev) => ({ ...prev, primarySalesPersonIds: ids }))
               }
               salesPeople={salesPeople}
               mode="create"
@@ -810,6 +842,9 @@ async function exportStores(stores: StoreProfile[], salesPeople: ProfileUser[]) 
       salesPersonIdsFromStore(store)
         .map((id) => salesPersonName(store, id, salesPeople))
         .join(", "),
+      primarySalesPersonIdsFromStore(store)
+        .map((id) => salesPersonName(store, id, salesPeople))
+        .join(", "),
     ),
   );
   const sheet = XLSX.utils.json_to_sheet(rows, {
@@ -825,9 +860,15 @@ async function syncStoreSalesPeople(
   storeId: string,
   salesPersonIds: string[],
   isTemp: boolean,
+  primarySalesPersonIds?: string[],
 ) {
   try {
-    await setAdminStoreSalesPeople(storeId, salesPersonIds, isTemp);
+    await setAdminStoreSalesPeople(
+      storeId,
+      salesPersonIds,
+      isTemp,
+      primarySalesPersonIds,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     if (/database is not configured/i.test(message)) return;
@@ -869,6 +910,9 @@ function StoreCard({
   const title = text(store.storeName || store.name) || "Unnamed store";
   const assignedIds = salesPersonIdsFromStore(store);
   const salesLabel = assignedIds
+    .map((id) => salesPersonName(store, id, salesPeople))
+    .join(", ");
+  const primaryLabel = primarySalesPersonIdsFromStore(store)
     .map((id) => salesPersonName(store, id, salesPeople))
     .join(", ");
   const copies = copyCount(store);
@@ -921,6 +965,9 @@ function StoreCard({
       return;
     }
     const salesPersonIds = filterVisibleStoreSalesPersonIds(form.salesPersonIds);
+    const primarySalesPersonIds = filterVisibleStoreSalesPersonIds(
+      form.primarySalesPersonIds,
+    );
     if (salesPersonIds.length === 0) {
       toast("Choose a sales person", "info");
       return;
@@ -970,6 +1017,7 @@ function StoreCard({
         trnNo: form.trnNo.trim() || undefined,
         salesPerson: salesPersonIds[0],
         salesPersons: salesPersonIds,
+        primarySalesPersons: primarySalesPersonIds,
         location: "—",
         tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
         isTemp,
@@ -977,7 +1025,7 @@ function StoreCard({
         trnDocument: form.trnDocument,
         tradeLicenseDocument: form.tradeLicenseDocument,
       });
-      await syncStoreSalesPeople(store._id, salesPersonIds, isTemp);
+      await syncStoreSalesPeople(store._id, salesPersonIds, isTemp, primarySalesPersonIds);
       if (eidChanged) {
         try {
           await saveAdminStoreEid({
@@ -1197,6 +1245,7 @@ function StoreCard({
               value: docLink(store.tradeLicenseDocumentUrl),
             },
             { label: "Sales people", value: salesLabel || "—" },
+            { label: "Primary users", value: primaryLabel || "Whoever places the order" },
             { label: "Orders", value: blocked ? "Blocked" : "Open" },
           ]}
         />
@@ -1210,6 +1259,9 @@ function StoreCard({
             setFile={setFile}
             setSalesPersonIds={(ids) =>
               setForm((prev) => ({ ...prev, salesPersonIds: ids }))
+            }
+            setPrimarySalesPersonIds={(ids) =>
+              setForm((prev) => ({ ...prev, primarySalesPersonIds: ids }))
             }
             salesPeople={salesOptions}
             mode="edit"

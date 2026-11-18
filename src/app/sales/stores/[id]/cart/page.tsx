@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import {
+  fetchSalesStoreAccess,
   loadSundayDeliverySetting,
   placeSalesOrder,
   placeSalesOrderPayload,
@@ -60,6 +61,10 @@ export default function SalesCartPage() {
   const [submitting, setSubmitting] = useState(false);
   const [locationReady, setLocationReady] = useState(false);
   const [sundayDelivery, setSundayDelivery] = useState(false);
+  const [creditChoices, setCreditChoices] = useState<
+    { _id: string; name: string }[] | null
+  >(null);
+  const [creditPick, setCreditPick] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -133,69 +138,117 @@ export default function SalesCartPage() {
     saveCart(storeId, next);
   }
 
-  async function onPlace() {
-    if (!user?.id) return;
+  function orderReady() {
+    if (!user?.id) return false;
     if (access.status === "blocked") {
       toast(access.message, "info");
-      return;
+      return false;
     }
-    if (access.status !== "open") return;
-    const ok = await ensureLocationForOrders();
-    if (!ok) {
-      toast(await locationOrderBlockMessage(), "info");
-      return;
-    }
+    if (access.status !== "open") return false;
     if (lines.length === 0) {
       toast("Add products to the cart first", "info");
-      return;
+      return false;
     }
     const today = todayDateInput();
     if (!deliveryDate) {
       toast("Choose a delivery date", "info");
-      return;
+      return false;
     }
     if (deliveryDate < today) {
       toast("Delivery date cannot be in the past", "info");
-      return;
+      return false;
     }
+    return true;
+  }
+
+  async function submitOrder(salesId: string, creditName?: string) {
+    if (!user?.id) return;
     const normalized = normalizeDeliveryDateInput(deliveryDate, sundayDelivery);
     if (normalized.shiftedFromSunday) {
       setDeliveryDate(normalized.date);
       toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
     }
+    const forceSarvahInvoice = shouldMergeSarvahHomesInventory(
+      loadSalesWorkspace(),
+      storeName,
+    );
+    const sarvahCompanyId = forceSarvahInvoice
+      ? loadSelectedSalesCompany()?.id
+      : undefined;
+    const body = placeSalesOrderPayload({
+      salesId,
+      placedBy: user.id,
+      storeId,
+      lines,
+      discount,
+      payableAmount: payable,
+      payableEdited,
+      date: normalized.date,
+      tempStore,
+      companyId: sarvahCompanyId,
+    });
+    const result = await placeSalesOrder(body);
+    clearCart(storeId);
+    const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
+    const creditedTo =
+      salesId !== user.id && creditName ? ` It counts toward ${creditName}.` : "";
+    toast(
+      apiMessage(
+        result,
+        needsApproval
+          ? `Order sent for admin approval.${creditedTo}`
+          : `Order placed. The order form will be emailed shortly.${creditedTo}`,
+      ),
+      "success",
+    );
+    setCreditChoices(null);
+    router.push("/sales/pending");
+  }
+
+  async function onPlace() {
+    if (!orderReady()) return;
+    const ok = await ensureLocationForOrders();
+    if (!ok) {
+      toast(await locationOrderBlockMessage(), "info");
+      return;
+    }
     setSubmitting(true);
     try {
-      const forceSarvahInvoice = shouldMergeSarvahHomesInventory(
-        loadSalesWorkspace(),
-        storeName,
+      const storeAccess = await fetchSalesStoreAccess(storeId, user?.id || "");
+      const people = storeAccess.primarySalesPersons || [];
+      if (people.length > 1) {
+        setCreditChoices(people);
+        setCreditPick("");
+        return;
+      }
+      await submitOrder(
+        people.length === 1 ? people[0]._id : user?.id || "",
+        people.length === 1 ? people[0].name : undefined,
       );
-      const sarvahCompanyId = forceSarvahInvoice
-        ? loadSelectedSalesCompany()?.id
-        : undefined;
-      const body = placeSalesOrderPayload({
-        salesId: user.id,
-        storeId,
-        lines,
-        discount,
-        payableAmount: payable,
-        payableEdited,
-        date: normalized.date,
-        tempStore,
-        companyId: sarvahCompanyId,
-      });
-      const result = await placeSalesOrder(body);
-      clearCart(storeId);
-      const needsApproval = discount > 0 || payableEdited || unitPriceEdited;
-      toast(
-        apiMessage(
-          result,
-          needsApproval
-            ? "Order sent for admin approval"
-            : "Order placed. The order form will be emailed shortly.",
-        ),
-        "success",
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not place order", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onConfirmCredit() {
+    if (!creditPick) {
+      toast("Choose whose sales this order counts toward", "info");
+      return;
+    }
+    if (!orderReady()) return;
+    const ok = await ensureLocationForOrders();
+    if (!ok) {
+      toast(await locationOrderBlockMessage(), "info");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await submitOrder(
+        creditPick,
+        creditChoices?.find((person) => person._id === creditPick)?.name,
       );
-      router.push("/sales/pending");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not place order", "error");
     } finally {
@@ -412,6 +465,56 @@ export default function SalesCartPage() {
           </div>
         </>
       )}
+      {creditChoices ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="primary-user-title"
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
+            <h2 id="primary-user-title" className="text-base font-semibold text-slate-900">
+              Whose sales is this order?
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              This store has more than one primary user. Choose who this order counts toward.
+            </p>
+            <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+              {creditChoices.map((person) => (
+                <label
+                  key={person._id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-ink hover:bg-slate-50"
+                >
+                  <input
+                    type="radio"
+                    name="primary-user"
+                    checked={creditPick === person._id}
+                    onChange={() => setCreditPick(person._id)}
+                  />
+                  <span>{person.name || person._id}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-line px-3 py-2 text-sm font-medium text-slate-700"
+                disabled={submitting}
+                onClick={() => setCreditChoices(null)}
+              >
+                Cancel
+              </button>
+              <PrimaryButton
+                type="button"
+                disabled={submitting || !creditPick}
+                onClick={() => void onConfirmCredit()}
+              >
+                {submitting ? "Placing…" : "Count this order"}
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

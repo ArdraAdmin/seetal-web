@@ -747,6 +747,7 @@ export type StoreEditInput = {
   trnNo?: string;
   salesPerson?: string;
   salesPersons?: string[];
+  primarySalesPersons?: string[];
   location?: string;
   tradeLicenseExpiry?: string;
   isTemp?: boolean;
@@ -769,6 +770,7 @@ export type StoreCreateInput = {
   trnNo?: string;
   salesPerson?: string;
   salesPersons?: string[];
+  primarySalesPersons?: string[];
   location?: string;
   tradeLicenseExpiry?: string;
   trnDocument?: File | null;
@@ -802,6 +804,9 @@ function appendAdminStoreFormData(
   }
   if (body.salesPersons?.length) {
     fd.append("salesPersons", JSON.stringify(body.salesPersons));
+  }
+  if (Array.isArray(body.primarySalesPersons)) {
+    fd.append("primarySalesPersons", JSON.stringify(body.primarySalesPersons));
   }
   if (body.trnDocument instanceof File) fd.append("trnDocument", body.trnDocument);
   if (body.tradeLicenseDocument instanceof File) {
@@ -933,6 +938,7 @@ export const setAdminStoreSalesPeople = (
   storeId: string,
   salesPersons: string[],
   isTemp = false,
+  primarySalesPersons?: string[],
 ) =>
   siteRequest<string>("/api/admin/stores/access", {
     method: "POST",
@@ -940,6 +946,7 @@ export const setAdminStoreSalesPeople = (
       storeId,
       salesPersons,
       salesPerson: salesPersons[0] || "",
+      ...(Array.isArray(primarySalesPersons) ? { primarySalesPersons } : {}),
       isTemp,
       isTempStore: isTemp,
     }),
@@ -2589,7 +2596,11 @@ export async function fetchSarvahHomesAssignedInventory(userId: string) {
 }
 
 export function fetchSalesStoreAccess(storeId: string, userId: string) {
-  return siteRequest<{ assigned: boolean; orderBlocked: boolean }>(
+  return siteRequest<{
+    assigned: boolean;
+    orderBlocked: boolean;
+    primarySalesPersons?: { _id: string; name: string }[];
+  }>(
     `/api/sales/store-access?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
   );
 }
@@ -3808,6 +3819,7 @@ export function placeSalesOrderPayload({
   date,
   tempStore = false,
   companyId,
+  placedBy,
 }: {
   salesId: string;
   storeId: string;
@@ -3819,6 +3831,8 @@ export function placeSalesOrderPayload({
   tempStore?: boolean;
   /** Force invoice company (e.g. Sarvah when ordering SHMP-assigned lines). */
   companyId?: string;
+  /** Salesman who is placing the order. `salesId` is who the sale is credited to. */
+  placedBy?: string;
 }) {
   const { totalCost, totalQuantity } = cartTotals(lines);
   const unitPriceEdited = cartUnitPriceEdited(lines);
@@ -3834,6 +3848,7 @@ export function placeSalesOrderPayload({
   return {
     invoiceType: "ld",
     salesId,
+    placedBy: placedBy || salesId,
     storeId,
     ...(companyId?.trim() ? { companyId: companyId.trim() } : {}),
     productDetails: lines.map((line) => {

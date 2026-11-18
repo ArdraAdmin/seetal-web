@@ -4,6 +4,7 @@ import {
   approvalMoney,
   approvalOrderDate,
   approvalPayable,
+  approvalPlacedByName,
   approvalRejectNote,
   approvalSalesName,
   approvalStoreName,
@@ -89,7 +90,13 @@ export function ApprovalDetails({ order }: { order: ApprovalOrder }) {
         <DetailRow label="Invoice" value={approvalInvoice(order)} />
         <DetailRow label="Store" value={approvalStoreName(order)} />
         {approvalSalesName(order) ? (
-          <DetailRow label="Salesman" value={approvalSalesName(order)} />
+          <DetailRow
+            label={approvalPlacedByName(order) ? "Credited to" : "Salesman"}
+            value={approvalSalesName(order)}
+          />
+        ) : null}
+        {approvalPlacedByName(order) ? (
+          <DetailRow label="Placed by" value={approvalPlacedByName(order)} />
         ) : null}
         {approvalOrderDate(order) ? (
           <DetailRow label="Date" value={approvalOrderDate(order)} />

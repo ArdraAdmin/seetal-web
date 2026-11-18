@@ -17,6 +17,7 @@ import {
 import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
+import { StoreDocumentRequestQueue } from "@/components/StoreDocumentRequestQueue";
 import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { useAuth } from "@/components/AuthProvider";
 import { shmpActionOn } from "@/lib/shmp-permissions";
@@ -40,6 +41,11 @@ import {
   tradeLicenseDateInput,
 } from "@/lib/store-documents";
 import { storeEidRequiredError } from "@/lib/store-eid";
+import { primarySalesPersonIdsFromStore } from "@/lib/store-access";
+import {
+  filterVisibleStoreSalesPeople,
+  filterVisibleStoreSalesPersonIds,
+} from "@/lib/store-sales-people";
 
 type StoreForm = {
   storeName: string;
@@ -56,6 +62,7 @@ type StoreForm = {
   eidNumber: string;
   trnNo: string;
   salesPersonIds: string[];
+  primarySalesPersonIds: string[];
   trnDocument: File | null;
   tradeLicenseDocument: File | null;
   eidDocument: File | null;
@@ -82,6 +89,7 @@ const EMPTY_FORM: StoreForm = {
   eidNumber: "",
   trnNo: "",
   salesPersonIds: [],
+  primarySalesPersonIds: [],
   trnDocument: null,
   tradeLicenseDocument: null,
   eidDocument: null,
@@ -137,6 +145,9 @@ function formFrom(store: ShmpStore): StoreForm {
     eidNumber: text(store.eidNumber),
     trnNo: text(store.trnNo),
     salesPersonIds: salesIdsFromStore(store),
+    primarySalesPersonIds: filterVisibleStoreSalesPersonIds(
+      primarySalesPersonIdsFromStore(store),
+    ),
     trnDocument: null,
     tradeLicenseDocument: null,
     eidDocument: null,
@@ -259,8 +270,8 @@ function SalesmenPicker({
     <div className="space-y-2 sm:col-span-2">
       <FieldLabel label="Salesmen" required />
       <p className="text-xs text-slate-500">
-        Assign one or more salesmen. The first selected (or the one marked
-        primary) is the primary assignee.
+        Assign who can sell to this store. The one marked Main is the main
+        assignee on the store.
       </p>
       <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
         {salesPeople.length === 0 ? (
@@ -295,7 +306,7 @@ function SalesmenPicker({
                         : "border border-line text-slate-600 hover:bg-white"
                     }`}
                   >
-                    {primary === id ? "Primary" : "Make primary"}
+                    {primary === id ? "Main" : "Make main"}
                   </button>
                 ) : null}
               </div>
@@ -312,6 +323,7 @@ function StoreFields({
   setField,
   setFile,
   setSalesPersonIds,
+  setPrimarySalesPersonIds,
   salesPeople,
   mode,
 }: {
@@ -319,6 +331,7 @@ function StoreFields({
   setField: (key: keyof StoreForm, value: string) => void;
   setFile: (key: StoreFileKey, file: File | null) => void;
   setSalesPersonIds: (ids: string[]) => void;
+  setPrimarySalesPersonIds: (ids: string[]) => void;
   salesPeople: ShmpStorePerson[];
   mode: "create" | "edit";
 }) {
@@ -434,6 +447,11 @@ function StoreFields({
         salesPeople={salesPeople}
         onChange={setSalesPersonIds}
       />
+      <PrimaryUsersPicker
+        ids={form.primarySalesPersonIds}
+        salesPeople={salesPeople}
+        onChange={setPrimarySalesPersonIds}
+      />
     </>
   );
 }
@@ -489,6 +507,57 @@ function validateForm(
   return true;
 }
 
+function PrimaryUsersPicker({
+  ids,
+  salesPeople,
+  onChange,
+}: {
+  ids: string[];
+  salesPeople: ShmpStorePerson[];
+  onChange: (ids: string[]) => void;
+}) {
+  const visiblePeople = filterVisibleStoreSalesPeople(salesPeople);
+  const visibleIds = filterVisibleStoreSalesPersonIds(ids);
+  const selected = new Set(visibleIds);
+  function toggle(id: string) {
+    onChange(
+      selected.has(id) ? visibleIds.filter((value) => value !== id) : [...visibleIds, id],
+    );
+  }
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <FieldLabel label="Primary users" />
+      <p className="text-xs text-slate-500">
+        Whose sales an order for this store is counted in. One primary user is
+        credited on every order. More than one, and the salesman chooses when
+        placing the order. Leave empty to credit whoever places the order.
+      </p>
+      <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
+        {visiblePeople.length === 0 ? (
+          <p className="px-1 py-2 text-sm text-slate-500">No salesmen found.</p>
+        ) : (
+          visiblePeople.map((person) => (
+            <label
+              key={person._id}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(person._id)}
+                onChange={() => toggle(person._id)}
+                className="rounded border-line"
+              />
+              <span className="truncate">
+                {text(person.name) || text(person.email) || person._id}
+              </span>
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function payloadFromForm(form: StoreForm) {
   const base = {
     storeName: form.storeName.trim(),
@@ -503,6 +572,7 @@ function payloadFromForm(form: StoreForm) {
     uid: form.uid.trim(),
     salesPersons: form.salesPersonIds,
     salesPerson: form.salesPersonIds[0],
+    primarySalesPersons: filterVisibleStoreSalesPersonIds(form.primarySalesPersonIds),
     location: "—",
     tradeLicenseExpiry: tradeLicensePayload(form.tradeLicenseExpiry),
     eidNumber: form.eidNumber.trim(),
@@ -642,6 +712,7 @@ export default function ShmpStoresPage() {
       />
 
       <StoreRequestQueue environment="shmp" />
+      <StoreDocumentRequestQueue environment="shmp" />
 
       {adding ? (
         <Card className="mb-5">
@@ -653,6 +724,9 @@ export default function ShmpStoresPage() {
               setFile={setAddFile}
               setSalesPersonIds={(ids) =>
                 setAddForm((prev) => ({ ...prev, salesPersonIds: ids }))
+              }
+              setPrimarySalesPersonIds={(ids) =>
+                setAddForm((prev) => ({ ...prev, primarySalesPersonIds: ids }))
               }
               salesPeople={salesPeople}
               mode="create"
@@ -747,14 +821,19 @@ function StoreCard({
   const [blocked, setBlocked] = useState(store.orderBlocked === true);
   const [blocking, setBlocking] = useState(false);
   const title = text(store.storeName) || "Unnamed store";
-  const assigned = salesIdsFromStore(store).map((id) => {
+  const personLabel = (id: string) => {
     const person = salesPeople.find((p) => p._id === id);
     if (person) return text(person.name) || text(person.email) || id;
     const fromStore = (store.salesPersons || []).find(
       (p) => personId(p) === id,
     );
-    return personName(fromStore) || personName(store.salesPerson) || id;
-  });
+    const fromPrimary = (store.primarySalesPersons || []).find(
+      (p) => personId(p) === id,
+    );
+    return personName(fromStore) || personName(fromPrimary) || personName(store.salesPerson) || id;
+  };
+  const assigned = salesIdsFromStore(store).map(personLabel);
+  const primaryUsers = primarySalesPersonIdsFromStore(store).map(personLabel);
   const phone = text(store.contactNumber);
   const address = [
     store.addressLine1,
@@ -955,6 +1034,10 @@ function StoreCard({
               value: docLink(store.tradeLicenseDocumentUrl),
             },
             { label: "Sales people", value: assigned.join(", ") || "—" },
+            {
+              label: "Primary users",
+              value: primaryUsers.join(", ") || "Whoever places the order",
+            },
             { label: "Orders", value: blocked ? "Blocked" : "Open" },
           ]}
         />
@@ -968,6 +1051,9 @@ function StoreCard({
             setFile={setFile}
             setSalesPersonIds={(ids) =>
               setForm((prev) => ({ ...prev, salesPersonIds: ids }))
+            }
+            setPrimarySalesPersonIds={(ids) =>
+              setForm((prev) => ({ ...prev, primarySalesPersonIds: ids }))
             }
             salesPeople={salesPeople}
             mode="edit"

@@ -4,7 +4,10 @@ import {
   isSarvahHomesStoreName,
   withSarvahHomesShmpStores,
 } from "@/lib/sarvah-homes-sales";
-import { salesPersonIdsFromStore } from "@/lib/store-access";
+import {
+  primarySalesPersonIdsFromStore,
+  salesPersonIdsFromStore,
+} from "@/lib/store-access";
 import { parseTradeLicenseExpiryDate } from "@/lib/store-documents";
 import { isStoreObjectKey, storeEidNumberError } from "@/lib/store-eid";
 import { storeDisplayName, storeIdentity } from "@/lib/stores";
@@ -34,6 +37,7 @@ type StoreDoc = {
   trnNo?: number | string;
   salesPerson?: ObjectId;
   salesPersons?: Array<ObjectId | string>;
+  primarySalesPersons?: Array<ObjectId | string>;
   orderBlocked?: boolean;
   environment?: string;
   tradeLicenseExpiry?: Date | string | null;
@@ -76,6 +80,7 @@ export type AdminStoreRow = {
   isTempStore: boolean;
   salesPerson: string;
   salesPersons?: Array<{ _id: string; name: string }>;
+  primarySalesPersons?: Array<{ _id: string; name: string }>;
   orderBlocked?: boolean;
   salesman?: { _id: string; name: string };
   copyCount: number;
@@ -108,6 +113,23 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function primaryIdsFromInput(input: Record<string, unknown>): string[] | null {
+  if (!Object.prototype.hasOwnProperty.call(input, "primarySalesPersons")) return null;
+  const raw = input.primarySalesPersons;
+  if (raw == null || raw === "") return null;
+  let list: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      list = JSON.parse(trimmed);
+    } catch {
+      list = trimmed.split(",");
+    }
+  }
+  return primarySalesPersonIdsFromStore({ primarySalesPersons: list });
+}
+
 function salesIdList(input: Record<string, unknown>) {
   const ids: string[] = [];
   const add = (value: unknown) => {
@@ -138,13 +160,14 @@ async function resolveSalesUsers(
   database: Awaited<ReturnType<typeof mongoDb>>,
   ids: string[],
   allowEmpty: boolean,
+  invalidMessage = "Choose a sales person",
 ) {
   if (!ids.length) {
     if (allowEmpty) return [] as ObjectId[];
-    throw new Error("Choose a sales person");
+    throw new Error(invalidMessage);
   }
   for (const id of ids) {
-    if (!ObjectId.isValid(id)) throw new Error("Choose a sales person");
+    if (!ObjectId.isValid(id)) throw new Error(invalidMessage);
   }
   const objectIds = ids.map((id) => new ObjectId(id));
   const users = await database
@@ -154,7 +177,7 @@ async function resolveSalesUsers(
       { projection: { _id: 1 } },
     )
     .toArray();
-  if (users.length !== objectIds.length) throw new Error("Choose a sales person");
+  if (users.length !== objectIds.length) throw new Error(invalidMessage);
   return objectIds;
 }
 
@@ -208,6 +231,7 @@ async function loadStores(): Promise<StoreDoc[]> {
     trnNo: 1,
     salesPerson: 1,
     salesPersons: 1,
+    primarySalesPersons: 1,
     orderBlocked: 1,
     tradeLicenseExpiry: 1,
     trnDocumentKey: 1,
@@ -405,6 +429,10 @@ function toRow(
       _id: id,
       name: names.get(id) || "",
     })),
+    primarySalesPersons: primarySalesPersonIdsFromStore(doc).map((id) => ({
+      _id: id,
+      name: names.get(id) || "",
+    })),
     orderBlocked: doc.orderBlocked === true,
     salesman: salesId && salesName ? { _id: salesId, name: salesName } : undefined,
     copyCount,
@@ -418,12 +446,13 @@ export async function listAdminStores(
   const [docs, refs] = await Promise.all([loadStores(), referenceCounts()]);
   const salesIds = [
     ...new Set(
-      docs.flatMap((doc) =>
-        salesPersonIdsFromStore({
+      docs.flatMap((doc) => [
+        ...salesPersonIdsFromStore({
           salesPerson: doc.salesPerson ? String(doc.salesPerson) : "",
           salesPersons: doc.salesPersons,
         }),
-      ),
+        ...primarySalesPersonIdsFromStore(doc),
+      ]),
     ),
   ]
     .filter((id) => ObjectId.isValid(id))
@@ -501,6 +530,15 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
     salesIdList(input),
     current.isTemp,
   );
+  const primaryIds = primaryIdsFromInput(input);
+  const primaryPeople = primaryIds
+    ? await resolveSalesUsers(
+        databaseForSales,
+        primaryIds,
+        true,
+        "Choose a primary user",
+      )
+    : null;
 
   const tradeLicenseExpiry = parseTradeLicenseExpiry(input.tradeLicenseExpiry);
   const hasEidNumber = Object.prototype.hasOwnProperty.call(input, "eidNumber");
@@ -526,6 +564,7 @@ export async function updateStoreRecord(token: string | null, body: unknown) {
   if (trnNo !== undefined) $set.trnNo = trnNo;
   $set.salesPersons = salesPeople;
   if (salesPeople[0]) $set.salesPerson = salesPeople[0];
+  if (primaryPeople) $set.primarySalesPersons = primaryPeople;
   if (tradeLicenseExpiry) {
     $set.tradeLicenseExpiry = tradeLicenseExpiry;
     const today = new Date();
@@ -734,8 +773,11 @@ function salesStoreProjection() {
     uid: 1,
     salesPerson: 1,
     salesPersons: 1,
+    primarySalesPersons: 1,
     orderBlocked: 1,
     environment: 1,
+    tradeLicenseExpiry: 1,
+    eidNumber: 1,
   };
 }
 
@@ -755,7 +797,13 @@ function toSalesStore(doc: Record<string, unknown>, isTemp: boolean) {
     uid: text(doc.uid),
     salesPerson: salesIds[0] || "",
     salesPersons: salesIds,
+    primarySalesPersons: primarySalesPersonIdsFromStore(doc).map((id) => ({
+      _id: id,
+      name: "",
+    })),
     orderBlocked: doc.orderBlocked === true,
+    tradeLicenseExpiry: tradeLicenseExpiryIso(doc.tradeLicenseExpiry) || null,
+    eidNumber: text(doc.eidNumber),
     isTemp,
     isTempStore: isTemp,
   };
@@ -819,7 +867,7 @@ export async function salesStoreAccess(
   }
   const oid = asId(storeId, "Store not found");
   const database = await mongoDb();
-  const projection = { orderBlocked: 1 };
+  const projection = { orderBlocked: 1, primarySalesPersons: 1 };
   const assigned = { _id: oid, $or: assignedMongoOr(id) };
   let doc = await database.collection("stores").findOne(assigned, { projection });
   if (!doc) {
@@ -838,7 +886,29 @@ export async function salesStoreAccess(
       throw new Error("No access to this store");
     }
   }
-  return { assigned: true, orderBlocked: doc.orderBlocked === true };
+  const primaryIds = primarySalesPersonIdsFromStore({
+    primarySalesPersons: (doc as { primarySalesPersons?: unknown }).primarySalesPersons,
+  });
+  const primaryObjectIds = primaryIds
+    .filter((personId) => ObjectId.isValid(personId))
+    .map((personId) => new ObjectId(personId));
+  const people = primaryObjectIds.length
+    ? await database
+        .collection("users")
+        .find(
+          { _id: { $in: primaryObjectIds }, role: "Sales" },
+          { projection: { name: 1 } },
+        )
+        .toArray()
+    : [];
+  const names = new Map(people.map((person) => [String(person._id), text(person.name)]));
+  return {
+    assigned: true,
+    orderBlocked: doc.orderBlocked === true,
+    primarySalesPersons: primaryIds
+      .filter((personId) => names.has(personId))
+      .map((personId) => ({ _id: personId, name: names.get(personId) || personId })),
+  };
 }
 
 export async function setStoreSalesPeople(
@@ -870,7 +940,12 @@ export async function setStoreSalesPeople(
     salesIdList(input),
     collection === "tempstores",
   );
+  const primaryIds = primaryIdsFromInput(input);
+  const primaryPeople = primaryIds
+    ? await resolveSalesUsers(database, primaryIds, true, "Choose a primary user")
+    : null;
   const $set: Record<string, unknown> = { salesPersons: salesPeople };
+  if (primaryPeople) $set.primarySalesPersons = primaryPeople;
   const update: Record<string, unknown> = { $set };
   if (salesPeople[0]) $set.salesPerson = salesPeople[0];
   else update.$unset = { salesPerson: "" };
@@ -999,6 +1074,10 @@ function remoteStoreRow(store: Record<string, unknown>, copyCount: number): Admi
       salesPerson: salesId,
       salesPersons: store.salesPersons,
     }).map((id) => ({ _id: id, name: "" })),
+    primarySalesPersons: primarySalesPersonIdsFromStore(store).map((id) => ({
+      _id: id,
+      name: "",
+    })),
     orderBlocked: store.orderBlocked === true,
     salesman: salesId && salesName ? { _id: salesId, name: salesName } : undefined,
     copyCount,

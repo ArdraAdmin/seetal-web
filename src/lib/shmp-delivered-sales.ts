@@ -33,6 +33,7 @@ export type DeliveredOrder = {
   storeName?: string;
   amount: number;
   companyKey: "shmp";
+  placedByName?: string;
 };
 
 export type ShmpDeliveredSales = {
@@ -66,6 +67,7 @@ type DeliveryTrip = {
         _id?: string;
         tempOrderInvoiceNo?: string;
         sales?: { _id?: string; name?: string; email?: string } | string | null;
+        placedBy?: { _id?: string; name?: string; email?: string } | string | null;
       }
     | string
     | null;
@@ -328,6 +330,12 @@ export function salesmanFromDeliveries(
       stores.set(storeId, row);
     }
     const order = trip.tempOrder;
+    const placed =
+      order && typeof order === "object" && order.placedBy && typeof order.placedBy === "object"
+        ? order.placedBy
+        : null;
+    const creditedId = salesOf(trip)?.salesId || "";
+    const placedId = placed?._id ? String(placed._id) : "";
     orders.push({
       orderId:
         order && typeof order === "object" && order._id
@@ -340,6 +348,8 @@ export function salesmanFromDeliveries(
       storeName,
       amount,
       companyKey: "shmp",
+      placedByName:
+        placed?.name && placedId !== creditedId ? placed.name : "",
     });
   }
   const target = base?.target ?? null;

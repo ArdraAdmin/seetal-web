@@ -58,6 +58,19 @@ export function approvalSalesName(order: ApprovalOrder) {
   return "";
 }
 
+/** Who placed the order, when that person is not the salesman the sale is credited to. */
+export function approvalPlacedByName(order: ApprovalOrder) {
+  const placed = order.placedBy;
+  if (!placed || typeof placed !== "object" || !placed.name) return "";
+  const credited = approvalSalesName(order);
+  if (credited && placed.name === credited) return "";
+  const placedId = placed._id || "";
+  const salesId =
+    order.sales && typeof order.sales === "object" ? order.sales._id || "" : "";
+  if (placedId && salesId && placedId === salesId) return "";
+  return placed.name;
+}
+
 export {
   APPROVALS_CHANGED_EVENT,
   isWaitingApproval,

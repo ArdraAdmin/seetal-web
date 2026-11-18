@@ -34,6 +34,23 @@ export function personId(value: unknown, depth = 0): string {
   return "";
 }
 
+/** Must match HIDDEN_STORE_SALES_PERSON_IDS in store-sales-people.ts. */
+const HIDDEN_PRIMARY_SALES_IDS = new Set(["5fc61c984438d90017ff7132"]);
+
+export function primarySalesPersonIdsFromStore(store: {
+  primarySalesPersons?: unknown;
+}): string[] {
+  const ids: string[] = [];
+  const add = (value: unknown) => {
+    const id = personId(value);
+    if (id && !ids.includes(id) && !HIDDEN_PRIMARY_SALES_IDS.has(id)) ids.push(id);
+  };
+  if (Array.isArray(store.primarySalesPersons)) {
+    for (const person of store.primarySalesPersons) add(person);
+  }
+  return ids;
+}
+
 export function salesPersonIdsFromStore(store: {
   salesPerson?: unknown;
   salesman?: unknown;

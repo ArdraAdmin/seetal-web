@@ -34,6 +34,7 @@ describe("store export", () => {
     assert.equal(row["EID number"], "784-1990-1234567-1");
     assert.equal(row["EID document"], "eid.pdf");
     assert.equal(row["Sales people"], "Amina");
+    assert.equal(row["Primary users"], "");
     assert.equal(row.Orders, "Blocked");
     assert.equal(row.Temporary, "No");
     assert.match(row["Trade license expiry"], /^\d{4}-\d{2}-\d{2}$/);

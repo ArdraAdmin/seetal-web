@@ -95,6 +95,7 @@ export interface StoreProfile {
   salesman?: string | { name?: string; _id?: string };
   salesPerson?: string | { name?: string; _id?: string };
   salesPersons?: Array<string | { name?: string; _id?: string }>;
+  primarySalesPersons?: Array<string | { name?: string; _id?: string }>;
   orderBlocked?: boolean;
   isTemp?: boolean;
   isTempStore?: boolean;
@@ -414,6 +415,7 @@ export interface ApprovalOrder {
   createdAt?: string;
   updatedAt?: string;
   sales?: string | { _id?: string; name?: string; email?: string };
+  placedBy?: string | { _id?: string; name?: string; email?: string };
   company?: string | { _id?: string; name?: string; prefix?: string };
   storeName?: string;
   store?:

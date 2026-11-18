@@ -242,6 +242,7 @@ export type AdminSalesmanBreakdown = {
     storeName?: string;
     amount: number;
     companyKey?: string;
+    placedByName?: string;
   }>;
 };
 

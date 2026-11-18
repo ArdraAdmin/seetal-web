@@ -4,11 +4,28 @@ import { ObjectId } from "mongodb";
 import {
   BLOCKED_STORE_MESSAGE,
   personId,
+  primarySalesPersonIdsFromStore,
   salesPersonIdsFromStore,
   storeAssignedToSalesman,
   storeOrderBlocked,
   storesVisibleToSalesperson,
 } from "./store-access.ts";
+
+describe("primarySalesPersonIdsFromStore", () => {
+  it("reads every primary user once and skips the hidden account", () => {
+    assert.deepEqual(
+      primarySalesPersonIdsFromStore({
+        primarySalesPersons: [
+          "sales-a",
+          { _id: "sales-b" },
+          "sales-a",
+          "5fc61c984438d90017ff7132",
+        ],
+      }),
+      ["sales-a", "sales-b"],
+    );
+  });
+});
 
 describe("salesPersonIdsFromStore", () => {
   it("keeps a single saved sales person", () => {

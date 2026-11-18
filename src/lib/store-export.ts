@@ -16,6 +16,7 @@ export const STORE_EXPORT_HEADERS = [
   "EID number",
   "EID document",
   "Sales people",
+  "Primary users",
   "Orders",
   "Temporary",
 ] as const;
@@ -51,6 +52,7 @@ function cell(value: unknown) {
 export function storeExportRow(
   store: StoreExportSource,
   salesPeople: string,
+  primaryUsers = "",
 ): Record<(typeof STORE_EXPORT_HEADERS)[number], string> {
   return {
     "Store name": cell(store.storeName || store.name),
@@ -70,6 +72,7 @@ export function storeExportRow(
     "EID number": cell(store.eidNumber),
     "EID document": cell(store.eidDocumentFileName),
     "Sales people": cell(salesPeople),
+    "Primary users": cell(primaryUsers),
     Orders: store.orderBlocked ? "Blocked" : "Open",
     Temporary: store.isTemp || store.isTempStore ? "Yes" : "No",
   };
