@@ -24,7 +24,6 @@ import {
   filterVisibleStoreSalesPeople,
   filterVisibleStoreSalesPersonIds,
 } from "@/lib/store-sales-people";
-import { StoreDocumentRequestQueue } from "@/components/StoreDocumentRequestQueue";
 import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { EXPIRY_ALERT_DAYS, isExpiringWithinDays } from "@/lib/expiry-window";
 import {
@@ -704,7 +703,6 @@ export default function StoresPage() {
       />
 
       <StoreRequestQueue environment="stl" />
-      <StoreDocumentRequestQueue environment="stl" />
 
       {expiredOnly && !loading ? (
         <Card className="mb-5 border-brand/30 bg-[#f7f5f0]">

@@ -17,7 +17,6 @@ import {
 import { BlockStoreSwitch } from "@/components/BlockStoreSwitch";
 import { StoreDetailGrid } from "@/components/StoreDetailGrid";
 import { StoreDocumentField } from "@/components/StoreDocumentField";
-import { StoreDocumentRequestQueue } from "@/components/StoreDocumentRequestQueue";
 import { StoreRequestQueue } from "@/components/StoreRequestQueue";
 import { useAuth } from "@/components/AuthProvider";
 import { shmpActionOn } from "@/lib/shmp-permissions";
@@ -712,7 +711,6 @@ export default function ShmpStoresPage() {
       />
 
       <StoreRequestQueue environment="shmp" />
-      <StoreDocumentRequestQueue environment="shmp" />
 
       {adding ? (
         <Card className="mb-5">
