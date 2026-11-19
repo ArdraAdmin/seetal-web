@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CalendarDays,
   CalendarX,
+  ChevronDown,
   FileBarChart,
   Folders,
   KeyRound,
@@ -68,32 +69,23 @@ type NavItem = {
   fullAdminOnly?: boolean;
 };
 
-const NAV: NavItem[] = [
-  { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
-  {
-    href: "/admin/drivers-vehicles",
-    label: "Drivers & vehicles",
-    icon: Truck,
-    moduleId: "drivers-vehicles",
-    match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
-  },
-  { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" },
-  { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
-  { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
-  {
-    href: "/admin/stock-transfer",
-    label: "Stock transfer",
-    icon: ArrowLeftRight,
-    moduleId: "stock-transfer",
-  },
-  { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck, moduleId: "approvals" },
-  { href: "/admin/leave", label: "Leave", icon: CalendarDays, moduleId: "leave" },
-  {
-    href: "/admin/tracking",
-    label: "Tracking",
-    icon: MapPinned,
-    trackingOnly: true,
-  },
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: NavIcon;
+  href: string;
+  match?: string[];
+  moduleId?: string;
+  children: NavItem[];
+  /** False when the user may see children but not the HR home page. */
+  parentLinkVisible?: boolean;
+};
+
+type NavEntry =
+  | { kind: "link"; item: NavItem }
+  | { kind: "group"; group: NavGroup };
+
+const HR_CHILDREN: NavItem[] = [
   {
     href: "/admin/attendance",
     label: "Attendance",
@@ -114,13 +106,13 @@ const NAV: NavItem[] = [
     moduleId: "attendance-override",
     superAdminOnly: true,
   },
+  { href: "/admin/leave", label: "Leave", icon: CalendarDays, moduleId: "leave" },
   {
     href: "/admin/leave-settings",
     label: "Leave settings",
     icon: CalendarClock,
     moduleId: "leave-settings",
   },
-  { href: "/admin/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
   {
     href: "/admin/hr/payroll",
     label: "Payroll",
@@ -128,33 +120,121 @@ const NAV: NavItem[] = [
     moduleId: "hr",
     fieldId: "salary",
   },
-  {
-    href: "/admin/driver-deliveries",
-    label: "Driver deliveries",
-    icon: Truck,
-    moduleId: "driver-deliveries",
-  },
-  { href: "/admin/sales-lost", label: "Sales lost", icon: PackageX, moduleId: "sales-lost" },
-  {
-    href: "/admin/permissions",
-    label: "Permissions",
-    icon: KeyRound,
-    lavOnly: true,
-  },
-  {
-    href: "/admin/users",
-    label: "User management",
-    icon: UserPlus,
-    match: ["/admin/users"],
-    fullAdminOnly: true,
-  },
-  { href: "/admin/targets", label: "Sales targets", icon: Target, moduleId: "targets" },
-  { href: "/admin/grv", label: "GRV management", icon: RotateCcw, moduleId: "grv" },
-  { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" },
-  { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" },
-  { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse, moduleId: "warehouse" },
-  { href: "/admin/settings", label: "Settings", icon: Settings, moduleId: "settings" },
 ];
+
+const NAV: NavEntry[] = [
+  { kind: "link", item: { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard, moduleId: "dashboard" } },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/drivers-vehicles",
+      label: "Drivers & vehicles",
+      icon: Truck,
+      moduleId: "drivers-vehicles",
+      match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
+    },
+  },
+  { kind: "link", item: { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" } },
+  { kind: "link", item: { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
+  { kind: "link", item: { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/stock-transfer",
+      label: "Stock transfer",
+      icon: ArrowLeftRight,
+      moduleId: "stock-transfer",
+    },
+  },
+  { kind: "link", item: { href: "/admin/approvals", label: "Approvals", icon: ShieldCheck, moduleId: "approvals" } },
+  {
+    kind: "group",
+    group: {
+      id: "hr",
+      label: "HR",
+      icon: UserSquare,
+      href: "/admin/hr",
+      moduleId: "hr",
+      children: HR_CHILDREN,
+    },
+  },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/tracking",
+      label: "Tracking",
+      icon: MapPinned,
+      trackingOnly: true,
+    },
+  },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/driver-deliveries",
+      label: "Driver deliveries",
+      icon: Truck,
+      moduleId: "driver-deliveries",
+    },
+  },
+  { kind: "link", item: { href: "/admin/sales-lost", label: "Sales lost", icon: PackageX, moduleId: "sales-lost" } },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/permissions",
+      label: "Permissions",
+      icon: KeyRound,
+      lavOnly: true,
+    },
+  },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/users",
+      label: "User management",
+      icon: UserPlus,
+      match: ["/admin/users"],
+      fullAdminOnly: true,
+    },
+  },
+  { kind: "link", item: { href: "/admin/targets", label: "Sales targets", icon: Target, moduleId: "targets" } },
+  { kind: "link", item: { href: "/admin/grv", label: "GRV management", icon: RotateCcw, moduleId: "grv" } },
+  { kind: "link", item: { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
+  { kind: "link", item: { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" } },
+  { kind: "link", item: { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse, moduleId: "warehouse" } },
+  { kind: "link", item: { href: "/admin/settings", label: "Settings", icon: Settings, moduleId: "settings" } },
+];
+
+function navTargetsForActive(entries: NavEntry[]): NavItem[] {
+  const items: NavItem[] = [];
+  for (const entry of entries) {
+    if (entry.kind === "link") {
+      items.push(entry.item);
+      continue;
+    }
+    if (entry.group.parentLinkVisible !== false) {
+      items.push({
+        href: entry.group.href,
+        label: entry.group.label,
+        icon: entry.group.icon,
+        match: entry.group.match,
+        moduleId: entry.group.moduleId,
+      });
+    }
+    items.push(...entry.group.children);
+  }
+  return items;
+}
+
+function pathInNavGroup(pathname: string, group: NavGroup) {
+  const prefixes = [
+    group.href,
+    ...(group.match ?? []),
+    ...group.children.flatMap((child) => child.match ?? [child.href]),
+  ];
+  return prefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 const COLLAPSE_KEY = "stl_sidebar_collapsed";
 
@@ -166,6 +246,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [collapseReady, setCollapseReady] = useState(false);
   const [trackingUnlocked, setTrackingUnlocked] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [hrOpen, setHrOpen] = useState(false);
+  const [hrDismissedPath, setHrDismissedPath] = useState<string | null>(null);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
@@ -203,7 +285,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const isLav =
     String(user?.email || "").trim().toLowerCase() === "lav@shrseetal.com";
   const canSeeTracking = isTrackingAdmin(user) && trackingUnlocked;
-  const navItems = NAV.filter((item) => {
+
+  function itemVisible(item: NavItem) {
     if (user?.customAccess) {
       if (!item.moduleId || !sellingModuleVisible(user.customAccess, item.moduleId)) {
         return false;
@@ -220,7 +303,38 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     if (item.superAdminOnly) return isSuperAdmin(user);
     if (item.lavOnly) return isLav;
     return true;
+  }
+
+  const navEntries = NAV.flatMap((entry): NavEntry[] => {
+    if (entry.kind === "link") {
+      return itemVisible(entry.item) ? [entry] : [];
+    }
+    const children = entry.group.children.filter(itemVisible);
+    const parentVisible = itemVisible({
+      href: entry.group.href,
+      label: entry.group.label,
+      icon: entry.group.icon,
+      match: entry.group.match,
+      moduleId: entry.group.moduleId,
+    });
+    if (!parentVisible && children.length === 0) return [];
+    return [
+      {
+        kind: "group",
+        group: {
+          ...entry.group,
+          children,
+          parentLinkVisible: parentVisible,
+        },
+      },
+    ];
   });
+  const navItems = navTargetsForActive(navEntries);
+  const hrGroup = navEntries.find(
+    (entry): entry is Extract<NavEntry, { kind: "group" }> =>
+      entry.kind === "group" && entry.group.id === "hr",
+  )?.group;
+  const inHrSection = hrGroup ? pathInNavGroup(pathname, hrGroup) : false;
   const showApprovals = navItems.some((item) => item.href === "/admin/approvals");
   const showSettings =
     !user?.customAccess || sellingModuleVisible(user.customAccess, "settings");
@@ -310,63 +424,203 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
-            {navItems.map((item) => {
-              const active = navItemActive(item, pathname, navItems, "/admin");
-              const Icon = item.icon;
-              const waiting =
-                item.href === "/admin/approvals" ? pendingApprovals : 0;
-              const waitingLabel = waiting > 99 ? "99+" : String(waiting);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    title={
-                      waiting > 0
-                        ? `${item.label}, ${waiting} waiting`
-                        : item.label
-                    }
-                    aria-label={
-                      waiting > 0
-                        ? `${item.label}, ${waiting} waiting`
-                        : undefined
-                    }
-                    onClick={() => {
-                      if (isSettingsNavHref(item.href)) {
-                        onSettingsNavClick();
-                      } else {
-                        setMobileOpen(false);
+            {navEntries.map((entry) => {
+              if (entry.kind === "link") {
+                const item = entry.item;
+                const active = navItemActive(item, pathname, navItems, "/admin");
+                const Icon = item.icon;
+                const waiting =
+                  item.href === "/admin/approvals" ? pendingApprovals : 0;
+                const waitingLabel = waiting > 99 ? "99+" : String(waiting);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      title={
+                        waiting > 0
+                          ? `${item.label}, ${waiting} waiting`
+                          : item.label
                       }
-                    }}
-                    className={`relative flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
-                      collapsed ? "lg:justify-center lg:px-2" : ""
-                    } ${
-                      active ? "bg-white shadow-sm" : "hover:bg-white/50"
-                    }`}
-                  >
-                    <span className="relative inline-flex shrink-0">
-                      <Icon
-                        className="h-4 w-4 shrink-0 text-black"
-                        strokeWidth={1.75}
-                      />
-                      {waiting > 0 && collapsed ? (
-                        <span className="absolute -top-2 -right-2.5 z-10 hidden h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-0.5 text-[10px] font-bold leading-none text-white lg:inline-flex">
+                      aria-label={
+                        waiting > 0
+                          ? `${item.label}, ${waiting} waiting`
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (isSettingsNavHref(item.href)) {
+                          onSettingsNavClick();
+                        } else {
+                          setMobileOpen(false);
+                        }
+                      }}
+                      className={`relative flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
+                        collapsed ? "lg:justify-center lg:px-2" : ""
+                      } ${
+                        active ? "bg-white shadow-sm" : "hover:bg-white/50"
+                      }`}
+                    >
+                      <span className="relative inline-flex shrink-0">
+                        <Icon
+                          className="h-4 w-4 shrink-0 text-black"
+                          strokeWidth={1.75}
+                        />
+                        {waiting > 0 && collapsed ? (
+                          <span className="absolute -top-2 -right-2.5 z-10 hidden h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-0.5 text-[10px] font-bold leading-none text-white lg:inline-flex">
+                            {waitingLabel}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className={collapsed ? "lg:hidden" : undefined}>
+                        {item.label}
+                      </span>
+                      {waiting > 0 ? (
+                        <span
+                          className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ${
+                            collapsed ? "lg:hidden" : ""
+                          }`}
+                        >
                           {waitingLabel}
                         </span>
                       ) : null}
-                    </span>
-                    <span className={collapsed ? "lg:hidden" : undefined}>
-                      {item.label}
-                    </span>
-                    {waiting > 0 ? (
-                      <span
-                        className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white ${
+                    </Link>
+                  </li>
+                );
+              }
+
+              const group = entry.group;
+              const GroupIcon = group.icon;
+              const parentLinkVisible = group.parentLinkVisible !== false;
+              const groupActive = parentLinkVisible
+                ? navItemActive(
+                    {
+                      href: group.href,
+                      match: group.match,
+                    },
+                    pathname,
+                    navItems,
+                    "/admin",
+                  )
+                : false;
+              const hrDismissed = hrDismissedPath === pathname;
+              const showChildren =
+                !hrDismissed &&
+                (hrOpen || inHrSection) &&
+                group.children.length > 0 &&
+                (!collapsed || mobileOpen);
+              const headerClass = `flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 ${
+                collapsed ? "lg:justify-center lg:px-2" : ""
+              }`;
+
+              function toggleHrGroup() {
+                if (showChildren) {
+                  setHrOpen(false);
+                  setHrDismissedPath(pathname);
+                  return;
+                }
+                setHrDismissedPath(null);
+                setHrOpen(true);
+              }
+
+              return (
+                <li key={group.id}>
+                  <div
+                    className={`flex items-center rounded-xl text-[13.5px] font-medium text-black transition ${
+                      groupActive || inHrSection
+                        ? "bg-white/70 shadow-sm"
+                        : "hover:bg-white/50"
+                    } ${collapsed ? "lg:justify-center" : ""}`}
+                  >
+                    {parentLinkVisible ? (
+                      <Link
+                        href={group.href}
+                        title={group.label}
+                        onClick={() => {
+                          setHrDismissedPath(null);
+                          setHrOpen(true);
+                          setMobileOpen(false);
+                        }}
+                        className={headerClass}
+                      >
+                        <GroupIcon
+                          className="h-4 w-4 shrink-0 text-black"
+                          strokeWidth={1.75}
+                        />
+                        <span className={collapsed ? "lg:hidden" : undefined}>
+                          {group.label}
+                        </span>
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        title={group.label}
+                        onClick={toggleHrGroup}
+                        className={headerClass}
+                      >
+                        <GroupIcon
+                          className="h-4 w-4 shrink-0 text-black"
+                          strokeWidth={1.75}
+                        />
+                        <span className={collapsed ? "lg:hidden" : undefined}>
+                          {group.label}
+                        </span>
+                      </button>
+                    )}
+                    {group.children.length > 0 ? (
+                      <button
+                        type="button"
+                        aria-label={
+                          showChildren
+                            ? `Collapse ${group.label}`
+                            : `Expand ${group.label}`
+                        }
+                        aria-expanded={showChildren}
+                        className={`mr-1 rounded-lg p-1.5 hover:bg-white/60 ${
                           collapsed ? "lg:hidden" : ""
                         }`}
+                        onClick={toggleHrGroup}
                       >
-                        {waitingLabel}
-                      </span>
+                        <ChevronDown
+                          className={`h-4 w-4 text-black transition-transform ${
+                            showChildren ? "rotate-0" : "-rotate-90"
+                          }`}
+                          strokeWidth={1.75}
+                        />
+                      </button>
                     ) : null}
-                  </Link>
+                  </div>
+                  {showChildren ? (
+                    <ul className="mt-1 space-y-1 border-l border-black/15 ml-4 pl-2">
+                      {group.children.map((child) => {
+                        const childActive = navItemActive(
+                          child,
+                          pathname,
+                          navItems,
+                          "/admin",
+                        );
+                        const ChildIcon = child.icon;
+                        return (
+                          <li key={child.href}>
+                            <Link
+                              href={child.href}
+                              title={child.label}
+                              onClick={() => setMobileOpen(false)}
+                              className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-black transition ${
+                                childActive
+                                  ? "bg-white shadow-sm"
+                                  : "hover:bg-white/50"
+                              }`}
+                            >
+                              <ChildIcon
+                                className="h-3.5 w-3.5 shrink-0 text-black"
+                                strokeWidth={1.75}
+                              />
+                              <span>{child.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
                 </li>
               );
             })}

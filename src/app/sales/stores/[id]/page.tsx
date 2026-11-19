@@ -445,7 +445,7 @@ function ProductCard({
   const unit = productUnit(product);
   const [qty, setQty] = useState(0);
   const [qtyInput, setQtyInput] = useState("0");
-  const [unitReq, setUnitReq] = useState(unit);
+  const [unitReq, setUnitReq] = useState("CARTONS");
   const [added, setAdded] = useState(false);
   const [adding, setAdding] = useState(false);
   const price = productUnitPrice(product);

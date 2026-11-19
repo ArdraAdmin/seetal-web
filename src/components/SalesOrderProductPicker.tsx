@@ -195,7 +195,7 @@ function AddProductRow({
 }) {
   const unit = productUnit(product);
   const [qty, setQty] = useState(1);
-  const [unitReq, setUnitReq] = useState(unit);
+  const [unitReq, setUnitReq] = useState("CARTONS");
   const [message, setMessage] = useState<string | null>(null);
   const price = productUnitPrice(product);
 

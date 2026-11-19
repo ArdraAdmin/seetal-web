@@ -7,6 +7,7 @@ import {
   Banknote,
   Boxes,
   CalendarDays,
+  ChevronDown,
   ClipboardList,
   Fingerprint,
   ShieldCheck,
@@ -48,54 +49,124 @@ type NavItem = {
   fullAdminOnly?: boolean;
 };
 
-const NAV: NavItem[] = [
-  { href: "/shmp", label: "Dashboard", icon: LayoutDashboard, moduleId: "dashboard" },
-  {
-    href: "/shmp/approvals",
-    label: "Approvals",
-    icon: ShieldCheck,
-    moduleId: "approvals",
-  },
-  { href: "/shmp/hr", label: "HR", icon: UserSquare, moduleId: "hr" },
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: NavIcon;
+  href: string;
+  match?: string[];
+  moduleId?: string;
+  children: NavItem[];
+  /** False when the user may see children but not the HR home page. */
+  parentLinkVisible?: boolean;
+};
+
+type NavEntry =
+  | { kind: "link"; item: NavItem }
+  | { kind: "group"; group: NavGroup };
+
+const HR_CHILDREN: NavItem[] = [
+  { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
   {
     href: "/shmp/hr/payroll",
     label: "Payroll",
     icon: Banknote,
     moduleId: "payroll",
   },
-  { href: "/shmp/attendance", label: "Attendance", icon: CalendarDays, moduleId: "attendance" },
   {
     href: "/shmp/biometric",
     label: "Biometric devices",
     icon: Fingerprint,
     moduleId: "attendance",
   },
-  { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" },
-  { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" },
-  { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "categories" },
-  { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" },
-  { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" },
-  { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" },
-  { href: "/shmp/orders", label: "Orders", icon: ClipboardList, moduleId: "orders" },
-  { href: "/shmp/delivery", label: "Delivery", icon: PackageCheck, moduleId: "delivery" },
-  {
-    href: "/shmp/drivers-vehicles",
-    label: "Drivers & vehicles",
-    icon: Truck,
-    moduleId: "drivers-vehicles",
-    match: ["/shmp/drivers-vehicles", "/shmp/drivers", "/shmp/vehicles"],
-  },
-  { href: "/shmp/costing", label: "Product Costing", icon: Package, moduleId: "costing" },
-  { href: "/shmp/reports", label: "Reports", icon: CalendarDays, moduleId: "reports" },
-  {
-    href: "/shmp/users",
-    label: "User management",
-    icon: UserPlus,
-    match: ["/shmp/users"],
-    fullAdminOnly: true,
-  },
-  { href: "/shmp/settings", label: "Settings", icon: Settings, moduleId: "settings" },
 ];
+
+const NAV: NavEntry[] = [
+  { kind: "link", item: { href: "/shmp", label: "Dashboard", icon: LayoutDashboard, moduleId: "dashboard" } },
+  {
+    kind: "link",
+    item: {
+      href: "/shmp/approvals",
+      label: "Approvals",
+      icon: ShieldCheck,
+      moduleId: "approvals",
+    },
+  },
+  {
+    kind: "group",
+    group: {
+      id: "hr",
+      label: "HR",
+      icon: UserSquare,
+      href: "/shmp/hr",
+      moduleId: "hr",
+      children: HR_CHILDREN,
+    },
+  },
+  { kind: "link", item: { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" } },
+  { kind: "link", item: { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
+  { kind: "link", item: { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
+  { kind: "link", item: { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
+  { kind: "link", item: { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" } },
+  { kind: "link", item: { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" } },
+  { kind: "link", item: { href: "/shmp/orders", label: "Orders", icon: ClipboardList, moduleId: "orders" } },
+  { kind: "link", item: { href: "/shmp/delivery", label: "Delivery", icon: PackageCheck, moduleId: "delivery" } },
+  {
+    kind: "link",
+    item: {
+      href: "/shmp/drivers-vehicles",
+      label: "Drivers & vehicles",
+      icon: Truck,
+      moduleId: "drivers-vehicles",
+      match: ["/shmp/drivers-vehicles", "/shmp/drivers", "/shmp/vehicles"],
+    },
+  },
+  { kind: "link", item: { href: "/shmp/costing", label: "Product Costing", icon: Package, moduleId: "costing" } },
+  { kind: "link", item: { href: "/shmp/reports", label: "Reports", icon: CalendarDays, moduleId: "reports" } },
+  {
+    kind: "link",
+    item: {
+      href: "/shmp/users",
+      label: "User management",
+      icon: UserPlus,
+      match: ["/shmp/users"],
+      fullAdminOnly: true,
+    },
+  },
+  { kind: "link", item: { href: "/shmp/settings", label: "Settings", icon: Settings, moduleId: "settings" } },
+];
+
+function navTargetsForActive(entries: NavEntry[]): NavItem[] {
+  const items: NavItem[] = [];
+  for (const entry of entries) {
+    if (entry.kind === "link") {
+      items.push(entry.item);
+      continue;
+    }
+    if (entry.group.parentLinkVisible !== false) {
+      items.push({
+        href: entry.group.href,
+        label: entry.group.label,
+        icon: entry.group.icon,
+        match: entry.group.match,
+        moduleId: entry.group.moduleId,
+      });
+    }
+    items.push(...entry.group.children);
+  }
+  return items;
+}
+
+function pathInNavGroup(pathname: string, group: NavGroup) {
+  const prefixes = [
+    group.href,
+    ...(group.match ?? []),
+    ...group.children.flatMap((child) => child.match ?? [child.href]),
+  ];
+  return prefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 const COLLAPSE_KEY = "shmp_sidebar_collapsed";
 
@@ -105,6 +176,8 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [collapseReady, setCollapseReady] = useState(false);
+  const [hrOpen, setHrOpen] = useState(false);
+  const [hrDismissedPath, setHrDismissedPath] = useState<string | null>(null);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
@@ -129,7 +202,8 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
 
   const supervisor = isSupervisor(user);
   const labelChecker = isLabelChecker(user);
-  const navItems = NAV.filter((item) => {
+
+  function itemVisible(item: NavItem) {
     if (item.fullAdminOnly) {
       return user?.role === "Admin" && !user.customAccess;
     }
@@ -142,7 +216,38 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
       return true;
     }
     return true;
+  }
+
+  const navEntries = NAV.flatMap((entry): NavEntry[] => {
+    if (entry.kind === "link") {
+      return itemVisible(entry.item) ? [entry] : [];
+    }
+    const children = entry.group.children.filter(itemVisible);
+    const parentVisible = itemVisible({
+      href: entry.group.href,
+      label: entry.group.label,
+      icon: entry.group.icon,
+      match: entry.group.match,
+      moduleId: entry.group.moduleId,
+    });
+    if (!parentVisible && children.length === 0) return [];
+    return [
+      {
+        kind: "group",
+        group: {
+          ...entry.group,
+          children,
+          parentLinkVisible: parentVisible,
+        },
+      },
+    ];
   });
+  const navItems = navTargetsForActive(navEntries);
+  const hrGroup = navEntries.find(
+    (entry): entry is Extract<NavEntry, { kind: "group" }> =>
+      entry.kind === "group" && entry.group.id === "hr",
+  )?.group;
+  const inHrSection = hrGroup ? pathInNavGroup(pathname, hrGroup) : false;
   const canSwitchEnvironment = (user?.environments?.length ?? 0) > 1;
 
   return (
@@ -175,26 +280,166 @@ export function ShmpShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           <ul className="space-y-1">
-            {navItems.map((item) => {
-              const active = navItemActive(item, pathname, navItems, "/shmp");
-              const Icon = item.icon;
+            {navEntries.map((entry) => {
+              if (entry.kind === "link") {
+                const item = entry.item;
+                const active = navItemActive(item, pathname, navItems, "/shmp");
+                const Icon = item.icon;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      title={item.label}
+                      className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
+                        collapsed ? "lg:justify-center lg:px-2" : ""
+                      } ${active ? "bg-white shadow-sm" : "hover:bg-white/50"}`}
+                    >
+                      <Icon
+                        className="h-4 w-4 shrink-0 text-black"
+                        strokeWidth={1.75}
+                      />
+                      <span className={collapsed ? "lg:hidden" : undefined}>
+                        {item.label}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              }
+
+              const group = entry.group;
+              const GroupIcon = group.icon;
+              const parentLinkVisible = group.parentLinkVisible !== false;
+              const groupActive = parentLinkVisible
+                ? navItemActive(
+                    {
+                      href: group.href,
+                      match: group.match,
+                    },
+                    pathname,
+                    navItems,
+                    "/shmp",
+                  )
+                : false;
+              const hrDismissed = hrDismissedPath === pathname;
+              const showChildren =
+                !hrDismissed &&
+                (hrOpen || inHrSection) &&
+                group.children.length > 0 &&
+                (!collapsed || mobileOpen);
+              const headerClass = `flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 ${
+                collapsed ? "lg:justify-center lg:px-2" : ""
+              }`;
+
+              function toggleHrGroup() {
+                if (showChildren) {
+                  setHrOpen(false);
+                  setHrDismissedPath(pathname);
+                  return;
+                }
+                setHrDismissedPath(null);
+                setHrOpen(true);
+              }
+
               return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    title={item.label}
-                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13.5px] font-medium text-black transition ${
-                      collapsed ? "lg:justify-center lg:px-2" : ""
-                    } ${active ? "bg-white shadow-sm" : "hover:bg-white/50"}`}
+                <li key={group.id}>
+                  <div
+                    className={`flex items-center rounded-xl text-[13.5px] font-medium text-black transition ${
+                      groupActive || inHrSection
+                        ? "bg-white/70 shadow-sm"
+                        : "hover:bg-white/50"
+                    } ${collapsed ? "lg:justify-center" : ""}`}
                   >
-                    <Icon
-                      className="h-4 w-4 shrink-0 text-black"
-                      strokeWidth={1.75}
-                    />
-                    <span className={collapsed ? "lg:hidden" : undefined}>
-                      {item.label}
-                    </span>
-                  </Link>
+                    {parentLinkVisible ? (
+                      <Link
+                        href={group.href}
+                        title={group.label}
+                        onClick={() => {
+                          setHrDismissedPath(null);
+                          setHrOpen(true);
+                          setMobileOpen(false);
+                        }}
+                        className={headerClass}
+                      >
+                        <GroupIcon
+                          className="h-4 w-4 shrink-0 text-black"
+                          strokeWidth={1.75}
+                        />
+                        <span className={collapsed ? "lg:hidden" : undefined}>
+                          {group.label}
+                        </span>
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        title={group.label}
+                        onClick={toggleHrGroup}
+                        className={headerClass}
+                      >
+                        <GroupIcon
+                          className="h-4 w-4 shrink-0 text-black"
+                          strokeWidth={1.75}
+                        />
+                        <span className={collapsed ? "lg:hidden" : undefined}>
+                          {group.label}
+                        </span>
+                      </button>
+                    )}
+                    {group.children.length > 0 ? (
+                      <button
+                        type="button"
+                        aria-label={
+                          showChildren
+                            ? `Collapse ${group.label}`
+                            : `Expand ${group.label}`
+                        }
+                        aria-expanded={showChildren}
+                        className={`mr-1 rounded-lg p-1.5 hover:bg-white/60 ${
+                          collapsed ? "lg:hidden" : ""
+                        }`}
+                        onClick={toggleHrGroup}
+                      >
+                        <ChevronDown
+                          className={`h-4 w-4 text-black transition-transform ${
+                            showChildren ? "rotate-0" : "-rotate-90"
+                          }`}
+                          strokeWidth={1.75}
+                        />
+                      </button>
+                    ) : null}
+                  </div>
+                  {showChildren ? (
+                    <ul className="mt-1 ml-4 space-y-1 border-l border-black/15 pl-2">
+                      {group.children.map((child) => {
+                        const childActive = navItemActive(
+                          child,
+                          pathname,
+                          navItems,
+                          "/shmp",
+                        );
+                        const ChildIcon = child.icon;
+                        return (
+                          <li key={child.href}>
+                            <Link
+                              href={child.href}
+                              title={child.label}
+                              onClick={() => setMobileOpen(false)}
+                              className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-black transition ${
+                                childActive
+                                  ? "bg-white shadow-sm"
+                                  : "hover:bg-white/50"
+                              }`}
+                            >
+                              <ChildIcon
+                                className="h-3.5 w-3.5 shrink-0 text-black"
+                                strokeWidth={1.75}
+                              />
+                              <span>{child.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
                 </li>
               );
             })}
