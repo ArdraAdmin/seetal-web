@@ -126,6 +126,35 @@ async function assertWarehouseUser(token: string | null) {
   return { database, userId: id };
 }
 
+/** Hide SHMP manufacturing orders from Seetal Custom/Loading list exports. */
+async function stlWarehouseShmpExclusion(
+  database: Awaited<ReturnType<typeof assertWarehouseUser>>["database"],
+): Promise<Document> {
+  const [companies, stores] = await Promise.all([
+    database
+      .collection("companies")
+      .find({ $or: [{ name: /^shmp$/i }, { prefix: /^shmp$/i }] })
+      .project({ _id: 1 })
+      .toArray(),
+    database
+      .collection("stores")
+      .find({ environment: "shmp" })
+      .project({ _id: 1 })
+      .toArray(),
+  ]);
+  const nor: Document[] = [
+    { tempOrderInvoiceNo: /^shmp\//i },
+    { invoiceNumber: /^shmp\//i },
+  ];
+  if (companies.length) {
+    nor.push({ company: { $in: companies.map((row) => row._id) } });
+  }
+  if (stores.length) {
+    nor.push({ store: { $in: stores.map((row) => row._id) } });
+  }
+  return { $nor: nor };
+}
+
 async function loadTodayOrders(
   database: Awaited<ReturnType<typeof assertWarehouseUser>>["database"],
   extra: Document,
@@ -139,6 +168,7 @@ async function loadTodayOrders(
     );
     dateFilter.date = { $gte: start, $lte: end };
   }
+  const shmpExclusion = await stlWarehouseShmpExclusion(database);
   const orders = await database
     .collection("temporders")
     .find({
@@ -147,6 +177,7 @@ async function loadTodayOrders(
       needsApproval: { $ne: true },
       ...dateFilter,
       ...extra,
+      ...shmpExclusion,
     })
     .sort({ date: -1 })
     .toArray();
