@@ -96,12 +96,7 @@ export function StaffCheckInGate({
       if (requireLocation) {
         void startLocationHeartbeat(user.id);
       }
-      toast(
-        lat != null
-          ? "Checked in successfully"
-          : "Checked in. Location was not available, so tracking will start when it is.",
-        "success",
-      );
+      toast("Checked in successfully", "success");
       setNeedsCheckIn(false);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Check-in failed";

@@ -355,7 +355,7 @@ function UserDetail() {
         <AttendanceHistory kind="portal" personId={id} />
       ) : (
         <p className="text-sm text-slate-500">
-          Admin logins are not tracked for attendance.
+          Admin accounts do not use attendance check-in.
         </p>
       )}
 

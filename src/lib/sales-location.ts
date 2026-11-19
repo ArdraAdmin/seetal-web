@@ -227,7 +227,7 @@ export async function promptEnableLocationOnce(
   const ok = await ensureLocationForOrders();
   if (!ok) {
     alertFn(
-      "Please turn on location for this site to place orders and allow tracking after check-in.",
+      "Please turn on location for this site to place orders.",
     );
   }
 }

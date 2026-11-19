@@ -106,12 +106,7 @@ export default function SalesAttendancePage() {
         accuracy: pos?.accuracy,
       });
       await startLocationHeartbeat(user.id);
-      toast(
-        pos
-          ? "Checked in successfully"
-          : "Checked in. Location was not available, so tracking will start when it is.",
-        "success",
-      );
+      toast("Checked in successfully", "success");
       window.dispatchEvent(new Event("stl-sales-attendance-changed"));
       await load();
     } catch (e) {
