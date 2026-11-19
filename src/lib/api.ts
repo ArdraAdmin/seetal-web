@@ -1044,50 +1044,6 @@ export function rejectStoreDocumentRequest(
   );
 }
 
-export const saveAdminStoreEid = (input: {
-  storeId: string;
-  eidNumber: string;
-  isTemp?: boolean;
-  file?: File | null;
-}) => {
-  const body = new FormData();
-  body.set("storeId", input.storeId);
-  body.set("eidNumber", input.eidNumber);
-  body.set("isTemp", input.isTemp ? "true" : "false");
-  if (input.file instanceof File) body.set("eidDocument", input.file);
-  return siteRequest<{ ok: boolean }>("/api/admin/stores/eid", {
-    method: "POST",
-    body,
-  });
-};
-
-export async function openAdminStoreEidFile(storeId: string) {
-  const headers = new Headers();
-  const user = getStoredAuth();
-  const sentToken = Boolean(user?.token);
-  if (user?.token) {
-    headers.set("Authorization", user.token);
-    headers.set("auth-token", user.token);
-  }
-  const res = await fetch(
-    `/api/admin/stores/eid?storeId=${encodeURIComponent(storeId)}`,
-    { headers, cache: "no-store" },
-  );
-  endSessionIfRejected(res.status, sentToken);
-  if (!res.ok) {
-    const raw = await res.text();
-    throw new ApiError(raw || "Unable to open the EID document", res.status);
-  }
-  const blob = await res.blob();
-  const type = blob.type || "application/octet-stream";
-  const url = URL.createObjectURL(new Blob([blob], { type }));
-  const opened = window.open(url, "_blank", "noopener");
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  if (!opened) {
-    throw new ApiError("Allow pop-ups to view the EID document", 400);
-  }
-}
-
 export const setAdminStoreSalesPeople = (
   storeId: string,
   salesPersons: string[],
