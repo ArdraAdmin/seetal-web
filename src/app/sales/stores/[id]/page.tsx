@@ -150,12 +150,11 @@ export default function SalesStoreProductsPage() {
       if (!user?.id || !storeId) return;
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
-      const mergeHomes = shouldMergeSarvahHomesInventory(
-        loadSalesWorkspace(),
-        storeName,
-      );
-      // Local Sarvah catalogue alone would skip manufacturing assignments.
-      if (!mergeHomes) {
+      const workspace = loadSalesWorkspace();
+      const mergeHomes = shouldMergeSarvahHomesInventory(workspace, storeName);
+      // Local company catalogue skips store-assigned manufacturing (SHMP /
+      // Sarvah Homes merge). Those workspaces must hit the API path.
+      if (!mergeHomes && workspace !== "shmp") {
         const local = localSalesInventoryPage(nextPage, tag, cat, sub, storeId);
         if (local) {
           if (gen !== loadGen.current) return;

@@ -259,3 +259,24 @@ export function filterShmpSalesInventory(
     return true;
   });
 }
+
+/**
+ * Page manufacturing products already assigned to an SHMP store.
+ * Keeps manufacturing stock/price — do not enrich from selling catalogues.
+ */
+export function pageShmpAssignedInventory(
+  products: Product[],
+  uiPage: number,
+  pageSize: number,
+  tag = "",
+  cat = "",
+  subCat = "",
+) {
+  const filtered = filterShmpSalesInventory(products, tag, cat, subCat);
+  const size = Math.max(1, pageSize);
+  const start = Math.max(0, uiPage - 1) * size;
+  return {
+    products: filtered.slice(start, start + size),
+    hasNext: start + size < filtered.length,
+  };
+}

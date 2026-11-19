@@ -9,6 +9,7 @@ import {
   syncSalesInventory,
 } from "@/lib/api";
 import { onSalesAccessChange } from "@/lib/sales-company";
+import { loadSalesWorkspace } from "@/lib/sales-selected-company";
 import {
   productCartonStock,
   productRatio,
@@ -54,17 +55,20 @@ export function SalesOrderProductPicker({
       if (!user?.id || !storeId) return;
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
-      const local = localSalesInventoryPage(nextPage, tag, "", "", storeId);
-      if (local) {
-        if (gen !== loadGen.current) return;
-        setProducts(local.products);
-        setHasNext(local.hasNext);
-        setPage(nextPage);
-        setAppliedQuery(tag);
-        appliedRef.current = tag;
-        setError(null);
-        setLoading(false);
-        return;
+      // SHMP uses store-assigned manufacturing inventory, not the company cache.
+      if (loadSalesWorkspace() !== "shmp") {
+        const local = localSalesInventoryPage(nextPage, tag, "", "", storeId);
+        if (local) {
+          if (gen !== loadGen.current) return;
+          setProducts(local.products);
+          setHasNext(local.hasNext);
+          setPage(nextPage);
+          setAppliedQuery(tag);
+          appliedRef.current = tag;
+          setError(null);
+          setLoading(false);
+          return;
+        }
       }
       setLoading(true);
       setError(null);

@@ -70,7 +70,10 @@ import {
   mergeSarvahAndAssignedShmpProducts,
   shouldMergeSarvahHomesInventory,
 } from "./sarvah-homes-sales";
-import { filterShmpSalesInventory } from "./shmp-sales-inventory";
+import {
+  filterShmpSalesInventory,
+  pageShmpAssignedInventory,
+} from "./shmp-sales-inventory";
 import { exportRangeBounds } from "./invoice";
 import { viewableVehicleFileType } from "./vehicle-records";
 
@@ -3719,6 +3722,31 @@ export async function loadSarvahHomesMergedInventoryPage(
   return sliceSalesInventoryPage(merged, uiPage);
 }
 
+/**
+ * SHMP sales card: manufacturing products assigned to this store only.
+ * Does not enrich from Sarvah/STL selling rows that share an itemRef.
+ */
+export async function loadShmpStoreAssignedInventoryPage(
+  storeId: string,
+  userId: string,
+  uiPage: number,
+  tag = "",
+  cat = "",
+  subCat = "",
+) {
+  const assigned = await fetchShmpStoreInventory(storeId, userId, {
+    productionOnly: true,
+  });
+  return pageShmpAssignedInventory(
+    assigned,
+    uiPage,
+    SALES_INVENTORY_PAGE_SIZE,
+    tag,
+    cat,
+    subCat,
+  );
+}
+
 export async function loadSalesInventoryUiPage(
   storeId: string,
   userId: string,
@@ -3732,6 +3760,17 @@ export async function loadSalesInventoryUiPage(
 ) {
   if (shouldMergeSarvahHomesInventory(loadSalesWorkspace(), storeName)) {
     return loadSarvahHomesMergedInventoryPage(
+      storeId,
+      userId,
+      uiPage,
+      tag,
+      cat,
+      subCat,
+    );
+  }
+
+  if (loadSalesWorkspace() === "shmp") {
+    return loadShmpStoreAssignedInventoryPage(
       storeId,
       userId,
       uiPage,

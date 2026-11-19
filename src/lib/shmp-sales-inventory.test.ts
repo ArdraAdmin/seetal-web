@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   filterShmpSalesInventory,
   matchingStoreProfile,
+  pageShmpAssignedInventory,
   productFromShmpStoreDoc,
 } from "./shmp-sales-inventory.ts";
 
@@ -147,5 +148,60 @@ describe("filterShmpSalesInventory", () => {
       filterShmpSalesInventory(products, "", "Crockery", "basins").length,
       0,
     );
+  });
+});
+
+describe("pageShmpAssignedInventory", () => {
+  const manufacturing = [
+    productFromShmpStoreDoc(assignedDoc, storeId)!,
+    productFromShmpStoreDoc(
+      {
+        ...assignedDoc,
+        _id: "64b0000000000000000000bb",
+        itemName: "Basin",
+        itemRef: "SH-SB-35",
+        inQty: { amountInCartons: 0, amountInUnits: 0 },
+        storeProfileList: [
+          { store: storeId, storePrice: 12.75, isDisplayed: true },
+        ],
+      },
+      storeId,
+    )!,
+    productFromShmpStoreDoc(
+      {
+        ...assignedDoc,
+        _id: "64b0000000000000000000cc",
+        itemName: "Mug",
+        itemRef: "SHMP-3",
+        inQty: { amountInCartons: 5, amountInUnits: 0 },
+        storeProfileList: [
+          { store: storeId, storePrice: 8, isDisplayed: true },
+        ],
+      },
+      storeId,
+    )!,
+  ];
+
+  it("pages assigned manufacturing products without changing stock", () => {
+    const page1 = pageShmpAssignedInventory(manufacturing, 1, 2);
+    assert.equal(page1.products.length, 2);
+    assert.equal(page1.hasNext, true);
+    assert.equal(page1.products[0]?.inQty?.amountInCartons, 3);
+    assert.equal(page1.products[1]?.itemRef, "SH-SB-35");
+    assert.equal(page1.products[1]?.inQty?.amountInCartons, 0);
+
+    const page2 = pageShmpAssignedInventory(manufacturing, 2, 2);
+    assert.equal(page2.products.length, 1);
+    assert.equal(page2.hasNext, false);
+    assert.equal(page2.products[0]?.itemRef, "SHMP-3");
+  });
+
+  it("keeps manufacturing qty when filtering by a shared selling item code", () => {
+    const page = pageShmpAssignedInventory(manufacturing, 1, 30, "SH-SB-35");
+    assert.equal(page.products.length, 1);
+    assert.equal(page.products[0]?.itemRef, "SH-SB-35");
+    // Must stay manufacturing stock (0), not a Sarvah selling twin (e.g. 119).
+    assert.equal(page.products[0]?.inQty?.amountInCartons, 0);
+    assert.equal(page.products[0]?.sellingPrice, 12.75);
   });
 });
