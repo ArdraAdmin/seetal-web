@@ -100,6 +100,10 @@ export function isLabelChecker(user: AuthUser | null): boolean {
   return user?.role === "LabelChecker";
 }
 
+export function isDriver(user: AuthUser | null): boolean {
+  return user?.role === "Driver";
+}
+
 export function canAccessEnvironment(
   user: AuthUser | null,
   env: "stl" | "shmp",

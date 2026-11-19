@@ -146,6 +146,15 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (pathname.startsWith("/driver")) {
+    if (!authed || role !== "Driver") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return finish(NextResponse.redirect(url));
+    }
+  }
+
   if (pathname.startsWith("/shmp")) {
     if (!authed) {
       const url = request.nextUrl.clone();
@@ -273,6 +282,8 @@ export const config = {
     "/sales/:path*",
     "/warehouse",
     "/warehouse/:path*",
+    "/driver",
+    "/driver/:path*",
     "/shmp",
     "/shmp/:path*",
     "/select-environment",

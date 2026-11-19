@@ -79,8 +79,15 @@ function toAssignedProduct(doc: Record<string, unknown>, homesId: string) {
       : doc.storeItemCode
         ? String(doc.storeItemCode)
         : undefined,
+    shmpCategoryId: idString(doc.shmpCategoryId) || undefined,
+    shmpMasterCategory: doc.shmpMasterCategory
+      ? String(doc.shmpMasterCategory).trim() || undefined
+      : undefined,
+    shmpSubCategory: doc.shmpSubCategory
+      ? String(doc.shmpSubCategory).trim() || undefined
+      : undefined,
     source: doc.source ? String(doc.source) : undefined,
-    ownInventory: doc.ownInventory === true,
+    ownInventory: doc.ownInventory === true ? true : undefined,
   };
 }
 

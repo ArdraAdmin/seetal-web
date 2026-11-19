@@ -27,6 +27,11 @@ export type ShmpStoreInventoryDoc = {
   subCategoryId?: unknown;
   masterCategoryId?: unknown;
   masterCategoryName?: unknown;
+  shmpCategoryId?: unknown;
+  shmpMasterCategory?: unknown;
+  shmpSubCategory?: unknown;
+  source?: unknown;
+  ownInventory?: unknown;
   imagePath?: unknown;
   company?: unknown;
   storeProfileList?: ShmpStoreProfileLike[];
@@ -190,6 +195,15 @@ export function productFromShmpStoreDoc(
       : doc.storeItemCode
         ? String(doc.storeItemCode)
         : undefined,
+    shmpCategoryId: idString(doc.shmpCategoryId) || undefined,
+    shmpMasterCategory: doc.shmpMasterCategory
+      ? String(doc.shmpMasterCategory).trim() || undefined
+      : undefined,
+    shmpSubCategory: doc.shmpSubCategory
+      ? String(doc.shmpSubCategory).trim() || undefined
+      : undefined,
+    source: doc.source ? String(doc.source) : undefined,
+    ownInventory: doc.ownInventory === true ? true : undefined,
   };
 }
 

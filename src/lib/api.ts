@@ -288,6 +288,16 @@ function authUserFromPayload(
 
   const token = String(tokenOverride ?? data.token ?? "");
 
+  const driverField =
+    field?.driver && typeof field.driver === "object"
+      ? (field.driver as Record<string, unknown>)
+      : null;
+  const driverId = data.driverId
+    ? String(data.driverId)
+    : driverField?.driverId
+      ? String(driverField.driverId)
+      : undefined;
+
   return {
     id: String(data._id ?? ""),
     name: String(data.name ?? ""),
@@ -298,12 +308,15 @@ function authUserFromPayload(
       ? String(data.mobileNumber)
       : undefined,
     isSuperAdmin: adminField?.isSuperAdmin === true,
+    driverId,
     environments:
       environments && environments.length
         ? environments
         : String(data.role) === "Supervisor" ||
             String(data.role) === "LabelChecker"
           ? (["shmp"] as ("stl" | "shmp")[])
+          : String(data.role) === "Driver"
+            ? (["stl"] as ("stl" | "shmp")[])
           : adminField?.isSuperAdmin === true
             ? (["stl", "shmp"] as ("stl" | "shmp")[])
             : (["stl"] as ("stl" | "shmp")[]),
@@ -458,6 +471,26 @@ export const editDriver = (
 };
 export const deleteDriver = (driverId: string, scope: FleetScope = "stl") =>
   request<string>("/admin/driver/delete", {
+    method: "POST",
+    body: JSON.stringify({ driverId, scope }),
+  });
+
+export const saveDriverLogin = (
+  driverId: string,
+  email: string,
+  password: string,
+  scope: FleetScope = "stl",
+) =>
+  request<Driver>("/admin/driver/account", {
+    method: "POST",
+    body: JSON.stringify({ driverId, email, password, scope }),
+  });
+
+export const removeDriverLogin = (
+  driverId: string,
+  scope: FleetScope = "stl",
+) =>
+  request<Driver>("/admin/driver/account/remove", {
     method: "POST",
     body: JSON.stringify({ driverId, scope }),
   });
@@ -888,6 +921,127 @@ export function submitStoreRequest(body: FormData) {
     method: "POST",
     body,
   });
+}
+
+export const saveAdminStoreEid = (input: {
+  storeId: string;
+  eidNumber: string;
+  isTemp?: boolean;
+  file?: File | null;
+}) => {
+  const body = new FormData();
+  body.set("storeId", input.storeId);
+  body.set("eidNumber", input.eidNumber);
+  body.set("isTemp", input.isTemp ? "true" : "false");
+  if (input.file instanceof File) body.set("eidDocument", input.file);
+  return siteRequest<{ ok: boolean }>("/api/admin/stores/eid", {
+    method: "POST",
+    body,
+  });
+};
+
+export async function openAdminStoreEidFile(storeId: string) {
+  const headers = new Headers();
+  const user = getStoredAuth();
+  const sentToken = Boolean(user?.token);
+  if (user?.token) {
+    headers.set("Authorization", user.token);
+    headers.set("auth-token", user.token);
+  }
+  const res = await fetch(
+    `/api/admin/stores/eid?storeId=${encodeURIComponent(storeId)}`,
+    { headers, cache: "no-store" },
+  );
+  endSessionIfRejected(res.status, sentToken);
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new ApiError(raw || "Unable to open the EID document", res.status);
+  }
+  const blob = await res.blob();
+  const type = blob.type || "application/octet-stream";
+  const url = URL.createObjectURL(new Blob([blob], { type }));
+  const opened = window.open(url, "_blank", "noopener");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  if (!opened) {
+    throw new ApiError("Allow pop-ups to view the EID document", 400);
+  }
+}
+
+export type StoreDocumentRequestRow = {
+  id: string;
+  status: string;
+  environment: "stl" | "shmp";
+  storeId: string;
+  storeName: string;
+  currentTradeLicenseExpiry?: string | Date | null;
+  currentEidNumber?: string;
+  tradeLicenseExpiry?: string | Date | null;
+  eidNumber?: string;
+  updateTradeLicenseExpiry?: boolean;
+  updateTradeLicenseDocument?: boolean;
+  updateEidNumber?: boolean;
+  updateEidDocument?: boolean;
+  tradeLicenseDocumentUrl?: string;
+  eidDocumentUrl?: string;
+  eidDocumentFileName?: string;
+  requestedByName?: string;
+  reviewNote?: string;
+  createdAt?: string;
+  reviewedAt?: string | null;
+};
+
+export function listMyStoreDocumentRequests(status = "pending") {
+  const qs = new URLSearchParams({ status });
+  return request<{ requests: StoreDocumentRequestRow[] }>(
+    `/sales/store-document-requests?${qs}`,
+  );
+}
+
+export function submitStoreDocumentRequest(body: FormData) {
+  return request<StoreDocumentRequestRow>("/sales/store-document-requests", {
+    method: "POST",
+    body,
+  });
+}
+
+export function listStoreDocumentRequests(
+  userId: string,
+  environment?: "stl" | "shmp",
+) {
+  const qs = new URLSearchParams({ userId, status: "pending" });
+  if (environment) qs.set("environment", environment);
+  return request<{ requests: StoreDocumentRequestRow[] }>(
+    `/admin/store-document-requests?${qs}`,
+  );
+}
+
+export function approveStoreDocumentRequest(userId: string, id: string) {
+  return request<{
+    store?: {
+      _id?: string;
+      uid?: string;
+      storeName?: string;
+      tradeLicenseExpiry?: string | null;
+      eidNumber?: string;
+    };
+  }>(`/admin/store-document-requests/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export function rejectStoreDocumentRequest(
+  userId: string,
+  id: string,
+  note: string,
+) {
+  return request<unknown>(
+    `/admin/store-document-requests/${encodeURIComponent(id)}/reject`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId, note }),
+    },
+  );
 }
 
 export const saveAdminStoreEid = (input: {

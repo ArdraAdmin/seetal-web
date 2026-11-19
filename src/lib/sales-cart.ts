@@ -4,6 +4,8 @@ import { loadSelectedSalesCompany } from "./sales-selected-company";
 import {
   productCategoryId,
   productMasterCategoryId,
+} from "./product-category";
+import {
   productRatio,
   productUnit,
   productUnitPrice,

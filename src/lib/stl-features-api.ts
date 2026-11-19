@@ -1096,28 +1096,80 @@ export async function deleteHrStaffIncrement(adminUserId: string, id: string, en
   );
 }
 
+export type DriverDeliveryStop = {
+  orderId: string;
+  invoiceNo?: string;
+  sequence: number;
+  storeName: string;
+  address: string;
+  cartons: number;
+  vehicle?: string;
+  status?: string;
+  completed?: boolean;
+  completedAt?: string | null;
+  scheduledAt?: string;
+  mapsUrl?: string | null;
+  location?: { lat: number; lng: number } | null;
+  proofOfDelivery?: {
+    fileName?: string;
+    contentType?: string;
+    uploadedAt?: string | null;
+    hasFile?: boolean;
+  } | null;
+  source?: "stl" | "shmp" | string;
+};
+
+export type DriverDeliveriesPayload = {
+  driver: {
+    id: string | null;
+    name: string;
+    phoneNo?: string;
+    scope?: string;
+    vehicleId?: string | null;
+    vehicleNumber?: string | null;
+  };
+  deliveries: DriverDeliveryStop[];
+  now?: string;
+};
+
 export async function getDriverDeliveriesToday(opts: {
   driverId?: string;
   driver?: string;
   date?: string;
+  scope?: string;
 }) {
   const qs = new URLSearchParams();
   if (opts.driverId) qs.set("driverId", opts.driverId);
   if (opts.driver) qs.set("driver", opts.driver);
   if (opts.date) qs.set("date", opts.date);
+  if (opts.scope) qs.set("scope", opts.scope);
+  return request<DriverDeliveriesPayload>(`/driver/today?${qs}`);
+}
+
+export async function getMyDriverDeliveries(opts?: { date?: string }) {
+  const qs = new URLSearchParams();
+  if (opts?.date) qs.set("date", opts.date);
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return request<DriverDeliveriesPayload>(`/driver/me/deliveries${suffix}`);
+}
+
+export async function completeDriverDelivery(orderId: string, photo: File) {
+  const body = new FormData();
+  body.append("photo", photo);
   return request<{
-    driver: { id: string | null; name: string; phoneNo?: string };
-    deliveries: Array<{
-      orderId: string;
-      sequence: number;
-      storeName: string;
-      address: string;
-      cartons: number;
-      scheduledAt?: string;
-      mapsUrl?: string | null;
-      location?: { lat: number; lng: number } | null;
-    }>;
-  }>(`/driver/today?${qs}`);
+    ok: boolean;
+    orderId: string;
+    status: string;
+    deliveredAt?: string;
+    proofOfDelivery?: DriverDeliveryStop["proofOfDelivery"];
+  }>(`/driver/deliveries/${encodeURIComponent(orderId)}/complete`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function driverPodPath(orderId: string) {
+  return `/driver/pod/${encodeURIComponent(orderId)}`;
 }
 
 export type PortalLeaveEntitlement = { annual: number; sick: number };

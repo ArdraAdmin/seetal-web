@@ -25,6 +25,11 @@ const assignedDoc = {
   },
   company: { _id: "670d5f6a2c6a53f39f7a0fcf", name: "SHMP" },
   inQty: { amountInCartons: 3, amountInUnits: 8 },
+  shmpCategoryId: "64d0000000000000000000dd",
+  shmpMasterCategory: "Packaging",
+  shmpSubCategory: "Boxes",
+  source: "shmp-production",
+  ownInventory: true,
   storeProfileList: [
     {
       store: storeId,
@@ -50,6 +55,11 @@ describe("productFromShmpStoreDoc", () => {
     assert.equal(product?.storeItemCode, "DEMO-1");
     assert.equal(product?.categoryId, "64c0000000000000000000cc");
     assert.equal(product?.inQty?.amountInCartons, 3);
+    assert.equal(product?.shmpCategoryId, "64d0000000000000000000dd");
+    assert.equal(product?.shmpMasterCategory, "Packaging");
+    assert.equal(product?.shmpSubCategory, "Boxes");
+    assert.equal(product?.source, "shmp-production");
+    assert.equal(product?.ownInventory, true);
   });
 
   it("hides products that are not assigned or not displayed", () => {

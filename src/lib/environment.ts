@@ -51,6 +51,7 @@ export function normalizeEnvironments(
       .filter((e): e is AppEnvironment => e === "stl" || e === "shmp");
   }
   if (role === "Supervisor" || role === "LabelChecker") return ["shmp"];
+  if (role === "Driver") return ["stl"];
   if (role === "Admin" && isSuperAdmin) return ["stl", "shmp"];
   return ["stl"];
 }
@@ -60,6 +61,7 @@ export const LABEL_CHECKER_SHMP_HOME = "/shmp/rm";
 
 export function homePathForEnvironment(env: AppEnvironment, role?: string) {
   if (role === "Sales") return "/sales";
+  if (role === "Driver") return "/driver";
   if (env === "shmp") {
     if (role === "Supervisor") return SUPERVISOR_SHMP_HOME;
     if (role === "LabelChecker") return LABEL_CHECKER_SHMP_HOME;

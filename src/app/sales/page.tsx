@@ -7,6 +7,7 @@ import {
   createSalesStoreCache,
   downloadSalesStores,
   fetchAssignedSalesStores,
+  listMyStoreDocumentRequests,
   loadSalesStoreSearchPage,
   loadSalesStoreUiPage,
   SALES_STORE_PAGE_SIZE,
@@ -22,6 +23,8 @@ import {
   storeProductsHref,
   storeTitle,
 } from "@/lib/sales";
+import { storeEidLabel } from "@/lib/sales-store-documents";
+import { formatTradeLicenseDate } from "@/lib/store-documents";
 import { storesVisibleToSalesperson } from "@/lib/store-access";
 import type { StoreProfile } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -32,6 +35,8 @@ import {
   SALES_COMPANY_LABELS,
   type SalesCompanyKey,
 } from "@/lib/sales-selected-company";
+import { SalesTradeLicenseAttention } from "@/components/SalesTradeLicenseAttention";
+import { StoreDocumentUpdateDialog } from "@/components/StoreDocumentUpdateDialog";
 import { StoreRequestDialog } from "@/components/StoreRequestDialog";
 import {
   Card,
@@ -79,7 +84,27 @@ export default function SalesHomePage() {
   const [downloading, setDownloading] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  const [alertStores, setAlertStores] = useState<StoreProfile[]>([]);
+  const [pendingStoreIds, setPendingStoreIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [updateStore, setUpdateStore] = useState<StoreProfile | null>(null);
   const assignedOnly = salesCompanyStoreMode(companyKey) === "assigned";
+
+  const refreshPendingDocumentRequests = useCallback(async () => {
+    try {
+      const data = await listMyStoreDocumentRequests("pending");
+      setPendingStoreIds(
+        new Set(
+          (data.requests || [])
+            .map((row) => String(row.storeId || "").trim())
+            .filter(Boolean),
+        ),
+      );
+    } catch {
+      setPendingStoreIds(new Set());
+    }
+  }, []);
 
   useEffect(() => {
     function refresh() {
@@ -94,6 +119,7 @@ export default function SalesHomePage() {
   const showLists = (list: StoreProfile[], nextPage: number, tag: string) => {
     if (!user?.id) return;
     const visible = storesVisibleToSalesperson(list, user.id);
+    setAlertStores(visible);
     if (tag) {
       setMyStores([]);
       setOtherStores(visible);
@@ -127,6 +153,7 @@ export default function SalesHomePage() {
             }
             const assignedStores = assignedCache.current.stores;
             if (gen !== loadGen.current) return;
+            setAlertStores(assignedStores);
             const filtered = tag
               ? assignedStores.filter((store) => storeMatchesQuery(store, tag))
               : assignedStores;
@@ -175,8 +202,10 @@ export default function SalesHomePage() {
             user.id,
           );
           if (gen !== loadGen.current) return;
+          const visible = storesVisibleToSalesperson(data.stores, user.id);
+          setAlertStores(visible);
           setMyStores([]);
-          setOtherStores(storesVisibleToSalesperson(data.stores, user.id));
+          setOtherStores(visible);
           setHasNext(data.hasNext);
         } else {
           const data = await loadSalesStoreUiPage(
@@ -186,12 +215,13 @@ export default function SalesHomePage() {
             companyKey,
           );
           if (gen !== loadGen.current) return;
-          setMyStores(storesVisibleToSalesperson(data.myStores, user.id));
-          setOtherStores(
-            assigned
-              ? []
-              : storesVisibleToSalesperson(data.otherStores, user.id),
-          );
+          const mine = storesVisibleToSalesperson(data.myStores, user.id);
+          const others = assigned
+            ? []
+            : storesVisibleToSalesperson(data.otherStores, user.id);
+          setAlertStores([...mine, ...others]);
+          setMyStores(mine);
+          setOtherStores(others);
           setHasNext(assigned ? false : data.hasNext);
         }
         setPage(nextPage);
@@ -213,8 +243,10 @@ export default function SalesHomePage() {
     setAppliedQuery("");
     setMyStores([]);
     setOtherStores([]);
+    setAlertStores([]);
     void loadStores(1, "");
-  }, [loadStores]);
+    void refreshPendingDocumentRequests();
+  }, [loadStores, refreshPendingDocumentRequests]);
 
   async function onDownloadStores() {
     if (!user?.id || !companyKey) return;
@@ -285,6 +317,11 @@ export default function SalesHomePage() {
         <ErrorState message={error} onRetry={() => void loadStores(page, appliedQuery)} />
       ) : (
         <>
+          <SalesTradeLicenseAttention
+            stores={alertStores}
+            pendingStoreIds={pendingStoreIds}
+            onUpdateStore={setUpdateStore}
+          />
           <Card className="mb-5">
             <div className="flex flex-wrap items-end gap-3">
               <div className="min-w-0 w-full flex-1 sm:min-w-[220px]">
@@ -339,6 +376,8 @@ export default function SalesHomePage() {
                   count={otherStores.length}
                   empty={`Nothing matched “${appliedQuery}”.`}
                   stores={otherStores}
+                  pendingStoreIds={pendingStoreIds}
+                  onUpdateStore={setUpdateStore}
                 />
               ) : (
                 <>
@@ -348,6 +387,8 @@ export default function SalesHomePage() {
                       count={myStores.length}
                       empty="No stores assigned to you yet."
                       stores={myStores}
+                      pendingStoreIds={pendingStoreIds}
+                      onUpdateStore={setUpdateStore}
                     />
                   ) : null}
                   {assignedOnly ? null : (
@@ -356,6 +397,8 @@ export default function SalesHomePage() {
                       count={otherStores.length}
                       empty="No other stores on this page."
                       stores={otherStores}
+                      pendingStoreIds={pendingStoreIds}
+                      onUpdateStore={setUpdateStore}
                     />
                   )}
                 </>
@@ -379,6 +422,15 @@ export default function SalesHomePage() {
         open={requestOpen}
         environment={companyKey === "shmp" ? "shmp" : "stl"}
         onClose={() => setRequestOpen(false)}
+      />
+      <StoreDocumentUpdateDialog
+        open={Boolean(updateStore)}
+        store={updateStore}
+        pending={updateStore ? pendingStoreIds.has(updateStore._id) : false}
+        onClose={() => setUpdateStore(null)}
+        onSubmitted={() => {
+          void refreshPendingDocumentRequests();
+        }}
       />
     </div>
   );
@@ -413,11 +465,15 @@ function StoreSection({
   count,
   empty,
   stores,
+  pendingStoreIds,
+  onUpdateStore,
 }: {
   title: string;
   count: number;
   empty: string;
   stores: StoreProfile[];
+  pendingStoreIds: Set<string>;
+  onUpdateStore: (store: StoreProfile) => void;
 }) {
   return (
     <section>
@@ -435,13 +491,18 @@ function StoreSection({
             const titleText = storeTitle(store);
             const marks = storeMarks(store);
             const location = storeLocation(store);
+            const eid = storeEidLabel(store);
+            const licenseExpiry = formatTradeLicenseDate(store.tradeLicenseExpiry);
+            const pending = pendingStoreIds.has(store._id);
             return (
-              <Link
+              <div
                 key={store._id}
-                href={storeProductsHref(store)}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 hover:bg-[#f7f5f0]"
+                className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3"
               >
-                <div className="min-w-0">
+                <Link
+                  href={storeProductsHref(store)}
+                  className="min-w-0 flex-1 hover:opacity-90"
+                >
                   <p className="font-semibold text-slate-900">{titleText}</p>
                   {marks ? (
                     <p className="mt-1 inline-flex rounded-md bg-brand/15 px-2 py-0.5 text-xs font-extrabold text-ink">
@@ -451,9 +512,34 @@ function StoreSection({
                   {location ? (
                     <p className="mt-1 text-xs text-slate-500">{location}</p>
                   ) : null}
+                  {eid ? (
+                    <p className="mt-1 text-xs text-slate-600">EID {eid}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-400">No EID on file</p>
+                  )}
+                  {licenseExpiry ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Trade license {licenseExpiry}
+                    </p>
+                  ) : null}
+                  {pending ? (
+                    <p className="mt-1 text-xs font-medium text-amber-800">
+                      Document update under approval
+                    </p>
+                  ) : null}
+                </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  <SecondaryButton
+                    type="button"
+                    onClick={() => onUpdateStore(store)}
+                  >
+                    {pending ? "View docs" : "Update docs"}
+                  </SecondaryButton>
+                  <Link href={storeProductsHref(store)}>
+                    <StoreCartIcon storeId={store._id} />
+                  </Link>
                 </div>
-                <StoreCartIcon storeId={store._id} />
-              </Link>
+              </div>
             );
           })}
         </div>

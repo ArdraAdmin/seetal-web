@@ -1,6 +1,13 @@
 import type { CustomAccess } from "./custom-users";
 
-export type UserRole = "Admin" | "Sales" | "Warehouse" | "Supervisor" | string;
+export type UserRole =
+  | "Admin"
+  | "Sales"
+  | "Warehouse"
+  | "Supervisor"
+  | "LabelChecker"
+  | "Driver"
+  | string;
 
 export type AppEnvironment = "stl" | "shmp";
 
@@ -21,6 +28,8 @@ export interface AuthUser {
   isSuperAdmin?: boolean;
   environments?: AppEnvironment[];
   hrCompanyAccess?: HrCompanyAccess[];
+  /** Linked fleet Driver id when role is Driver. */
+  driverId?: string;
   /** Set for accounts created in User management. */
   customAccess?: CustomAccess;
 }
@@ -33,6 +42,9 @@ export interface Driver {
   phoneNo: string;
   scope?: FleetScope;
   photos?: FleetPhoto[];
+  hasLogin?: boolean;
+  loginEmail?: string | null;
+  loginUserId?: string | null;
 }
 
 export interface FleetPhoto {
@@ -156,10 +168,18 @@ export interface Product {
   categoryId?: string;
   subCategoryId?: string;
   masterCategoryId?: string;
+  masterCategoryName?: string;
+  /** SHMP manufacturing taxonomy (not STL Category). */
+  shmpCategoryId?: string;
+  shmpMasterCategory?: string;
+  shmpSubCategory?: string;
+  source?: string;
+  ownInventory?: boolean;
   imagePath?: string | string[];
   imageCount?: number;
   artwork?: ProductArtworkFile[];
   company?: string | { _id?: string; name?: string; prefix?: string };
+  storeItemCode?: string;
   [key: string]: unknown;
 }
 

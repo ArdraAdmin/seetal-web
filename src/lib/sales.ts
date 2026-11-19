@@ -1,5 +1,10 @@
 import type { Product, SalesCartLine, StoreProfile } from "./types";
 import { personId, storeAssignedToSalesman as assignedToSalesman } from "./store-access";
+export {
+  isShmpManufacturingProduct,
+  productCategoryId,
+  productMasterCategoryId,
+} from "./product-category";
 
 export function salesMoney(value: number) {
   const amount = Number.isFinite(value) ? value : 0;
@@ -71,27 +76,6 @@ export function productCartonStock(product: Product) {
 export function productUnitStock(product: Product) {
   const value = product.inQty?.amountInUnits ?? product.amountInUnits ?? 0;
   return Math.max(0, Number(value) || 0);
-}
-
-export function productCategoryId(product: Product) {
-  if (typeof product.category === "object" && product.category?._id) {
-    return String(product.category._id);
-  }
-  if (typeof product.category === "string" && product.category) {
-    return product.category;
-  }
-  return String(product.categoryId || product.subCategoryId || "");
-}
-
-export function productMasterCategoryId(product: Product) {
-  if (product.masterCategoryId) return String(product.masterCategoryId);
-  if (
-    typeof product.category === "object" &&
-    product.category?.masterCategoryId
-  ) {
-    return String(product.category.masterCategoryId);
-  }
-  return "";
 }
 
 export function lineAggregate(line: Pick<SalesCartLine, "storeCost" | "quantityReq" | "unitReq" | "ratio">) {

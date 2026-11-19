@@ -19,6 +19,7 @@ export function supervisorShmpHome() {
 export function homePathForRole(role?: string) {
   if (role === "Sales") return "/sales";
   if (role === "Warehouse") return "/warehouse";
+  if (role === "Driver") return "/driver";
   if (role === "Supervisor") return supervisorShmpHome();
   if (role === "LabelChecker") return LABEL_CHECKER_SHMP_HOME;
   return "/admin";

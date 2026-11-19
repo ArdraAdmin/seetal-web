@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { fmtDubai, useDubaiNow } from "@/components/StlFeatureUi";
+import { useToast } from "@/components/Toast";
 import {
   Card,
   EmptyState,
@@ -9,14 +10,20 @@ import {
   LoadingState,
   PageHeader,
   PrimaryButton,
+  SecondaryButton,
   TextField,
 } from "@/components/ui";
-import { getDriverDeliveriesToday } from "@/lib/stl-features-api";
+import { getStoredAuth } from "@/lib/auth";
+import {
+  driverPodPath,
+  getDriverDeliveriesToday,
+} from "@/lib/stl-features-api";
 
 type Result = Awaited<ReturnType<typeof getDriverDeliveriesToday>>;
 
 export default function AdminDriverDeliveriesPage() {
   const dubai = useDubaiNow();
+  const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [date, setDate] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -49,6 +56,32 @@ export default function AdminDriverDeliveriesPage() {
     }
   }
 
+  async function openPod(orderId: string) {
+    const user = getStoredAuth();
+    if (!user?.token) {
+      toast("Not signed in", "error");
+      return;
+    }
+    try {
+      const res = await fetch(`/stl-api${driverPodPath(orderId)}`, {
+        headers: {
+          Authorization: user.token,
+          "auth-token": user.token,
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(`Unable to open proof (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to open proof", "error");
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -66,7 +99,13 @@ export default function AdminDriverDeliveriesPage() {
             />
           </div>
           <div className="w-44">
-            <TextField label="Date" type="date" optional value={date} onChange={(e) => setDate(e.target.value)} />
+            <TextField
+              label="Date"
+              type="date"
+              optional
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </div>
           <PrimaryButton type="submit" disabled={loading}>
             Search
@@ -83,7 +122,8 @@ export default function AdminDriverDeliveriesPage() {
           <p className="text-sm text-slate-600">
             <strong>{result.driver.name}</strong>
             {result.driver.phoneNo ? ` · ${result.driver.phoneNo}` : ""} ·{" "}
-            {result.deliveries.length} deliveries
+            {result.deliveries.length} deliveries ·{" "}
+            {result.deliveries.filter((d) => d.completed).length} completed
           </p>
           {result.deliveries.length === 0 ? (
             <EmptyState title="No deliveries for this driver" />
@@ -96,8 +136,10 @@ export default function AdminDriverDeliveriesPage() {
                     <th className="px-4 py-2">Store</th>
                     <th className="px-4 py-2">Address</th>
                     <th className="px-4 py-2 text-right">Cartons</th>
+                    <th className="px-4 py-2">Status</th>
                     <th className="px-4 py-2">Scheduled</th>
                     <th className="px-4 py-2">Map</th>
+                    <th className="px-4 py-2">POD</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -113,12 +155,42 @@ export default function AdminDriverDeliveriesPage() {
                         <td className="px-4 py-2 font-medium">{d.storeName}</td>
                         <td className="px-4 py-2">{d.address || "-"}</td>
                         <td className="px-4 py-2 text-right">{d.cartons}</td>
-                        <td className="px-4 py-2">{d.scheduledAt ? fmtDubai(d.scheduledAt) : "-"}</td>
+                        <td className="px-4 py-2">
+                          {d.completed ? (
+                            <span className="font-medium text-emerald-700">
+                              Delivered
+                            </span>
+                          ) : (
+                            <span className="text-slate-600">
+                              {d.status || "Pending"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          {d.scheduledAt ? fmtDubai(d.scheduledAt) : "-"}
+                        </td>
                         <td className="px-4 py-2">
                           {href ? (
-                            <a href={href} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-dark underline">
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium text-brand-dark underline"
+                            >
                               Open map
                             </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          {d.proofOfDelivery?.hasFile ? (
+                            <SecondaryButton
+                              type="button"
+                              onClick={() => void openPod(d.orderId)}
+                            >
+                              View
+                            </SecondaryButton>
                           ) : (
                             "-"
                           )}

@@ -233,6 +233,17 @@ function slimSalesProduct(product: Product): Product {
       typeof product.masterCategoryName === "string"
         ? product.masterCategoryName
         : undefined,
+    shmpCategoryId: product.shmpCategoryId
+      ? String(product.shmpCategoryId)
+      : undefined,
+    shmpMasterCategory: product.shmpMasterCategory
+      ? String(product.shmpMasterCategory)
+      : undefined,
+    shmpSubCategory: product.shmpSubCategory
+      ? String(product.shmpSubCategory)
+      : undefined,
+    source: product.source ? String(product.source) : undefined,
+    ownInventory: product.ownInventory === true ? true : undefined,
     company: slimCompany,
   };
 }
