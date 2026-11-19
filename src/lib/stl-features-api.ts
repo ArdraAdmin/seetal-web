@@ -58,6 +58,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export type CompanyKey = "stl" | "shmp";
 
+export type SalesAccountPerformanceBlock = {
+  delivered: number;
+  target: number | null;
+  progress: number | null;
+  companyId?: string | null;
+  targetSet?: boolean;
+};
+
 export type SalesAccountDashboard = {
   now: { date: string; time: string; timezone: string; iso: string };
   companyId: string | null;
@@ -68,6 +76,12 @@ export type SalesAccountDashboard = {
     checkedOut: boolean;
     attendance: unknown;
     override: unknown;
+  };
+  monthAttendance: {
+    present: number;
+    leave: number;
+    absent: number;
+    days: number;
   };
   leave: {
     year: number;
@@ -80,8 +94,29 @@ export type SalesAccountDashboard = {
     year: number;
     month: number;
     totalDelivered: number;
-    stl: { delivered: number; target: number | null; progress: number | null };
-    shmp: { delivered: number; target: number | null; progress: number | null };
+    stl: SalesAccountPerformanceBlock;
+    shmp: SalesAccountPerformanceBlock;
+    combined?: {
+      delivered: number;
+      target: number | null;
+      progress: number | null;
+      targetSet: boolean;
+    };
+  };
+  monthlySales: {
+    current: { year: number; month: number; total: number };
+    previous: { year: number; month: number; total: number };
+    delta: number;
+    deltaPct: number | null;
+  };
+  tradeLicenses: {
+    count: number;
+    stores: Array<{
+      id: string;
+      name: string;
+      tradeLicenseExpiry: string | null;
+      daysRemaining: number;
+    }>;
   };
   topProduct: {
     name: string;
