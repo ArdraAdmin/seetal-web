@@ -65,6 +65,8 @@ export function StoreRequestDialog({
     const documentError = storeDocumentError(
       { trnDocument, tradeLicenseDocument, tradeLicenseExpiry },
       "create",
+      true,
+      { requireTrn: false },
     );
     if (documentError) {
       toast(documentError, "info");
@@ -188,7 +190,6 @@ export function StoreRequestDialog({
         </label>
         <StoreDocumentField
           label="TRN document"
-          required
           file={trnDocument}
           onChange={setTrnDocument}
         />

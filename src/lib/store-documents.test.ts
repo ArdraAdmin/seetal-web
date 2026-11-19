@@ -62,6 +62,22 @@ describe("store documents", () => {
     );
   });
 
+  it("allows create without a TRN document when requireTrn is false", () => {
+    assert.equal(
+      storeDocumentError(
+        {
+          trnDocument: null,
+          tradeLicenseDocument: file("license.pdf"),
+          tradeLicenseExpiry: "2026-12-01T00:00",
+        },
+        "create",
+        true,
+        { requireTrn: false },
+      ),
+      null,
+    );
+  });
+
   it("accepts existing documents when editing a store that persists files", () => {
     assert.equal(
       storeDocumentError(

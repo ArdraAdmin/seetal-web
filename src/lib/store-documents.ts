@@ -76,6 +76,7 @@ export function storeDocumentError(
   fields: StoreDocumentFields,
   mode: "create" | "edit",
   documentsPersist = true,
+  options?: { requireTrn?: boolean },
 ): string | null {
   if (!String(fields.tradeLicenseExpiry ?? "").trim()) {
     return "Enter a trade license expiry date";
@@ -84,8 +85,13 @@ export function storeDocumentError(
   const needFiles = mode === "create" || documentsPersist;
   if (!needFiles) return null;
 
+  const requireTrn = options?.requireTrn !== false;
+
   if (mode === "create") {
-    if (!(typeof File !== "undefined" && fields.trnDocument instanceof File)) {
+    if (
+      requireTrn &&
+      !(typeof File !== "undefined" && fields.trnDocument instanceof File)
+    ) {
       return "Upload a TRN document";
     }
     if (
@@ -99,7 +105,10 @@ export function storeDocumentError(
     return null;
   }
 
-  if (!hasStoreDocument(fields.trnDocument, fields.existingTrnUrl)) {
+  if (
+    requireTrn &&
+    !hasStoreDocument(fields.trnDocument, fields.existingTrnUrl)
+  ) {
     return "Upload a TRN document";
   }
   if (

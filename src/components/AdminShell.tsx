@@ -428,7 +428,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             >
               <ArrowLeftRight className="h-4 w-4 shrink-0" strokeWidth={1.75} />
               <span className={collapsed ? "lg:hidden" : undefined}>
-                Switch STL / SHMP
+                Switch Seetal / SHMP
               </span>
             </button>
           ) : null}

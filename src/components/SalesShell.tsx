@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardList,
   Clock,
+  LayoutDashboard,
   LogOut,
   Menu,
   PackageCheck,
@@ -29,13 +30,14 @@ import {
 type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
 
 const NAV: { href: string; label: string; icon: NavIcon }[] = [
+  { href: "/sales/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/sales", label: "Stores", icon: Store },
   { href: "/sales/pending", label: "Pending orders", icon: ClipboardList },
   { href: "/sales/confirmed", label: "Confirmed orders", icon: PackageCheck },
   { href: "/sales/performance", label: "Performance", icon: TrendingUp },
-  { href: "/sales/account", label: "My account", icon: UserCircle },
   { href: "/sales/attendance", label: "Attendance", icon: Clock },
   { href: "/sales/leave", label: "Leave", icon: CalendarDays },
+  { href: "/sales/account", label: "My account", icon: UserCircle },
   { href: "/sales/settings", label: "Settings", icon: Settings },
 ];
 

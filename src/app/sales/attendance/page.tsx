@@ -9,7 +9,7 @@ import {
   salesCheckOut,
   type AttendanceRecord,
 } from "@/lib/api";
-import { SalesAccountTabs, fmtDubai } from "@/components/StlFeatureUi";
+import { fmtDubai } from "@/components/StlFeatureUi";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
@@ -171,8 +171,6 @@ export default function SalesAttendancePage() {
           )
         }
       />
-
-      <SalesAccountTabs />
 
       {loading ? (
         <LoadingState label="Loading attendance…" />

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FieldLabel, SecondaryButton } from "@/components/ui";
 import type { CompanyKey } from "@/lib/stl-features-api";
@@ -108,35 +107,6 @@ export function SelectField({
         {children}
       </select>
     </label>
-  );
-}
-
-const SALES_TABS = [
-  { href: "/sales/account", label: "Overview" },
-  { href: "/sales/attendance", label: "Attendance" },
-  { href: "/sales/leave", label: "Leave" },
-];
-
-/** Tab strip that makes account / attendance / leave feel like one section. */
-export function SalesAccountTabs() {
-  const pathname = usePathname();
-  return (
-    <div className="mb-5 flex gap-1 rounded-xl border border-line bg-white p-1 text-sm">
-      {SALES_TABS.map((tab) => {
-        const active = pathname === tab.href;
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={`flex-1 rounded-lg px-3 py-2 text-center font-medium ${
-              active ? "bg-brand text-ink" : "text-slate-600 hover:bg-[#f7f5f0]"
-            }`}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
-    </div>
   );
 }
 

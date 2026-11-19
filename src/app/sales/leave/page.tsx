@@ -7,7 +7,7 @@ import {
   getSalesLeave,
   type LeaveRequestRow,
 } from "@/lib/api";
-import { SalesAccountTabs, SelectField } from "@/components/StlFeatureUi";
+import { SelectField } from "@/components/StlFeatureUi";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
@@ -120,8 +120,6 @@ export default function SalesLeavePage() {
           </SecondaryButton>
         }
       />
-
-      <SalesAccountTabs />
 
       {balance ? (
         <div className="mb-3 grid gap-3 sm:grid-cols-2">
