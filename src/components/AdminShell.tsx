@@ -6,11 +6,9 @@ import { useEffect, useState, type ComponentType } from "react";
 import {
   ArrowLeftRight,
   Banknote,
-  CalendarClock,
   CalendarDays,
-  CalendarX,
   ChevronDown,
-  FileBarChart,
+  Fingerprint,
   Folders,
   KeyRound,
   PackageX,
@@ -91,27 +89,6 @@ const HR_CHILDREN: NavItem[] = [
     label: "Attendance",
     icon: CalendarDays,
     moduleId: "attendance",
-    superAdminOnly: true,
-  },
-  {
-    href: "/admin/attendance-reports",
-    label: "Attendance reports",
-    icon: FileBarChart,
-    moduleId: "attendance-reports",
-  },
-  {
-    href: "/admin/attendance-override",
-    label: "Attendance override",
-    icon: CalendarX,
-    moduleId: "attendance-override",
-    superAdminOnly: true,
-  },
-  { href: "/admin/leave", label: "Leave", icon: CalendarDays, moduleId: "leave" },
-  {
-    href: "/admin/leave-settings",
-    label: "Leave settings",
-    icon: CalendarClock,
-    moduleId: "leave-settings",
   },
   {
     href: "/admin/hr/payroll",
@@ -119,6 +96,12 @@ const HR_CHILDREN: NavItem[] = [
     icon: Banknote,
     moduleId: "hr",
     fieldId: "salary",
+  },
+  {
+    href: "/admin/biometric",
+    label: "Biometric devices",
+    icon: Fingerprint,
+    moduleId: "attendance",
   },
 ];
 

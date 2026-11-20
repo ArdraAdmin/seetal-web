@@ -891,9 +891,17 @@ export type StoreRequestRow = {
   alias?: string;
   marks?: string;
   addressLine1?: string;
+  addressLine2?: string;
+  addressLine3?: string;
   city?: string;
   country?: string;
   contactNumber?: string;
+  tradeLicenseExpiry?: string | null;
+  eidNumber?: string;
+  trnDocumentUrl?: string;
+  tradeLicenseDocumentUrl?: string;
+  eidDocumentUrl?: string;
+  eidDocumentFileName?: string;
   requestedByName?: string;
   reviewNote?: string;
   createdAt?: string;

@@ -4,6 +4,7 @@ import {
   cartonProgressLabel,
   dispatchFromLines,
   orderMatchesQuery,
+  orderPayableAmount,
   orderSection,
   orderStoreName,
   orderStoreUid,
@@ -104,6 +105,15 @@ describe("dispatchFromLines", () => {
       }),
       "50 packed · 30 ready · 20 delivered of 100",
     );
+  });
+});
+
+describe("orderPayableAmount", () => {
+  it("prefers payable, then totalCost, else zero", () => {
+    assert.equal(orderPayableAmount({ payableAmount: 1200, totalCost: 1000 }), 1200);
+    assert.equal(orderPayableAmount({ payableAmount: null, totalCost: 1000 }), 1000);
+    assert.equal(orderPayableAmount({}), 0);
+    assert.equal(orderPayableAmount({ payableAmount: Number.NaN }), 0);
   });
 });
 

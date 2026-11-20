@@ -51,19 +51,7 @@ export const SELLING_MODULES: PortalModule[] = [
   { id: "catalog", label: "Catalog", href: "/admin/catalog" },
   { id: "stock-transfer", label: "Stock transfer", href: "/admin/stock-transfer" },
   { id: "approvals", label: "Approvals", href: "/admin/approvals" },
-  { id: "leave", label: "Leave", href: "/admin/leave" },
   { id: "attendance", label: "Attendance", href: "/admin/attendance" },
-  {
-    id: "attendance-reports",
-    label: "Attendance reports",
-    href: "/admin/attendance-reports",
-  },
-  {
-    id: "attendance-override",
-    label: "Attendance override",
-    href: "/admin/attendance-override",
-  },
-  { id: "leave-settings", label: "Leave settings", href: "/admin/leave-settings" },
   { id: "hr", label: "HR", href: "/admin/hr" },
   {
     id: "driver-deliveries",

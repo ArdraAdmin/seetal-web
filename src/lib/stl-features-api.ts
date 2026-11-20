@@ -1286,8 +1286,9 @@ export type BiometricUnmappedPunch = {
 
 export type BiometricAssignKind = "employee" | "staff" | "user";
 
-export async function getBiometricDevices() {
-  return request<{ devices: BiometricDeviceRow[] }>("/api/biometric/devices");
+export async function getBiometricDevices(portal?: "stl" | "shmp") {
+  const qs = portal ? `?portal=${encodeURIComponent(portal)}` : "";
+  return request<{ devices: BiometricDeviceRow[] }>(`/api/biometric/devices${qs}`);
 }
 
 export async function getBiometricUnmappedPunches() {

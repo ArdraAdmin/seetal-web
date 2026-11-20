@@ -8,6 +8,7 @@ import {
   type StoreRequestRow,
 } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { StoreRequestDetailDialog } from "@/components/StoreRequestDetailDialog";
 import { useToast } from "@/components/Toast";
 import { Card, PrimaryButton, SecondaryButton } from "@/components/ui";
 
@@ -21,6 +22,7 @@ export function StoreRequestQueue({
   const [rows, setRows] = useState<StoreRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<StoreRequestRow | null>(null);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
@@ -59,6 +61,9 @@ export function StoreRequestQueue({
           : `${row.storeName} approved`,
         "success",
       );
+      setViewing(null);
+      setRejecting(null);
+      setNote("");
       await load();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not approve the store", "error");
@@ -73,6 +78,7 @@ export function StoreRequestQueue({
     try {
       await rejectStoreRequest(user.id, row.id, note.trim());
       toast(`${row.storeName} rejected`, "success");
+      setViewing(null);
       setRejecting(null);
       setNote("");
       await load();
@@ -87,7 +93,8 @@ export function StoreRequestQueue({
     <Card className="mb-5">
       <h2 className="font-semibold text-ink">Stores waiting for approval</h2>
       <p className="mt-1 text-xs text-slate-500">
-        A salesman submitted these. Approving creates the store and assigns the next store code.
+        A salesman submitted these. Open details to review the full store before
+        approving. Approving creates the store and assigns the next store code.
       </p>
       {loading ? (
         <p className="mt-3 text-sm text-slate-500">Loading store requests…</p>
@@ -106,6 +113,17 @@ export function StoreRequestQueue({
                 <p className="mt-1 text-sm text-slate-700">{row.addressLine1}</p>
               ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
+                <SecondaryButton
+                  type="button"
+                  disabled={busyId === row.id}
+                  onClick={() => {
+                    setViewing(row);
+                    setRejecting(null);
+                    setNote("");
+                  }}
+                >
+                  View details
+                </SecondaryButton>
                 <PrimaryButton
                   type="button"
                   disabled={busyId === row.id}
@@ -124,7 +142,7 @@ export function StoreRequestQueue({
                   Reject
                 </SecondaryButton>
               </div>
-              {rejecting === row.id ? (
+              {rejecting === row.id && viewing?.id !== row.id ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <input
                     value={note}
@@ -146,6 +164,27 @@ export function StoreRequestQueue({
           ))}
         </ul>
       )}
+
+      {viewing ? (
+        <StoreRequestDetailDialog
+          row={viewing}
+          busy={busyId === viewing.id}
+          rejecting={rejecting === viewing.id}
+          note={note}
+          onNoteChange={setNote}
+          onClose={() => {
+            setViewing(null);
+            setRejecting(null);
+            setNote("");
+          }}
+          onApprove={() => void onApprove(viewing)}
+          onStartReject={() => {
+            setRejecting(viewing.id);
+            setNote("");
+          }}
+          onConfirmReject={() => void onReject(viewing)}
+        />
+      ) : null}
     </Card>
   );
 }

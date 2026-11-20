@@ -1,7 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getVehicles } from "@/lib/api";
+import {
+  emptyDeliveryLoad,
+  loadCartonTotal,
+  maxQtyInputForLoad,
+  setLoadProductQty,
+  unassignedCartons,
+  validateAndBuildDeliveryLoads,
+  type DeliveryLoadDraft,
+} from "@/lib/shmp-delivery-loads";
 import {
   shmpCreateDelivery,
   shmpDeliveryVehicles,
@@ -10,7 +19,6 @@ import {
 } from "@/lib/shmp-api";
 import {
   companyIdOf,
-  dispatchFromLines,
   readyDeliveryLines,
   type ReadyDeliveryLine,
 } from "@/lib/shmp-orders";
@@ -44,6 +52,10 @@ function vehicleOptionLabel(vehicle: ShmpDeliveryVehicle) {
   return `#${vehicle.value}`;
 }
 
+function productIdsOf(lines: ReadyDeliveryLine[]) {
+  return lines.map((line) => line.productId);
+}
+
 export function DeliverOrderDialog({
   orderId,
   invoice,
@@ -58,10 +70,9 @@ export function DeliverOrderDialog({
   onDone: (message: string) => void;
 }) {
   const [lines, setLines] = useState<ReadyDeliveryLine[]>([]);
+  const [loads, setLoads] = useState<DeliveryLoadDraft[]>([]);
   const [companyId, setCompanyId] = useState("");
   const [vehicles, setVehicles] = useState<ShmpDeliveryVehicle[]>([]);
-  const [vehicleId, setVehicleId] = useState("");
-  const [willFinish, setWillFinish] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedKey, setLoadedKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -80,8 +91,8 @@ export function DeliverOrderDialog({
     if (!open || !orderId) return;
     let cancelled = false;
     setError(null);
-    setVehicleId("");
     setLines([]);
+    setLoads([]);
     void (async () => {
       try {
         const [detail, vehicleList] = await Promise.all([
@@ -95,13 +106,10 @@ export function DeliverOrderDialog({
           loadVehicles(),
         ]);
         if (cancelled) return;
-        const dispatch = dispatchFromLines(detail.lines || []);
-        const ordered = Number(dispatch.ordered) || 0;
-        const delivered = Number(dispatch.delivered) || 0;
-        const ready = Number(dispatch.ready) || 0;
+        const readyLines = readyDeliveryLines(detail.lines || []);
         setCompanyId(companyIdOf(detail.order?.company));
-        setLines(readyDeliveryLines(detail.lines || []));
-        setWillFinish(ordered > 0 && delivered + ready >= ordered - 0.0001);
+        setLines(readyLines);
+        setLoads([emptyDeliveryLoad(productIdsOf(readyLines))]);
         setVehicles(vehicleList);
       } catch (err) {
         if (!cancelled) {
@@ -116,12 +124,33 @@ export function DeliverOrderDialog({
     };
   }, [open, orderId]);
 
+  const leftover = useMemo(
+    () => unassignedCartons(lines, loads),
+    [lines, loads],
+  );
+
+  function updateLoad(
+    key: string,
+    patch: (load: DeliveryLoadDraft) => DeliveryLoadDraft,
+  ) {
+    setLoads((prev) =>
+      prev.map((load) => (load.key === key ? patch(load) : load)),
+    );
+  }
+
+  function addLoad() {
+    setLoads((prev) => [...prev, emptyDeliveryLoad(productIdsOf(lines))]);
+  }
+
+  function removeLoad(key: string) {
+    setLoads((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((load) => load.key !== key);
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!vehicleId) {
-      setError("Select a vehicle.");
-      return;
-    }
     if (!companyId) {
       setError("This order has no company.");
       return;
@@ -130,31 +159,53 @@ export function DeliverOrderDialog({
       setError("Nothing is packed and waiting to deliver.");
       return;
     }
+
+    const { payloads, error: validationError } = validateAndBuildDeliveryLoads(
+      lines,
+      loads,
+    );
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setSaving(true);
     setError(null);
+    let created = 0;
+    let lastSection: string | undefined;
     try {
-      const selected = vehicles.find((vehicle) => vehicle._id === vehicleId);
-      const result = await shmpCreateDelivery({
-        companyId,
-        tempOrderId: orderId,
-        vehicleId,
-        lines: lines.map((line) => ({
-          productId: line.productId,
-          qty: line.qty,
-        })),
-        remarks: selected ? `Vehicle ${vehicleOptionLabel(selected)}` : undefined,
-      });
-      const fullyDelivered = result?.dispatch?.section
-        ? result.dispatch.section === "delivered"
-        : willFinish;
+      for (const payload of payloads) {
+        const selected = vehicles.find(
+          (vehicle) => vehicle._id === payload.vehicleId,
+        );
+        const result = await shmpCreateDelivery({
+          companyId,
+          tempOrderId: orderId,
+          vehicleId: payload.vehicleId,
+          lines: payload.lines,
+          remarks: selected
+            ? `Vehicle ${vehicleOptionLabel(selected)}`
+            : undefined,
+        });
+        created += 1;
+        lastSection = result?.dispatch?.section;
+      }
+      const fullyDelivered = lastSection === "delivered";
+      const tripLabel =
+        created === 1 ? "1 vehicle trip" : `${created} vehicle trips`;
       onDone(
         fullyDelivered
-          ? "Delivery recorded. This order is fully delivered."
-          : "Delivery recorded. Unpacked cartons stay in production.",
+          ? `Delivery recorded (${tripLabel}). This order is fully delivered.`
+          : `Delivery recorded (${tripLabel}). Remaining packed cartons stay ready to deliver.`,
       );
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Delivery failed");
+      const message = err instanceof Error ? err.message : "Delivery failed";
+      setError(
+        created > 0
+          ? `${created} trip(s) saved, then failed: ${message}`
+          : message,
+      );
     } finally {
       setSaving(false);
     }
@@ -162,7 +213,7 @@ export function DeliverOrderDialog({
 
   if (!open) return null;
 
-  const cartonTotal = lines.reduce((sum, line) => sum + line.qty, 0);
+  const canSubmit = !loading && !saving && lines.length > 0;
 
   return (
     <div
@@ -183,7 +234,8 @@ export function DeliverOrderDialog({
             Deliver {invoice}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            This trip includes every carton that is packed and not yet delivered.
+            Split packed cartons across one or more vehicles. Leave any remainder
+            for a later trip.
           </p>
         </div>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
@@ -197,44 +249,134 @@ export function DeliverOrderDialog({
           ) : (
             <>
               {lines.length ? (
-                <ul className="space-y-2 text-sm">
-                  {lines.map((line) => (
-                    <li
-                      key={line.productId}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-line/70 px-3 py-2"
-                    >
-                      <span className="font-medium text-ink">{line.name}</span>
-                      <span className="shrink-0 text-slate-600">
-                        {line.qty} cartons
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <div className="rounded-xl border border-line/70 bg-[#faf8f3] px-3 py-2 text-sm text-slate-600">
+                  <p className="font-medium text-ink">Ready to deliver</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {lines.map((line) => (
+                      <li key={line.productId}>
+                        {line.name}: {line.qty} cartons
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : (
                 <p className="text-sm text-slate-500">
                   Nothing is packed and waiting to deliver.
                 </p>
               )}
-              <p className="text-sm text-slate-600">
-                {cartonTotal} cartons on this vehicle. Unpacked cartons stay in
-                production.
-              </p>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium text-ink">Vehicle</span>
-                <select
-                  className="w-full rounded-xl border border-line px-3 py-2"
-                  value={vehicleId}
-                  onChange={(event) => setVehicleId(event.target.value)}
-                  required
+
+              {loads.map((load, index) => {
+                const onThisVehicle = loadCartonTotal(load);
+                return (
+                  <div
+                    key={load.key}
+                    className="space-y-3 rounded-xl border border-line p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-ink">
+                        Vehicle {index + 1}
+                      </p>
+                      {loads.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeLoad(load.key)}
+                          className="text-xs font-medium text-slate-600 hover:text-ink"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium text-ink">
+                        Vehicle
+                      </span>
+                      <select
+                        className="w-full rounded-xl border border-line px-3 py-2"
+                        value={load.vehicleId}
+                        onChange={(event) =>
+                          updateLoad(load.key, (current) => ({
+                            ...current,
+                            vehicleId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Select vehicle</option>
+                        {vehicles.map((vehicle) => (
+                          <option key={vehicle._id} value={vehicle._id}>
+                            {vehicleOptionLabel(vehicle)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {lines.map((line) => {
+                      const max = maxQtyInputForLoad(
+                        line.qty,
+                        loads,
+                        line.productId,
+                        load.key,
+                      );
+                      return (
+                        <label
+                          key={`${load.key}-${line.productId}`}
+                          className="block text-sm"
+                        >
+                          <span className="mb-1 flex items-center justify-between gap-2 font-medium text-ink">
+                            <span className="min-w-0 truncate">{line.name}</span>
+                            <span className="shrink-0 text-xs font-normal text-slate-500">
+                              max {max} · {line.qty} ready
+                            </span>
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={max}
+                            step={1}
+                            inputMode="numeric"
+                            className="w-full rounded-xl border border-line px-3 py-2"
+                            value={load.qtys[line.productId] ?? ""}
+                            placeholder="0"
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setLoads((prev) =>
+                                setLoadProductQty(
+                                  prev,
+                                  load.key,
+                                  line.productId,
+                                  next,
+                                  line.qty,
+                                ),
+                              );
+                            }}
+                          />
+                        </label>
+                      );
+                    })}
+
+                    <p className="text-xs text-slate-600">
+                      {onThisVehicle} cartons on this vehicle
+                    </p>
+                  </div>
+                );
+              })}
+
+              {lines.length ? (
+                <button
+                  type="button"
+                  onClick={addLoad}
+                  className="w-full rounded-xl border border-dashed border-line px-4 py-2 text-sm font-medium text-ink hover:bg-[#faf8f3]"
                 >
-                  <option value="">Select vehicle</option>
-                  {vehicles.map((vehicle) => (
-                    <option key={vehicle._id} value={vehicle._id}>
-                      {vehicleOptionLabel(vehicle)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Add another vehicle
+                </button>
+              ) : null}
+
+              {lines.length ? (
+                <p className="text-sm text-slate-600">
+                  {leftover} cartons left unassigned for a later trip.
+                </p>
+              ) : null}
+
               {!vehicles.length && !loading ? (
                 <p className="text-sm text-slate-500">
                   No vehicles yet. Add one under Drivers and vehicles.
@@ -254,7 +396,7 @@ export function DeliverOrderDialog({
           <button
             type="submit"
             className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold disabled:opacity-60"
-            disabled={loading || saving || !lines.length || !vehicleId}
+            disabled={!canSubmit}
           >
             {saving ? "Saving…" : "Continue"}
           </button>

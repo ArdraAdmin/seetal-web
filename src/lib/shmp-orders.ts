@@ -142,6 +142,16 @@ export function companyIdOf(value: unknown) {
   return "";
 }
 
+/** Payable amount when set; otherwise subtotal. */
+export function orderPayableAmount(order: {
+  payableAmount?: number | null;
+  totalCost?: number | null;
+}) {
+  const raw = order.payableAmount ?? order.totalCost ?? 0;
+  const amount = Number(raw);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 export function orderMatchesQuery(
   order: {
     _id?: string;

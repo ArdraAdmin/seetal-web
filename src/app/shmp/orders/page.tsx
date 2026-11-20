@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
 import { TextField } from "@/components/ui";
+import { isAdmin } from "@/lib/auth";
+import { salesMoney } from "@/lib/sales";
 import { shmpOrders } from "@/lib/shmp-api";
 import { ensureOrderDispatch } from "@/lib/shmp-order-board";
 import {
   cartonProgressLabel,
   orderMatchesQuery,
+  orderPayableAmount,
   orderSection,
   orderStoreName,
   type OrderSection,
@@ -21,6 +25,8 @@ type OrderRow = {
   tempOrderInvoiceNo?: string;
   status?: string;
   store?: unknown;
+  payableAmount?: number | null;
+  totalCost?: number | null;
   dispatch?: ShmpOrderDispatch | null;
 };
 
@@ -52,6 +58,8 @@ function parseSection(value: string | null): OrderSection {
 function ShmpOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const admin = isAdmin(user);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [section, setSection] = useState<OrderSection>(
     parseSection(searchParams.get("section")),
@@ -213,9 +221,16 @@ function ShmpOrdersPage() {
                           {storeName || "Store not set"}
                         </p>
                       </div>
-                      <span className="shrink-0 text-xs text-slate-500">
-                        {String(order.status || "")}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <span className="block text-xs text-slate-500">
+                          {String(order.status || "")}
+                        </span>
+                        {admin ? (
+                          <p className="mt-0.5 text-xs font-medium text-ink">
+                            {salesMoney(orderPayableAmount(order))}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                     <p className="mt-2 text-xs text-slate-600">
                       {cartonProgressLabel(order.dispatch)}
