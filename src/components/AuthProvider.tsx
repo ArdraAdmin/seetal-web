@@ -13,8 +13,12 @@ import { ApiError, fetchCurrentUser, login as apiLogin } from "@/lib/api";
 import {
   canAccessEnvironment,
   clearAuth,
+  endClientSession,
   getStoredAuth,
+  hasAuthCookie,
+  resumeClientSession,
   saveAuth,
+  SESSION_GATE_TIMEOUT_MS,
 } from "@/lib/auth";
 import {
   isRejectedSessionStatus,
@@ -54,12 +58,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     return onRejectedSession(() => {
+      setUser(null);
+      setEnvironment(null);
+      endClientSession();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!loading) return;
+    const timer = window.setTimeout(() => {
       clearAuth();
       setUser(null);
       setEnvironment(null);
-      router.replace("/login");
-    });
-  }, [router]);
+      setLoading(false);
+      endClientSession();
+    }, SESSION_GATE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,10 +82,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const stored = getStoredAuth();
       const env = loadEnvironment();
       if (!stored) {
+        // Cookie without localStorage causes middleware ↔ layout redirect loops.
+        clearAuth();
         if (!cancelled) {
           setUser(null);
-          setEnvironment(env);
+          setEnvironment(null);
           setLoading(false);
+        }
+        // If a stale cookie is still visible, force a hard reauth escape.
+        if (!cancelled && hasAuthCookie()) {
+          endClientSession();
         }
         return;
       }
@@ -85,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const fresh = await fetchCurrentUser();
         if (cancelled || !getStoredAuth()) return;
         resumeSession();
+        resumeClientSession();
         let customAccess = stored.customAccess;
         try {
           customAccess = (await getMyCustomAccess()) ?? undefined;
@@ -97,12 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(next);
       } catch (error) {
         if (error instanceof ApiError && isRejectedSessionStatus(error.status)) {
-          clearAuth();
           if (!cancelled) {
             setUser(null);
             setEnvironment(null);
           }
-          router.replace("/login");
+          endClientSession();
           return;
         }
         // Keep the stored session if /user/me is unavailable (older API or outage).
@@ -113,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -122,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Sign-in failed");
       }
       resumeSession();
+      resumeClientSession();
       clearEnvironment();
       clearSelectedSalesCompany();
       saveAuth(signedIn, null);
@@ -179,11 +201,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router, user]);
 
   const logout = useCallback(() => {
-    clearAuth();
     setUser(null);
     setEnvironment(null);
-    router.replace("/login");
-  }, [router]);
+    endClientSession();
+  }, []);
 
   const value = useMemo(
     () => ({

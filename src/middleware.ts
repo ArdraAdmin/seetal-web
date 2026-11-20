@@ -72,6 +72,12 @@ function loginUrl(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Client asked to break a stale-cookie redirect loop (see endClientSession).
+  if (pathname === "/login" && request.nextUrl.searchParams.get("reauth") === "1") {
+    return endSavedSession(request);
+  }
+
   const raw = request.cookies.get(AUTH_COOKIE)?.value;
   const session = parseAuthCookie(raw);
   const role = session?.role;

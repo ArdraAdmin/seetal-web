@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { SalesShell } from "@/components/SalesShell";
-import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
 import {
   getSalesAttendanceToday,
@@ -21,13 +20,14 @@ import {
   loadSalesWorkspace,
   onSelectedSalesCompanyChange,
 } from "@/lib/sales-selected-company";
+import { useRequireRole } from "@/lib/use-require-role";
 
 export default function SalesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
+  const { user, loading, checking: sessionChecking } = useRequireRole("Sales");
   const router = useRouter();
   const pathname = usePathname();
   const isCompanyPage = pathname === "/sales/company";
@@ -108,12 +108,6 @@ export default function SalesLayout({
   }, [user?.id, user?.role, hasInventory, checkedIn]);
 
   useEffect(() => {
-    if (!loading && (!user || user.role !== "Sales")) {
-      router.replace("/login");
-    }
-  }, [user, loading, router]);
-
-  useEffect(() => {
     if (loading || !user || user.role !== "Sales" || !attendanceReady) return;
     if (!checkedIn && !isAttendancePage) {
       router.replace("/sales/attendance");
@@ -163,7 +157,7 @@ export default function SalesLayout({
     checkedIn,
   ]);
 
-  if (loading || !user || user.role !== "Sales") {
+  if (sessionChecking) {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
         <LoadingState label="Checking session…" />

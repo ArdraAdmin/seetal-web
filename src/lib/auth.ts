@@ -1,5 +1,11 @@
 import type { AuthUser } from "./types";
-import { AUTH_COOKIE, buildSessionCookie, encodeSessionCookie } from "./session";
+import {
+  AUTH_COOKIE,
+  SESSION_CHECK_COOKIE,
+  buildSessionCookie,
+  encodeSessionCookie,
+  parseAuthCookie,
+} from "./session";
 import { clearSelectedSalesCompany } from "./sales-selected-company";
 import {
   clearEnvironment,
@@ -12,6 +18,34 @@ export { AUTH_COOKIE, parseAuthCookie } from "./session";
 export { homePathForRole } from "./roles";
 
 const STORAGE_KEY = "stl_auth";
+
+/** Never leave protected layouts spinning longer than this. */
+export const SESSION_GATE_TIMEOUT_MS = 8_000;
+
+/** Login URL that asks middleware to wipe a stale session cookie. */
+export function loginReauthUrl(next?: string): string {
+  const params = new URLSearchParams({ reauth: "1" });
+  if (next) params.set("next", next);
+  return `/login?${params.toString()}`;
+}
+
+export function hasAuthCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((part) => part.trim().startsWith(`${AUTH_COOKIE}=`));
+}
+
+/** Read the middleware session cookie from document.cookie (non-httpOnly). */
+export function readAuthCookie(): ReturnType<typeof parseAuthCookie> {
+  if (typeof document === "undefined") return null;
+  const raw = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${AUTH_COOKIE}=`));
+  if (!raw) return null;
+  return parseAuthCookie(raw.slice(AUTH_COOKIE.length + 1));
+}
 
 function withNormalizedEnvironments(user: AuthUser): AuthUser {
   const environments = normalizeEnvironments(
@@ -55,10 +89,40 @@ export function saveAuth(user: AuthUser, environment?: AppEnvironment | null): v
 }
 
 export function clearAuth(): void {
+  if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEY);
   clearSelectedSalesCompany();
   clearEnvironment();
   document.cookie = `${AUTH_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  // Best-effort: httpOnly stl_session_ok is cleared by middleware on ?reauth=1.
+  document.cookie = `${SESSION_CHECK_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+}
+
+let endingSession = false;
+
+/**
+ * Clear local auth and hard-navigate to login so middleware cannot bounce a
+ * leftover cookie back into a protected layout (infinite "Checking session…").
+ */
+export function endClientSession(next?: string): void {
+  clearAuth();
+  if (typeof window === "undefined") return;
+  const dest = loginReauthUrl(next);
+  if (endingSession) return;
+  const onLogin =
+    window.location.pathname === "/login" &&
+    new URLSearchParams(window.location.search).get("reauth") === "1";
+  if (onLogin && !hasAuthCookie()) {
+    endingSession = false;
+    return;
+  }
+  endingSession = true;
+  window.location.replace(dest);
+}
+
+/** Allow a later sign-in in the same tab after a forced logout. */
+export function resumeClientSession(): void {
+  endingSession = false;
 }
 
 export function isAdmin(user: AuthUser | null): boolean {

@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ClipboardList, Package, Warehouse } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useAuth } from "@/components/AuthProvider";
+import { resumeClientSession } from "@/lib/auth";
 import { PrimaryButton, TextField } from "@/components/ui";
 
 const HIGHLIGHTS = [
@@ -30,6 +31,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    resumeClientSession();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reauth") !== "1") return;
+    params.delete("reauth");
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+    );
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

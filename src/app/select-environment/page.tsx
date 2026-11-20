@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowRight, Building2, Factory } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useAuth } from "@/components/AuthProvider";
-import { canAccessEnvironment, isSuperAdmin } from "@/lib/auth";
+import {
+  canAccessEnvironment,
+  endClientSession,
+  isSuperAdmin,
+} from "@/lib/auth";
 import { normalizeEnvironments } from "@/lib/environment";
 import type { AppEnvironment } from "@/lib/types";
 
@@ -16,14 +19,13 @@ const ENVIRONMENT_NAMES: Record<AppEnvironment, string> = {
 
 export default function SelectEnvironmentPage() {
   const { user, loading, selectEnvironment } = useAuth();
-  const router = useRouter();
   const [busy, setBusy] = useState<AppEnvironment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace("/login");
+      endClientSession();
       return;
     }
     const envs = normalizeEnvironments(
@@ -38,7 +40,7 @@ export default function SelectEnvironmentPage() {
         /* ignore */
       }
     }
-  }, [loading, user, router, selectEnvironment]);
+  }, [loading, user, selectEnvironment]);
 
   function onSelect(env: AppEnvironment) {
     if (!user || busy) return;

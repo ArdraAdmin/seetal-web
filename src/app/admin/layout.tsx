@@ -1,27 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
 import { CustomAccessGuard } from "@/components/CustomAccessGuard";
-import { useAuth } from "@/components/AuthProvider";
 import { LoadingState } from "@/components/ui";
+import { useRequireRole } from "@/lib/use-require-role";
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+  const { checking } = useRequireRole("Admin");
 
-  useEffect(() => {
-    if (!loading && (!user || user.role !== "Admin")) {
-      router.replace("/login");
-    }
-  }, [user, loading, router]);
-
-  if (loading || !user || user.role !== "Admin") {
+  if (checking) {
     return (
       <div className="min-h-dvh bg-background p-4 sm:p-6">
         <LoadingState label="Checking session…" />
