@@ -273,9 +273,10 @@ export interface WarehouseCheckLine {
 export interface WarehouseCheckOrder {
   _id: string;
   tempOrderInvoiceNo?: string;
+  invoiceNumber?: string;
   date?: string;
   createdAt?: string;
-  assignee?: string;
+  assignee?: string | { name?: string };
   driver?: string;
   vehicle?: string | number;
   firstCheck?: boolean;
@@ -285,6 +286,7 @@ export interface WarehouseCheckOrder {
   invoiceGenerated?: boolean;
   status?: string;
   isTempStore?: boolean;
+  totalPkg?: number;
   store?:
     | string
     | {

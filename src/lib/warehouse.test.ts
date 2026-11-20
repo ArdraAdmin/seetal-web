@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  asDeliveredWarehouseOrder,
   normalizeDeliveryDateInput,
   ordersFromWarehousePayload,
+  parseWarehouseListTab,
   pendingSkipsSunday,
+  warehouseDeliveredDetailHref,
+  warehouseDeliveredListHref,
   warehousePendingRange,
   warehouseWorkDayRange,
 } from "./warehouse.ts";
@@ -88,5 +92,64 @@ describe("normalizeDeliveryDateInput", () => {
     const result = normalizeDeliveryDateInput("2026-11-09", false);
     assert.equal(result.shiftedFromSunday, false);
     assert.equal(result.date, "2026-11-09");
+  });
+});
+
+describe("asDeliveredWarehouseOrder", () => {
+  it("reads the nested order from the confirmed product response", () => {
+    const order = {
+      _id: "ord-1",
+      invoiceNumber: "INV-9",
+      productDetails: [{ quantityAv: 2 }],
+    };
+    assert.deepEqual(asDeliveredWarehouseOrder({ order }), order);
+  });
+
+  it("accepts a bare order document", () => {
+    const order = { _id: "ord-2", productDetails: [] };
+    assert.deepEqual(asDeliveredWarehouseOrder(order), order);
+  });
+
+  it("rejects missing or invalid payloads", () => {
+    assert.equal(asDeliveredWarehouseOrder(null), null);
+    assert.equal(asDeliveredWarehouseOrder({}), null);
+    assert.equal(asDeliveredWarehouseOrder({ order: { invoiceNumber: "x" } }), null);
+    assert.equal(asDeliveredWarehouseOrder({ order: [] }), null);
+  });
+});
+
+describe("warehouseDeliveredDetailHref", () => {
+  it("builds a delivered detail path under warehouse or admin", () => {
+    assert.equal(
+      warehouseDeliveredDetailHref("/warehouse", "abc123"),
+      "/warehouse/delivered/abc123",
+    );
+    assert.equal(
+      warehouseDeliveredDetailHref("/admin/warehouse/", "id with spaces"),
+      "/admin/warehouse/delivered/id%20with%20spaces",
+    );
+  });
+
+  it("returns empty when the order id is missing", () => {
+    assert.equal(warehouseDeliveredDetailHref("/warehouse", ""), "");
+    assert.equal(warehouseDeliveredDetailHref("/warehouse", "  "), "");
+  });
+});
+
+describe("parseWarehouseListTab", () => {
+  it("maps tab query values used by the warehouse list", () => {
+    assert.equal(parseWarehouseListTab("2"), 2);
+    assert.equal(parseWarehouseListTab("1"), 1);
+    assert.equal(parseWarehouseListTab("4"), 4);
+    assert.equal(parseWarehouseListTab(null), 0);
+    assert.equal(parseWarehouseListTab("9"), 0);
+  });
+
+  it("builds the delivered list back link", () => {
+    assert.equal(warehouseDeliveredListHref("/warehouse"), "/warehouse?tab=2");
+    assert.equal(
+      warehouseDeliveredListHref("/admin/warehouse/"),
+      "/admin/warehouse?tab=2",
+    );
   });
 });

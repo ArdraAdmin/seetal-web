@@ -47,6 +47,7 @@ import {
   type SalesCompanyAccess,
 } from "./sales-company";
 import {
+  asDeliveredWarehouseOrder,
   isSundayDeliveryEnabled,
   ordersFromWarehousePayload,
   pendingSkipsSunday,
@@ -2216,6 +2217,18 @@ export async function getWarehouseCheckOrder(
     `/mock/warehouse/product/pending?orderId=${encodeURIComponent(orderId)}&userId=${encodeURIComponent(userId)}&checkNo=${checkNo}`,
   );
   const order = asCheckOrder(data);
+  if (!order) throw new ApiError("Order not found", 404);
+  return order;
+}
+
+export async function getWarehouseDeliveredOrder(
+  orderId: string,
+  userId: string,
+) {
+  const data = await request<unknown>(
+    `/warehouse/product/confirmed?orderId=${encodeURIComponent(orderId)}&userId=${encodeURIComponent(userId)}`,
+  );
+  const order = asDeliveredWarehouseOrder(data);
   if (!order) throw new ApiError("Order not found", 404);
   return order;
 }

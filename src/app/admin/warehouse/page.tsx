@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import {
   deleteWarehouseOrders,
@@ -36,7 +36,9 @@ import {
 import {
   assigneeLabel,
   invoiceLabel,
+  parseWarehouseListTab,
   sortPendingWarehouseOrders,
+  warehouseDeliveredDetailHref,
   warehouseListStatus,
   warehouseOpenStep,
   storeDescription,
@@ -138,9 +140,11 @@ export default function WarehousePage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const base = warehouseBasePath(pathname);
   const adminUser = isAdmin(user);
-  const [tab, setTab] = useState<WarehouseTabIndex>(0);
+  const initialTab = parseWarehouseListTab(searchParams.get("tab"));
+  const [tab, setTab] = useState<WarehouseTabIndex>(initialTab);
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [counts, setCounts] = useState<WarehouseCounts | null>(null);
   const [query, setQuery] = useState("");
@@ -308,10 +312,12 @@ export default function WarehousePage() {
       setSundayDelivery(enabled);
       setCanToggleSunday(canEditSundayDelivery() || isSuperAdmin(user));
     });
-    void load(0);
+    void load(initialTab);
     if (user?.id) {
       void fetchLoadedWarehouseOrders(user.id).catch(() => undefined);
     }
+    // Initial tab comes from ?tab= (e.g. back from delivered detail).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, user?.id]);
 
   async function onSundayDelivery(next: boolean) {
@@ -762,12 +768,14 @@ export default function WarehousePage() {
               const description = storeDescription(order);
               const invoice = invoiceLabel(order);
               const pkg = order.totalPkg;
-              const href =
-                tab === 2
-                  ? null
-                  : `${base}/${order._id}?step=${warehouseOpenStep(order)}`;
               const rowKey = order._id || `order-${index}`;
               const orderId = String(order._id || "");
+              const href =
+                tab === 2
+                  ? warehouseDeliveredDetailHref(base, orderId)
+                  : orderId
+                    ? `${base}/${orderId}?step=${warehouseOpenStep(order)}`
+                    : "";
               const checked = Boolean(orderId) && selected.has(orderId);
               const showUnload =
                 tab === 4 &&

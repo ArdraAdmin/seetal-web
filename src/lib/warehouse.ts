@@ -33,6 +33,49 @@ export function warehouseBasePath(pathname: string) {
   return pathname.startsWith("/admin") ? "/admin/warehouse" : "/warehouse";
 }
 
+/** Delivered-tab detail link. Other tabs keep the check flow under /[id]. */
+export function warehouseDeliveredDetailHref(base: string, orderId: string) {
+  const id = String(orderId || "").trim();
+  if (!id) return "";
+  const root = String(base || "").replace(/\/$/, "") || "/warehouse";
+  return `${root}/delivered/${encodeURIComponent(id)}`;
+}
+
+/** Back link from a delivered detail page to the Delivered list tab. */
+export function warehouseDeliveredListHref(base: string) {
+  const root = String(base || "").replace(/\/$/, "") || "/warehouse";
+  return `${root}?tab=2`;
+}
+
+/** Parse `?tab=` for warehouse list tabs (0 pending, 1 upcoming, 2 delivered, 4 loaded). */
+export function parseWarehouseListTab(
+  value: string | null | undefined,
+): 0 | 1 | 2 | 4 {
+  if (value === "1") return 1;
+  if (value === "2") return 2;
+  if (value === "4") return 4;
+  return 0;
+}
+
+/**
+ * Confirmed-order payload from GET /warehouse/product/confirmed.
+ * Accepts `{ order }` or a bare order document.
+ */
+export function asDeliveredWarehouseOrder(
+  data: unknown,
+): WarehouseCheckOrder | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  const nested = o.order;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const order = nested as WarehouseCheckOrder;
+    if (typeof order._id === "string" && order._id) return order;
+    return null;
+  }
+  if (typeof o._id === "string" && o._id) return data as WarehouseCheckOrder;
+  return null;
+}
+
 export function warehouseLineProductId(line: WarehouseCheckLine) {
   if (typeof line.product === "string") return line.product;
   return line.product?._id || "";
