@@ -59,7 +59,6 @@ export const SELLING_MODULES: PortalModule[] = [
     href: "/admin/driver-deliveries",
   },
   { id: "sales-lost", label: "Sales lost", href: "/admin/sales-lost" },
-  { id: "targets", label: "Sales targets", href: "/admin/targets" },
   { id: "grv", label: "GRV management", href: "/admin/grv" },
   { id: "categories", label: "Categories", href: "/admin/categories" },
   { id: "payments", label: "Payments", href: "/admin/payments" },
@@ -109,7 +108,6 @@ const SELLING_API_KEYS: Record<string, string[]> = {
   hr: ["hr"],
   "driver-deliveries": ["drivers"],
   "sales-lost": ["dashboard"],
-  targets: ["targets"],
   grv: ["grv"],
   categories: ["categories"],
   payments: ["payments"],
@@ -664,6 +662,7 @@ export function customUserRestrictedPath(pathname: string) {
     prefixHit(pathname, "/admin/users") ||
     prefixHit(pathname, "/shmp/users") ||
     prefixHit(pathname, "/admin/permissions") ||
+    prefixHit(pathname, "/admin/targets") ||
     prefixHit(pathname, "/admin/tracking")
   );
 }

@@ -5,14 +5,25 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   createSalesProfile,
+  createdSalesProfileId,
   deleteUser,
   getCompanies,
   getProfile,
+  getSalesPerformance,
+  getSalesProfiles,
+  setAdminSalesTarget,
   updateSalesProfile,
   type CompanyRecord,
 } from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
-import { companyIds, dateInputValue, salesField } from "@/lib/profiles";
+import { useAuth } from "@/components/AuthProvider";
+import {
+  companyIds,
+  dateInputValue,
+  salesField,
+  shmpCompanyId,
+  stlCompanyId,
+} from "@/lib/profiles";
 import { parseReturnTo } from "@/lib/user-management";
 import { useToast } from "@/components/Toast";
 import {
@@ -37,18 +48,32 @@ const EMPTY = {
   joiningDate: "",
   address: "",
   companyIds: [] as string[],
+  stlTarget: "",
+  shmpTarget: "",
 };
+
+function parseTargetAmount(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
 
 export function SalesProfileForm({ profileId }: { profileId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const backHref = parseReturnTo(searchParams.get("returnTo")) || "/admin/profiles/sales";
+  const { user } = useAuth();
   const { toast } = useToast();
   const creating = !profileId;
   const [title, setTitle] = useState(
     creating ? "Add sales profile" : "Edit sales profile",
   );
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
+  const [stlCompany, setStlCompany] = useState("");
+  const [shmpCompany, setShmpCompany] = useState("");
+  const [targetPeriod, setTargetPeriod] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -64,20 +89,45 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         const companyList = await getCompanies();
         if (cancelled) return;
         setCompanies(companyList);
+        let nextStl = stlCompanyId(companyList);
+        let nextShmp = shmpCompanyId(companyList);
+
         if (!profileId) {
+          setStlCompany(nextStl);
+          setShmpCompany(nextShmp);
+          setTargetPeriod(null);
           setForm(EMPTY);
           return;
         }
-        const user = await getProfile("sales", profileId);
+
+        const [userProfile, performance] = await Promise.all([
+          getProfile("sales", profileId),
+          getSalesPerformance(profileId).catch(() => null),
+        ]);
         if (cancelled) return;
-        const sales = salesField(user);
-        setTitle(String(user.name || "Edit sales profile"));
+
+        if (performance?.stl?.companyId) {
+          nextStl = String(performance.stl.companyId);
+        }
+        if (performance?.shmp?.companyId) {
+          nextShmp = String(performance.shmp.companyId);
+        }
+        setStlCompany(nextStl);
+        setShmpCompany(nextShmp);
+        if (performance?.month && performance?.year) {
+          setTargetPeriod(`${performance.month}/${performance.year}`);
+        } else {
+          setTargetPeriod(null);
+        }
+
+        const sales = salesField(userProfile);
+        setTitle(String(userProfile.name || "Edit sales profile"));
         setForm({
-          name: String(user.name || ""),
-          email: String(user.email || ""),
+          name: String(userProfile.name || ""),
+          email: String(userProfile.email || ""),
           password: "",
-          mobileNumber: String(user.mobileNumber || ""),
-          altMobileNumber: String(user.altMobileNumber || ""),
+          mobileNumber: String(userProfile.mobileNumber || ""),
+          altMobileNumber: String(userProfile.altMobileNumber || ""),
           spouseName:
             String(sales.spouseName || "").trim() === "N/A"
               ? ""
@@ -86,6 +136,14 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
           joiningDate: dateInputValue(sales.joiningDate),
           address: String(sales.address || ""),
           companyIds: companyIds(sales.company),
+          stlTarget:
+            performance?.stl?.targetSet && performance.stl.target != null
+              ? String(performance.stl.target)
+              : "",
+          shmpTarget:
+            performance?.shmp?.targetSet && performance.shmp.target != null
+              ? String(performance.shmp.target)
+              : "",
         });
       } catch (e) {
         if (!cancelled) {
@@ -109,12 +167,57 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
     }));
   }
 
+  async function saveTargets(salesId: string) {
+    const stlAmount = parseTargetAmount(form.stlTarget);
+    const shmpAmount = parseTargetAmount(form.shmpTarget);
+    const jobs: Promise<unknown>[] = [];
+
+    if (stlAmount != null) {
+      if (!stlCompany) {
+        throw new Error("STL company was not found; cannot set STL target");
+      }
+      jobs.push(
+        setAdminSalesTarget({
+          salesId,
+          companyId: stlCompany,
+          amount: stlAmount,
+          userId: user?.id,
+        }),
+      );
+    }
+
+    if (shmpAmount != null) {
+      if (!shmpCompany) {
+        throw new Error("SHMP company was not found; cannot set SHMP target");
+      }
+      jobs.push(
+        setAdminSalesTarget({
+          salesId,
+          companyId: shmpCompany,
+          amount: shmpAmount,
+          userId: user?.id,
+        }),
+      );
+    }
+
+    if (jobs.length > 0) await Promise.all(jobs);
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (creating && !form.password.trim()) {
       toast("Password is required", "info");
       return;
     }
+    if (form.stlTarget.trim() && parseTargetAmount(form.stlTarget) == null) {
+      toast("STL target must be a non-negative number", "info");
+      return;
+    }
+    if (form.shmpTarget.trim() && parseTargetAmount(form.shmpTarget) == null) {
+      toast("SHMP target must be a non-negative number", "info");
+      return;
+    }
+
     setSaving(true);
     try {
       const company = form.companyIds;
@@ -132,14 +235,34 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         accessToInv: true,
       };
       if (form.password.trim()) payload.password = form.password.trim();
+
       if (creating) {
         const result = await createSalesProfile(payload);
+        let salesId = createdSalesProfileId(result);
+        if (!salesId) {
+          const email = form.email.trim().toLowerCase();
+          const profiles = await getSalesProfiles();
+          const match = profiles.find(
+            (row) => String(row.email || "").trim().toLowerCase() === email,
+          );
+          salesId = match?._id ? String(match._id) : "";
+        }
+        if (
+          (form.stlTarget.trim() || form.shmpTarget.trim()) &&
+          !salesId
+        ) {
+          throw new Error(
+            "Sales profile was created but the new user id was not found. Targets were not saved.",
+          );
+        }
+        if (salesId) await saveTargets(salesId);
         toast(
           apiMessage(result, "Sales profile created. Credentials were emailed."),
           "success",
         );
       } else if (profileId) {
         await updateSalesProfile(profileId, payload);
+        await saveTargets(profileId);
         toast("Sales profile updated", "success");
       }
       router.push(backHref);
@@ -172,8 +295,8 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
         title={title}
         subtitle={
           creating
-            ? "Create a salesperson login. Credentials are emailed after save."
-            : "Update contact details, inventory companies, and password if needed."
+            ? "Create a salesperson login and set monthly sales targets. Credentials are emailed after save."
+            : "Update contact details, inventory companies, monthly targets, and password if needed."
         }
         actions={
           <Link
@@ -276,6 +399,46 @@ export function SalesProfileForm({ profileId }: { profileId?: string }) {
                     {company.name || company._id}
                   </label>
                 ))}
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <FieldLabel
+                label={
+                  targetPeriod
+                    ? `Sales targets (${targetPeriod})`
+                    : "Sales targets (current month)"
+                }
+                optional
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Leave blank to skip. Enter an amount to set or update the target
+                for this month.
+              </p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <TextField
+                  label="STL target (AED)"
+                  type="number"
+                  optional
+                  min="0"
+                  step="0.01"
+                  value={form.stlTarget}
+                  onChange={(e) =>
+                    setForm({ ...form, stlTarget: e.target.value })
+                  }
+                  placeholder="Not set"
+                />
+                <TextField
+                  label="SHMP target (AED)"
+                  type="number"
+                  optional
+                  min="0"
+                  step="0.01"
+                  value={form.shmpTarget}
+                  onChange={(e) =>
+                    setForm({ ...form, shmpTarget: e.target.value })
+                  }
+                  placeholder="Not set"
+                />
               </div>
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">

@@ -67,6 +67,8 @@ describe("custom user access", () => {
     assert.equal(customUserRestrictedPath("/admin/users"), true);
     assert.equal(customUserRestrictedPath("/shmp/users/new"), true);
     assert.equal(customUserRestrictedPath("/admin/tracking"), true);
+    assert.equal(customUserRestrictedPath("/admin/targets"), true);
+    assert.equal(customUserRestrictedPath("/admin/permissions"), true);
     assert.equal(customUserRestrictedPath("/admin/inventory"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/admin/tracking"), false);
     assert.equal(canCustomUserAccessPath(access.access, "/shmp/production/abc"), true);

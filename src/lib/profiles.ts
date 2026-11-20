@@ -61,6 +61,18 @@ export function stlCompanyId(
   );
 }
 
+export function shmpCompanyId(
+  companies: { _id: string; name?: string; prefix?: string }[],
+) {
+  return (
+    companies.find((company) => {
+      const name = String(company.name || "").trim().toLowerCase();
+      const prefix = String(company.prefix || "").trim().toLowerCase();
+      return name === "shmp" || prefix === "shmp";
+    })?._id || ""
+  );
+}
+
 export function salesCompanyIdsOrStl(
   selected: string[],
   companies: { _id: string; name?: string; prefix?: string }[],

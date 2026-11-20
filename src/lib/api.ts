@@ -1168,6 +1168,18 @@ export const createSalesProfile = (body: Record<string, unknown>) =>
     body: JSON.stringify(body),
   });
 
+/** New sales user id from create response (string legacy or `{ _id }`). */
+export function createdSalesProfileId(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const record = data as Record<string, unknown>;
+  if (record._id != null) return String(record._id);
+  const result = record.result;
+  if (result && typeof result === "object" && "_id" in result) {
+    return String((result as { _id?: unknown })._id ?? "");
+  }
+  return "";
+}
+
 export const createWarehouseProfile = (body: Record<string, unknown>) =>
   request<unknown>("/admin/create/warehouse", {
     method: "POST",

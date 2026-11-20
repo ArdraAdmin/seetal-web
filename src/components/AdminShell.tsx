@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Fingerprint,
   Folders,
-  KeyRound,
   PackageX,
   LayoutDashboard,
   LogOut,
@@ -24,7 +23,6 @@ import {
   Settings,
   ShieldCheck,
   Store,
-  Target,
   Truck,
   UserSquare,
   UserPlus,
@@ -163,15 +161,6 @@ const NAV: NavEntry[] = [
   {
     kind: "link",
     item: {
-      href: "/admin/permissions",
-      label: "Permissions",
-      icon: KeyRound,
-      lavOnly: true,
-    },
-  },
-  {
-    kind: "link",
-    item: {
       href: "/admin/users",
       label: "User management",
       icon: UserPlus,
@@ -179,7 +168,6 @@ const NAV: NavEntry[] = [
       fullAdminOnly: true,
     },
   },
-  { kind: "link", item: { href: "/admin/targets", label: "Sales targets", icon: Target, moduleId: "targets" } },
   { kind: "link", item: { href: "/admin/grv", label: "GRV management", icon: RotateCcw, moduleId: "grv" } },
   { kind: "link", item: { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
   { kind: "link", item: { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" } },
