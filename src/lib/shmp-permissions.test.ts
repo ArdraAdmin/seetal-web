@@ -154,6 +154,52 @@ describe("SHMP permission grants", () => {
       }),
       false,
     );
+    // Custom users keep role Admin; toggles still apply.
+    assert.equal(
+      canSeeShmpOrderValue({
+        role: "Admin",
+        customAccess: {
+          ...access,
+          permissions: {
+            version: 1 as const,
+            shmp: {
+              orders: { fields: { showOrderValue: false }, edit: true },
+            },
+          },
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      canEditShmpOrder({
+        role: "Admin",
+        customAccess: {
+          ...access,
+          permissions: {
+            version: 1 as const,
+            shmp: {
+              orders: { fields: { showOrderValue: true }, edit: false },
+            },
+          },
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      canEditShmpOrder({
+        role: "Admin",
+        customAccess: {
+          ...access,
+          permissions: {
+            version: 1 as const,
+            shmp: {
+              orders: { fields: { showOrderValue: false }, edit: true },
+            },
+          },
+        },
+      }),
+      true,
+    );
   });
 
   it("lets production assign every worker until a user list is saved", () => {

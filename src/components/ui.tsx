@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Eye, EyeOff, Info } from "lucide-react";
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
@@ -188,6 +188,62 @@ export function RecordPager({
   );
 }
 
+function FieldHintButton({ hint }: { hint: string }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: MouseEvent | TouchEvent) {
+      const target = event.target as Node | null;
+      if (rootRef.current && target && !rootRef.current.contains(target)) {
+        setOpen(false);
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <span ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        aria-label="Show field help"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((value) => !value);
+        }}
+        className="inline-flex rounded-full text-slate-400 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <Info className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+      </button>
+      {open ? (
+        <span
+          id={panelId}
+          role="dialog"
+          aria-label="Field help"
+          className="absolute left-0 top-full z-30 mt-1.5 w-64 max-w-[min(16rem,70vw)] rounded-lg border border-line bg-white px-3 py-2 text-left text-xs font-normal leading-relaxed text-slate-600 shadow-lg"
+        >
+          {hint}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function FieldLabel({
   label,
   required = false,
@@ -209,15 +265,7 @@ export function FieldLabel({
           </span>
         ) : null}
       </span>
-      {hint ? (
-        <span
-          title={hint}
-          aria-label={hint}
-          className="inline-flex cursor-help text-slate-400 hover:text-slate-600"
-        >
-          <Info className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
-        </span>
-      ) : null}
+      {hint ? <FieldHintButton hint={hint} /> : null}
       {optional ? (
         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           optional

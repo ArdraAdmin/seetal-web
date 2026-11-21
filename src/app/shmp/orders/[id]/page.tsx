@@ -66,11 +66,12 @@ export default function ShmpOrderDetailPage() {
     if (!orderId) return;
     setLoading(true);
     try {
-      const [next, deliveryList] = await Promise.all([
-        shmpOrderDetail(orderId) as Promise<OrderDetail>,
-        shmpDeliveries({ tempOrderId: orderId }) as Promise<OrderDeliveryTrip[]>,
-      ]);
+      const next = (await shmpOrderDetail(orderId)) as OrderDetail;
       setDetail(next);
+      // Deliveries need the delivery module; orders-only users still see the order.
+      const deliveryList = (await shmpDeliveries({
+        tempOrderId: orderId,
+      }).catch(() => [])) as OrderDeliveryTrip[];
       setTrips(
         tripsForOrder(
           Array.isArray(deliveryList) ? deliveryList : [],

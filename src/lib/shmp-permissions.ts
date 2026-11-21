@@ -849,22 +849,34 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
   return copy;
 }
 
-/** Admins always see money; custom users need Show order value. */
+/**
+ * Full Admins always see money. Custom users (even with role Admin) need
+ * Show order value — check customAccess before the Admin shortcut.
+ */
 export function canSeeShmpOrderValue(user: {
   role?: string | null;
   customAccess?: ShmpAccessLike | null;
 } | null | undefined) {
+  if (user?.customAccess) {
+    return shmpFieldOn(user.customAccess, "orders", "showOrderValue");
+  }
   if (String(user?.role || "") === "Admin") return true;
-  return shmpFieldOn(user?.customAccess, "orders", "showOrderValue");
+  return false;
 }
 
-/** Admins always edit; custom users need Edit order. */
+/**
+ * Full Admins always edit. Custom users need Edit order — check
+ * customAccess before the Admin shortcut.
+ */
 export function canEditShmpOrder(user: {
   role?: string | null;
   customAccess?: ShmpAccessLike | null;
 } | null | undefined) {
+  if (user?.customAccess) {
+    return shmpActionOn(user.customAccess, "orders", "edit");
+  }
   if (String(user?.role || "") === "Admin") return true;
-  return shmpActionOn(user?.customAccess, "orders", "edit");
+  return false;
 }
 
 export function shmpNavVisible(

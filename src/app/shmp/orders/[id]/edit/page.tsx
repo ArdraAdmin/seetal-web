@@ -71,6 +71,11 @@ export default function ShmpOrderEditPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (!orderId || canEdit) return;
+    router.replace(`/shmp/orders/${orderId}`);
+  }, [canEdit, orderId, router]);
+
   const applyDetail = useCallback((next: ShmpOrderEditDetail) => {
     setDetail(next);
     const order = next.order as ApprovalOrder | undefined;
@@ -80,7 +85,6 @@ export default function ShmpOrderEditPage() {
       return;
     }
     if (!canEdit) {
-      setError("You do not have permission to edit orders");
       setLines([]);
       return;
     }
