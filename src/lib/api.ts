@@ -1667,12 +1667,78 @@ function asArtworkResult(data: unknown): ProductArtworkUploadResult {
   return { artwork: normalizeArtwork(record.artwork) };
 }
 
+type ArtworkPresignResponse = {
+  uploadUrl?: string;
+  key?: string;
+  fileName?: string;
+  contentType?: string;
+  headers?: Record<string, string>;
+};
+
 export async function uploadProductArtwork(productId: string, file: File) {
-  const body = new FormData();
-  body.append("productId", productId);
-  body.append("artwork", file, file.name);
+  const intent = await request<ArtworkPresignResponse>(
+    "/admin/product/artwork/presign",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        productId,
+        fileName: file.name,
+        size: file.size,
+      }),
+    },
+  );
+  const uploadUrl = String(intent.uploadUrl || "").trim();
+  const key = String(intent.key || "").trim();
+  const fileName = String(intent.fileName || file.name).trim();
+  const contentType = String(intent.contentType || "").trim();
+  if (!uploadUrl || !key || !contentType) {
+    throw new ApiError("Artwork upload could not be prepared", 500);
+  }
+
+  const putHeaders = new Headers();
+  const signedHeaders =
+    intent.headers && typeof intent.headers === "object" ? intent.headers : {};
+  for (const [header, value] of Object.entries(signedHeaders)) {
+    if (value) putHeaders.set(header, String(value));
+  }
+  if (!putHeaders.has("Content-Type")) {
+    putHeaders.set("Content-Type", contentType);
+  }
+  if (!putHeaders.has("x-amz-server-side-encryption")) {
+    putHeaders.set("x-amz-server-side-encryption", "AES256");
+  }
+
+  let putRes: Response;
+  try {
+    putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: putHeaders,
+    });
+  } catch {
+    throw new ApiError(
+      "Could not upload artwork to storage. If this keeps failing, S3 CORS may need PUT from this site.",
+      0,
+    );
+  }
+  if (!putRes.ok) {
+    throw new ApiError(
+      `Artwork storage upload failed (${putRes.status})`,
+      putRes.status,
+    );
+  }
+
   return asArtworkResult(
-    await request<unknown>("/admin/product/artwork", { method: "POST", body }),
+    await request<unknown>("/admin/product/artwork/confirm", {
+      method: "POST",
+      body: JSON.stringify({
+        productId,
+        key,
+        fileName,
+        contentType,
+        size: file.size,
+      }),
+    }),
   );
 }
 

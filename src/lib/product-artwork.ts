@@ -1,7 +1,8 @@
 import type { ProductArtworkFile } from "./types";
 
 export const MAX_ARTWORK_FILES = 5;
-export const MAX_ARTWORK_BYTES = 25 * 1024 * 1024;
+export const MAX_ARTWORK_MB = 750;
+export const MAX_ARTWORK_BYTES = MAX_ARTWORK_MB * 1024 * 1024;
 
 const ARTWORK_EXTENSIONS = new Set([
   "pdf",
@@ -14,6 +15,10 @@ const ARTWORK_EXTENSIONS = new Set([
   "webp",
 ]);
 
+export function artworkSizeLimitMessage() {
+  return `Artwork must be ${MAX_ARTWORK_MB} MB or smaller`;
+}
+
 export function artworkFileError(file: {
   name: string;
   size: number;
@@ -23,7 +28,7 @@ export function artworkFileError(file: {
     return "Upload a PDF, AI, EPS, ZIP, JPEG, PNG, or WebP file";
   }
   if (!Number.isFinite(file.size) || file.size <= 0) return "Artwork file is empty";
-  if (file.size > MAX_ARTWORK_BYTES) return "Artwork must be 25 MB or smaller";
+  if (file.size > MAX_ARTWORK_BYTES) return artworkSizeLimitMessage();
   return null;
 }
 

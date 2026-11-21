@@ -5,6 +5,7 @@ import { FileText, Trash2 } from "lucide-react";
 import { deleteProductArtwork, uploadProductArtwork } from "@/lib/api";
 import {
   MAX_ARTWORK_FILES,
+  MAX_ARTWORK_MB,
   artworkFileError,
   formatArtworkSize,
   isArtworkImage,
@@ -221,8 +222,8 @@ export function ProductArtworkField({
         </label>
         <p className="text-xs text-slate-500">
           Up to 5 design files, separate from product photos. PDF, AI, EPS, ZIP,
-          JPEG, PNG, or WebP, 25 MB each. Artwork is not used as the catalog
-          thumbnail.
+          JPEG, PNG, or WebP, up to {MAX_ARTWORK_MB} MB each. Artwork is not used
+          as the catalog thumbnail.
         </p>
       </div>
       {rows.length > 0 ? (

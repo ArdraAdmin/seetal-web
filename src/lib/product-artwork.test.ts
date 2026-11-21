@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  MAX_ARTWORK_BYTES,
   MAX_ARTWORK_FILES,
+  MAX_ARTWORK_MB,
   artworkFileError,
   isArtworkImage,
   normalizeArtwork,
@@ -18,9 +20,14 @@ describe("product artwork", () => {
     );
     assert.equal(artworkFileError({ name: "empty.pdf", size: 0 }), "Artwork file is empty");
     assert.equal(
-      artworkFileError({ name: "huge.ai", size: 25 * 1024 * 1024 + 1 }),
-      "Artwork must be 25 MB or smaller",
+      artworkFileError({ name: "huge.ai", size: MAX_ARTWORK_BYTES + 1 }),
+      `Artwork must be ${MAX_ARTWORK_MB} MB or smaller`,
     );
+    assert.equal(
+      artworkFileError({ name: "large.ai", size: 200 * 1024 * 1024 }),
+      null,
+    );
+    assert.equal(MAX_ARTWORK_MB, 750);
   });
 
   it("keeps signed artwork files and drops storage keys", () => {
