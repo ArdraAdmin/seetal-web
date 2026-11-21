@@ -19,6 +19,7 @@ import {
   SHMP_GRANULAR_MODULES,
   SHMP_HR_FIELDS,
   SHMP_INVENTORY_FIELDS,
+  SHMP_ORDERS_FIELDS,
   SHMP_PAYROLL_FIELDS,
   SHMP_PRODUCTION_CARDS,
   SHMP_STORE_FIELDS,
@@ -548,6 +549,22 @@ function ModuleDetail({
           onClick={() => onChange({ ...grant, logs: !grant.logs })}
         />
         <FieldToggles fields={SHMP_PRODUCTION_CARDS} value={grant.cards} onChange={(cards) => onChange({ ...grant, cards })} />
+      </div>
+    );
+  }
+  if (id === "orders" && "edit" in grant && "fields" in grant) {
+    return (
+      <div className="space-y-3">
+        <FieldToggles
+          fields={SHMP_ORDERS_FIELDS}
+          value={grant.fields}
+          onChange={(fields) => onChange({ ...grant, fields })}
+        />
+        <ToggleRow
+          on={grant.edit}
+          label="Edit order"
+          onClick={() => onChange({ ...grant, edit: !grant.edit })}
+        />
       </div>
     );
   }

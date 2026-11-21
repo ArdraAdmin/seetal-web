@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { resubmitApprovalOrder } from "@/lib/api";
 import { apiMessage, approvalInvoice, storeIdFromOrder } from "@/lib/approval";
 import { SalesOrderProductPicker } from "@/components/SalesOrderProductPicker";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -40,12 +41,20 @@ import {
   shmpStores,
   type ShmpStore,
 } from "@/lib/shmp-api";
+import {
+  canEditShmpOrder,
+  canSeeShmpOrderValue,
+} from "@/lib/shmp-permissions";
+import { orderStatusClass } from "@/lib/shmp-orders";
 import type { ApprovalOrder } from "@/lib/types";
 
 export default function ShmpOrderEditPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const { toast } = useToast();
+  const canEdit = canEditShmpOrder(user);
+  const showOrderValue = canSeeShmpOrderValue(user);
   const orderId = String(params?.id || "");
   const cached = cachedShmpOrderDetail(orderId) as ShmpOrderEditDetail | undefined;
 
@@ -67,6 +76,11 @@ export default function ShmpOrderEditPage() {
     const order = next.order as ApprovalOrder | undefined;
     if (!order) {
       setError("Order not found");
+      setLines([]);
+      return;
+    }
+    if (!canEdit) {
+      setError("You do not have permission to edit orders");
       setLines([]);
       return;
     }
@@ -97,7 +111,7 @@ export default function ShmpOrderEditPage() {
     );
     setPayableTouched(Boolean(order.payableEdited));
     setError(null);
-  }, []);
+  }, [canEdit]);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -220,9 +234,15 @@ export default function ShmpOrderEditPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <Card>
             <p className="text-sm font-semibold text-ink">{invoice}</p>
-            <p className="mt-1 text-sm text-slate-600">
-              {order.status || "Order"}
-            </p>
+            {order.status ? (
+              <span
+                className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${orderStatusClass(order.status)}`}
+              >
+                {order.status}
+              </span>
+            ) : (
+              <p className="mt-1 text-sm text-slate-600">Order</p>
+            )}
             <label className="mt-3 block space-y-1.5">
               <span className="text-[13px] font-medium text-slate-700">Store</span>
               <select
@@ -281,28 +301,30 @@ export default function ShmpOrderEditPage() {
                       </button>
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <label className="block space-y-1">
-                        <span className="text-xs font-medium text-slate-600">
-                          Unit price (AED)
-                        </span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={Number.isFinite(line.storeCost) ? line.storeCost : 0}
-                          onChange={(e) => {
-                            const next = updateShmpEditLine(lines, line.productId, {
-                              storeCost: Math.max(0, Number(e.target.value) || 0),
-                            });
-                            setLines(next);
-                            setPayableTouched(false);
-                            syncPayable(next);
-                          }}
-                          className={`h-9 w-full rounded-lg border border-line px-2 text-sm ${
-                            priceEdited ? "font-semibold text-ink" : "text-slate-700"
-                          }`}
-                        />
-                      </label>
+                      {showOrderValue ? (
+                        <label className="block space-y-1">
+                          <span className="text-xs font-medium text-slate-600">
+                            Unit price (AED)
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={Number.isFinite(line.storeCost) ? line.storeCost : 0}
+                            onChange={(e) => {
+                              const next = updateShmpEditLine(lines, line.productId, {
+                                storeCost: Math.max(0, Number(e.target.value) || 0),
+                              });
+                              setLines(next);
+                              setPayableTouched(false);
+                              syncPayable(next);
+                            }}
+                            className={`h-9 w-full rounded-lg border border-line px-2 text-sm ${
+                              priceEdited ? "font-semibold text-ink" : "text-slate-700"
+                            }`}
+                          />
+                        </label>
+                      ) : null}
                       <label className="block space-y-1">
                         <span className="text-xs font-medium text-slate-600">
                           Ordered qty
@@ -366,9 +388,11 @@ export default function ShmpOrderEditPage() {
                         />
                       </label>
                     </div>
-                    <p className="mt-2 text-right text-sm font-semibold text-ink">
-                      {salesMoney(shmpEditLineAggregate(line))}
-                    </p>
+                    {showOrderValue ? (
+                      <p className="mt-2 text-right text-sm font-semibold text-ink">
+                        {salesMoney(shmpEditLineAggregate(line))}
+                      </p>
+                    ) : null}
                   </article>
                 );
               })}
@@ -406,32 +430,38 @@ export default function ShmpOrderEditPage() {
                 value={deliveryDate}
                 onChange={(e) => setDeliveryDate(e.target.value)}
               />
-              <TextField
-                label="Discount (%)"
-                type="number"
-                min={0}
-                max={100}
-                value={discount}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setDiscount(next);
-                  syncPayable(lines, Number(next) || 0);
-                }}
-              />
-              <TextField
-                label="Payable (AED)"
-                type="number"
-                step="0.01"
-                value={payable}
-                onChange={(e) => {
-                  setPayableTouched(true);
-                  setPayable(e.target.value);
-                }}
-              />
-              <div className="rounded-lg border border-line bg-[#faf9f6] px-3 py-2 text-sm text-slate-600">
-                <p>Subtotal: {salesMoney(totals.totalCost)}</p>
-                <p className="mt-1">Computed payable: {salesMoney(computed)}</p>
-              </div>
+              {showOrderValue ? (
+                <TextField
+                  label="Discount (%)"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={discount}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setDiscount(next);
+                    syncPayable(lines, Number(next) || 0);
+                  }}
+                />
+              ) : null}
+              {showOrderValue ? (
+                <TextField
+                  label="Payable (AED)"
+                  type="number"
+                  step="0.01"
+                  value={payable}
+                  onChange={(e) => {
+                    setPayableTouched(true);
+                    setPayable(e.target.value);
+                  }}
+                />
+              ) : null}
+              {showOrderValue ? (
+                <div className="rounded-lg border border-line bg-[#faf9f6] px-3 py-2 text-sm text-slate-600">
+                  <p>Subtotal: {salesMoney(totals.totalCost)}</p>
+                  <p className="mt-1">Computed payable: {salesMoney(computed)}</p>
+                </div>
+              ) : null}
             </div>
             <label className="mt-3 block space-y-1.5">
               <span className="text-[13px] font-medium text-slate-700">Note</span>

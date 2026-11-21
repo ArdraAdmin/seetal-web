@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
+import { useAuth } from "@/components/AuthProvider";
 import { assignedWorkerName, productionStatusClass } from "@/lib/shmp-order-item";
 import {
   deliveryLineName,
@@ -14,9 +15,11 @@ import {
   type OrderDeliveryTrip,
 } from "@/lib/shmp-order-deliveries";
 import { cachedShmpOrderDetail, shmpDeliveries, shmpOrderDetail } from "@/lib/shmp-api";
+import { canEditShmpOrder } from "@/lib/shmp-permissions";
 import {
   cartonProgressLabel,
   dispatchFromLines,
+  orderStatusClass,
   type ShmpOrderDispatch,
 } from "@/lib/shmp-orders";
 import { formatProductionLogDate } from "@/lib/shmp-production";
@@ -48,6 +51,8 @@ type OrderDetail = {
 
 export default function ShmpOrderDetailPage() {
   const params = useParams();
+  const { user } = useAuth();
+  const canEdit = canEditShmpOrder(user);
   const orderId = String(params?.id || "");
   const cached = cachedShmpOrderDetail(orderId) as OrderDetail | undefined;
   const [detail, setDetail] = useState<OrderDetail | null>(cached || null);
@@ -105,10 +110,20 @@ export default function ShmpOrderDetailPage() {
             ← All orders
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-ink">{invoice}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {detail?.order?.status ? `Status: ${detail.order.status}` : "Order"}
-            {detail ? ` · ${cartonProgressLabel(dispatch)}` : null}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            {detail?.order?.status ? (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${orderStatusClass(detail.order.status)}`}
+              >
+                {detail.order.status}
+              </span>
+            ) : (
+              <span>Order</span>
+            )}
+            {detail ? (
+              <span>· {cartonProgressLabel(dispatch)}</span>
+            ) : null}
+          </div>
           {vehicleLabels.length ? (
             <p className="mt-1 text-sm text-slate-600">
               Delivered in {vehicleLabels.join(", ")}
@@ -116,7 +131,7 @@ export default function ShmpOrderDetailPage() {
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {dispatch.section !== "delivered" ? (
+          {canEdit && dispatch.section !== "delivered" ? (
             <Link
               href={`/shmp/orders/${orderId}/edit`}
               className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"

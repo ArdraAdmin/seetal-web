@@ -5,6 +5,31 @@ export type ShmpOrderStore = {
   city?: string;
 };
 
+/** Colored pill classes for SHMP order lifecycle status text. */
+export function orderStatusClass(status?: string | null) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "delivered") {
+    return "bg-emerald-100 text-emerald-800";
+  }
+  if (value === "confirmed") {
+    return "bg-sky-100 text-sky-800";
+  }
+  if (
+    value === "ready" ||
+    value === "ready to deliver" ||
+    value === "ready-to-deliver"
+  ) {
+    return "bg-violet-100 text-violet-800";
+  }
+  if (value === "inproduction" || value === "in production") {
+    return "bg-indigo-100 text-indigo-800";
+  }
+  if (value === "pending" || !value) {
+    return "bg-amber-100 text-amber-900";
+  }
+  return "bg-slate-100 text-slate-700";
+}
+
 export function orderStoreName(store: unknown) {
   if (!store) return "";
   if (typeof store === "string") return "";

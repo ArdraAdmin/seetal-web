@@ -6,15 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
 import { TextField } from "@/components/ui";
-import { isAdmin } from "@/lib/auth";
 import { salesMoney } from "@/lib/sales";
 import { shmpOrders } from "@/lib/shmp-api";
 import { ensureOrderDispatch } from "@/lib/shmp-order-board";
+import { canSeeShmpOrderValue } from "@/lib/shmp-permissions";
 import {
   cartonProgressLabel,
   orderMatchesQuery,
   orderPayableAmount,
   orderSection,
+  orderStatusClass,
   orderStoreName,
   type OrderSection,
   type ShmpOrderDispatch,
@@ -59,7 +60,7 @@ function ShmpOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const admin = isAdmin(user);
+  const showOrderValue = canSeeShmpOrderValue(user);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [section, setSection] = useState<OrderSection>(
     parseSection(searchParams.get("section")),
@@ -222,10 +223,14 @@ function ShmpOrdersPage() {
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <span className="block text-xs text-slate-500">
-                          {String(order.status || "")}
-                        </span>
-                        {admin ? (
+                        {order.status ? (
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${orderStatusClass(order.status)}`}
+                          >
+                            {String(order.status)}
+                          </span>
+                        ) : null}
+                        {showOrderValue ? (
                           <p className="mt-0.5 text-xs font-medium text-ink">
                             {salesMoney(orderPayableAmount(order))}
                           </p>

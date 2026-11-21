@@ -821,6 +821,13 @@ export type ShmpInventoryProduct = {
   barCode?: string;
   barcode?: string;
   unit?: string;
+  unitRatioKind?: string;
+  unitRatioValue?: number;
+  cartonRatioKind?: string;
+  cartonRatioValue?: number;
+  packingLabels?: number;
+  packingInners?: number;
+  packingOuters?: number;
   ratio?: number;
   sellingPrice?: number;
   isDisplay?: boolean;

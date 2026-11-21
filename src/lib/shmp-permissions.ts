@@ -47,6 +47,7 @@ export type ShmpGrantMap = {
     cards: Record<string, boolean>;
     users: IdScope;
   };
+  orders?: { fields: Record<string, boolean>; edit: boolean };
   "drivers-vehicles"?: FleetGrant;
 };
 
@@ -156,15 +157,22 @@ export const SHMP_STORE_FIELDS: ShmpField[] = [
 ];
 
 export const SHMP_INVENTORY_FIELDS: ShmpField[] = [
-  { id: "itemRef", label: "Item ref" },
+  { id: "itemRef", label: "Item code" },
   { id: "itemName", label: "Item name" },
   { id: "barCode", label: "Barcode" },
   { id: "baseItemCode", label: "Base item code" },
   { id: "category", label: "Category" },
-  { id: "subCategory", label: "Sub category" },
+  { id: "subCategory", label: "Sub-category" },
   { id: "company", label: "Company" },
   { id: "unit", label: "Unit" },
+  { id: "unitRatioKind", label: "Unit ratio type" },
+  { id: "unitRatioValue", label: "Unit ratio qty" },
+  { id: "cartonRatioKind", label: "Carton ratio type" },
+  { id: "cartonRatioValue", label: "Carton ratio qty" },
   { id: "ratio", label: "Pieces per carton" },
+  { id: "packingLabels", label: "Labels" },
+  { id: "packingInners", label: "Inners (Boxes)" },
+  { id: "packingOuters", label: "Outers (Cartons)" },
   { id: "amountInUnits", label: "Amount in units" },
   { id: "amountInCartons", label: "Amount in cartons" },
   { id: "sellingPrice", label: "Base selling price" },
@@ -187,6 +195,10 @@ export const SHMP_PRODUCTION_CARDS: ShmpField[] = [
   { id: "month-value", label: "Total carton value" },
 ];
 
+export const SHMP_ORDERS_FIELDS: ShmpField[] = [
+  { id: "showOrderValue", label: "Show order value" },
+];
+
 const FIELD_CATALOG: Record<string, ShmpField[]> = {
   dashboard: SHMP_DASHBOARD_FIELDS,
   hr: SHMP_HR_FIELDS,
@@ -194,6 +206,7 @@ const FIELD_CATALOG: Record<string, ShmpField[]> = {
   stores: SHMP_STORE_FIELDS,
   inventory: SHMP_INVENTORY_FIELDS,
   production: SHMP_PRODUCTION_CARDS,
+  orders: SHMP_ORDERS_FIELDS,
 };
 
 /** Older field tokens still stored on accounts that have not been re-saved. */
@@ -251,6 +264,7 @@ export const SHMP_GRANULAR_MODULES = [
   "categories",
   "catalog",
   "production",
+  "orders",
   "drivers-vehicles",
 ] as const;
 
@@ -373,6 +387,8 @@ export function shmpActionOn(
   if (moduleId === "approvals" && action === "approve") return grant.approve === true;
   if (moduleId === "payroll" && action === "edit") return grant.edit === true;
   if (moduleId === "payroll" && action === "read") return true;
+  if (moduleId === "orders" && action === "edit") return grant.edit === true;
+  if (moduleId === "orders" && action === "read") return true;
   if (moduleId === "stores" && action === "block") return grant.block === true;
   if (moduleId === "catalog" && action === "uploadImages") return grant.uploadImages === true;
   if (moduleId === "production" && action === "logs") return grant.logs === true;
@@ -478,7 +494,18 @@ export function grantWhenEnabled(moduleId: string): ShmpGrantMap[keyof ShmpGrant
   if (moduleId === "catalog") {
     return { actions: crud(true, false), items: allScope(), uploadImages: false };
   }
+  if (moduleId === "orders") {
+    return { fields: allFields("orders", false), edit: false };
+  }
   if (moduleId === "drivers-vehicles") return newFleetGrant();
+  if (moduleId === "production") {
+    return {
+      orders: { mode: "all" },
+      logs: false,
+      cards: allFields("production", true),
+      users: allScope(),
+    };
+  }
   return {
     orders: { mode: "all" },
     logs: false,
@@ -506,7 +533,18 @@ function legacyGrant(moduleId: string, access: ShmpAccessLike) {
   if (moduleId === "inventory") return { actions: full, fields, items: allScope() };
   if (moduleId === "categories") return { actions: full, categories: allScope() };
   if (moduleId === "catalog") return { actions: full, items: allScope(), uploadImages: true };
+  if (moduleId === "orders") {
+    return { fields: allFields("orders", true), edit: true };
+  }
   if (moduleId === "drivers-vehicles") return fullFleetGrant();
+  if (moduleId === "production") {
+    return {
+      orders: { mode: "all" as const },
+      logs: true,
+      cards: allFields("production", true),
+      users: allScope(),
+    };
+  }
   return {
     orders: { mode: "all" as const },
     logs: true,
@@ -709,6 +747,13 @@ export function sanitizeShmpPermissions(
       users: row.users == null ? { mode: "all" } : cleanScope(row.users),
     };
   }
+  if (source.orders) {
+    const row = source.orders as { fields?: unknown; edit?: unknown };
+    shmp.orders = {
+      fields: cleanFields("orders", row.fields),
+      edit: row.edit === true,
+    };
+  }
   if (source["drivers-vehicles"]) {
     shmp["drivers-vehicles"] = cleanFleet(source["drivers-vehicles"]);
   }
@@ -779,6 +824,7 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
       users: slimScope(shmp.production.users || { mode: "all" }),
     };
   }
+  if (shmp.orders) next.orders = shmp.orders;
   if (shmp["drivers-vehicles"]) {
     const fleet = shmp["drivers-vehicles"];
     next["drivers-vehicles"] = {
@@ -801,6 +847,24 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
       : {}),
   };
   return copy;
+}
+
+/** Admins always see money; custom users need Show order value. */
+export function canSeeShmpOrderValue(user: {
+  role?: string | null;
+  customAccess?: ShmpAccessLike | null;
+} | null | undefined) {
+  if (String(user?.role || "") === "Admin") return true;
+  return shmpFieldOn(user?.customAccess, "orders", "showOrderValue");
+}
+
+/** Admins always edit; custom users need Edit order. */
+export function canEditShmpOrder(user: {
+  role?: string | null;
+  customAccess?: ShmpAccessLike | null;
+} | null | undefined) {
+  if (String(user?.role || "") === "Admin") return true;
+  return shmpActionOn(user?.customAccess, "orders", "edit");
 }
 
 export function shmpNavVisible(

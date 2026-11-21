@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Info } from "lucide-react";
 
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
   return (
@@ -192,10 +192,12 @@ export function FieldLabel({
   label,
   required = false,
   optional = false,
+  hint,
 }: {
   label: string;
   required?: boolean;
   optional?: boolean;
+  hint?: string;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
@@ -207,6 +209,15 @@ export function FieldLabel({
           </span>
         ) : null}
       </span>
+      {hint ? (
+        <span
+          title={hint}
+          aria-label={hint}
+          className="inline-flex cursor-help text-slate-400 hover:text-slate-600"
+        >
+          <Info className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+        </span>
+      ) : null}
       {optional ? (
         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           optional
@@ -221,10 +232,12 @@ export function TextField({
   type = "text",
   className = "",
   optional = false,
+  hint,
   ...props
 }: {
   label: string;
   optional?: boolean;
+  hint?: string;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
   const [visible, setVisible] = useState(false);
   const isPassword = type === "password";
@@ -236,6 +249,7 @@ export function TextField({
         label={label}
         required={Boolean(props.required)}
         optional={optional}
+        hint={hint}
       />
       <span className="relative block">
         <input

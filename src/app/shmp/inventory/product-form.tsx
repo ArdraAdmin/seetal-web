@@ -15,6 +15,21 @@ import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { FieldLabel, TextField } from "@/components/ui";
 import {
+  CARTON_RATIO_HINT,
+  CARTON_RATIO_KINDS,
+  derivePiecesPerCarton,
+  normalizeShmpUnit,
+  packingCountFromProduct,
+  packingRatiosFromProduct,
+  parseRequiredPackingCount,
+  PACKING_INNERS_HINT,
+  PACKING_LABELS_HINT,
+  PACKING_OUTERS_HINT,
+  SHMP_UNITS,
+  UNIT_RATIO_HINT,
+  UNIT_RATIO_KINDS,
+} from "@/lib/shmp-inventory-packing";
+import {
   newStoreVisibilityRow,
   pricingRowsFromProfiles,
   storeProfilesFromRows,
@@ -32,7 +47,13 @@ export type ProductFormState = {
   subCategory: string;
   company: string;
   unit: string;
-  ratio: string;
+  unitRatioKind: string;
+  unitRatioValue: string;
+  cartonRatioKind: string;
+  cartonRatioValue: string;
+  packingLabels: string;
+  packingInners: string;
+  packingOuters: string;
   amountInUnits: string;
   sellingPrice: string;
   isDisplay: boolean;
@@ -53,8 +74,14 @@ export const EMPTY_FORM: ProductFormState = {
   category: "",
   subCategory: "",
   company: "",
-  unit: "PCS",
-  ratio: "1",
+  unit: "",
+  unitRatioKind: "",
+  unitRatioValue: "",
+  cartonRatioKind: "",
+  cartonRatioValue: "",
+  packingLabels: "",
+  packingInners: "",
+  packingOuters: "",
   amountInUnits: "0",
   sellingPrice: "0",
   isDisplay: true,
@@ -203,10 +230,18 @@ export function formFromProduct(
   groups: CategoryGroup[],
 ): ProductFormState {
   const matched = matchCategory(product, groups);
-  const ratio = Number(product.ratio ?? 1) || 1;
+  const ratios = packingRatiosFromProduct(product);
+  const ratio =
+    derivePiecesPerCarton(
+      ratios.unitRatioKind,
+      Number(ratios.unitRatioValue),
+      ratios.cartonRatioKind,
+      Number(ratios.cartonRatioValue),
+    ) || Number(product.ratio ?? 1) || 1;
   const amountInUnits =
     (product.inQty?.amountInCartons ?? 0) * ratio +
     (product.inQty?.amountInUnits ?? 0);
+  const unit = normalizeShmpUnit(product.unit) || String(product.unit ?? "");
 
   return {
     itemRef: String(product.itemRef ?? ""),
@@ -216,8 +251,14 @@ export function formFromProduct(
     category: matched.category,
     subCategory: matched.subCategory,
     company: companyIdOf(product),
-    unit: String(product.unit ?? "PCS"),
-    ratio: String(product.ratio ?? 1),
+    unit,
+    unitRatioKind: ratios.unitRatioKind,
+    unitRatioValue: ratios.unitRatioValue,
+    cartonRatioKind: ratios.cartonRatioKind,
+    cartonRatioValue: ratios.cartonRatioValue,
+    packingLabels: packingCountFromProduct(product.packingLabels),
+    packingInners: packingCountFromProduct(product.packingInners),
+    packingOuters: packingCountFromProduct(product.packingOuters),
     amountInUnits: String(amountInUnits),
     sellingPrice: String(product.sellingPrice ?? 0),
     isDisplay: Boolean(product.isDisplay ?? true),
@@ -242,6 +283,7 @@ function SelectField({
   required,
   optional,
   disabled,
+  hint,
 }: {
   label: string;
   value: string;
@@ -250,10 +292,16 @@ function SelectField({
   required?: boolean;
   optional?: boolean;
   disabled?: boolean;
+  hint?: string;
 }) {
   return (
     <label className="block space-y-1.5">
-      <FieldLabel label={label} required={required} optional={optional} />
+      <FieldLabel
+        label={label}
+        required={required}
+        optional={optional}
+        hint={hint}
+      />
       <select
         required={required}
         disabled={disabled}
@@ -264,6 +312,55 @@ function SelectField({
         {children}
       </select>
     </label>
+  );
+}
+
+function RatioPairField({
+  kindLabel,
+  kind,
+  kindOptions,
+  onKindChange,
+  value,
+  onValueChange,
+  hint,
+}: {
+  kindLabel: string;
+  kind: string;
+  kindOptions: readonly string[];
+  onKindChange: (value: string) => void;
+  value: string;
+  onValueChange: (value: string) => void;
+  hint: string;
+}) {
+  return (
+    <div className="space-y-1.5 sm:col-span-2 lg:col-span-2">
+      <FieldLabel label={kindLabel} required hint={hint} />
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] gap-2">
+        <select
+          required
+          value={kind}
+          onChange={(e) => onKindChange(e.target.value)}
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        >
+          <option value="">Select</option>
+          {kindOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        <input
+          required
+          type="number"
+          min={0.0001}
+          step="any"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          placeholder="Qty"
+          className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none placeholder:text-slate-400 focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -462,14 +559,46 @@ export function buildPayload(
   );
   if (!category.ok) return category;
   if (!form.company) return { ok: false, error: "Select a company" };
-  if (!form.itemRef.trim()) return { ok: false, error: "Item ref is required" };
+  if (!form.itemRef.trim()) return { ok: false, error: "Item code is required" };
   if (!form.itemName.trim()) return { ok: false, error: "Item name is required" };
+  if (!normalizeShmpUnit(form.unit)) {
+    return { ok: false, error: "Unit must be Pcs, Sets, or Box" };
+  }
+  if (!form.unitRatioKind.trim()) {
+    return { ok: false, error: "Select a unit ratio (Pcs, Pcs/Set, or Pcs/Box)" };
+  }
+  if (!form.cartonRatioKind.trim()) {
+    return {
+      ok: false,
+      error: "Select a carton ratio (Pcs/Ctn, Sets/Ctn, or Box/Ctn)",
+    };
+  }
+  const unitRatioValue = Number(form.unitRatioValue);
+  if (!Number.isFinite(unitRatioValue) || unitRatioValue <= 0) {
+    return { ok: false, error: "Unit ratio must be a positive number" };
+  }
+  const cartonRatioValue = Number(form.cartonRatioValue);
+  if (!Number.isFinite(cartonRatioValue) || cartonRatioValue <= 0) {
+    return { ok: false, error: "Carton ratio must be a positive number" };
+  }
+  const labels = parseRequiredPackingCount(form.packingLabels, "Labels");
+  if (!labels.ok) return labels;
+  const inners = parseRequiredPackingCount(form.packingInners, "Inners (Boxes)");
+  if (!inners.ok) return inners;
+  const outers = parseRequiredPackingCount(form.packingOuters, "Outers (Cartons)");
+  if (!outers.ok) return outers;
 
   const profiles = storeProfilesFromRows(form.pricing);
   if (!profiles.ok) return profiles;
   const storeProfiles = profiles.profiles;
 
   const baseItemCode = form.baseItemCode.trim();
+  const ratio = derivePiecesPerCarton(
+    form.unitRatioKind,
+    unitRatioValue,
+    form.cartonRatioKind,
+    cartonRatioValue,
+  );
 
   return {
     ok: true,
@@ -484,8 +613,15 @@ export function buildPayload(
       shmpCategoryId: category.shmpCategoryId,
       company: form.company,
       companyId: form.company,
-      unit: form.unit.trim() || "PCS",
-      ratio: Number(form.ratio) || 1,
+      unit: normalizeShmpUnit(form.unit),
+      unitRatioKind: form.unitRatioKind,
+      unitRatioValue,
+      cartonRatioKind: form.cartonRatioKind,
+      cartonRatioValue,
+      packingLabels: labels.value,
+      packingInners: inners.value,
+      packingOuters: outers.value,
+      ratio,
       amountInUnits: Number(form.amountInUnits) || 0,
       sellingPrice: Number(form.sellingPrice) || 0,
       isDisplay: form.isDisplay,
@@ -548,205 +684,295 @@ export function ProductFields({
   );
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <TextField
-        label="Item ref"
-        required
-        value={form.itemRef}
-        onChange={(e) => setForm((prev) => ({ ...prev, itemRef: e.target.value }))}
-      />
-      <TextField
-        label="Item name"
-        required
-        value={form.itemName}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, itemName: e.target.value }))
-        }
-      />
-      <TextField
-        label="Barcode"
-        value={form.barCode}
-        onChange={(e) => setForm((prev) => ({ ...prev, barCode: e.target.value }))}
-      />
-      <TextField
-        label="Base item code"
-        optional
-        value={form.baseItemCode}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, baseItemCode: e.target.value }))
-        }
-      />
-      <SelectField
-        label="Category"
-        required
-        value={form.category}
-        onChange={(value) =>
-          setForm((prev) => ({ ...prev, category: value, subCategory: "" }))
-        }
-      >
-        <option value="">
-          {loadingCategories ? "Loading categories…" : "Select category"}
-        </option>
-        {groups.map((group) => (
-          <option
-            key={group.masterCategoryId || group.name}
-            value={group.masterCategoryId || group.name}
-          >
-            {group.name}
-          </option>
-        ))}
-      </SelectField>
-      <SelectField
-        label="Sub category"
-        optional
-        disabled={!selectedGroup || loadingCategories}
-        value={form.subCategory}
-        onChange={(value) =>
-          setForm((prev) => ({ ...prev, subCategory: value }))
-        }
-      >
-        <option value="">
-          {loadingCategories
-            ? "Loading categories…"
-            : selectedGroup
-              ? "No sub category"
-              : "Select a category first"}
-        </option>
-        {form.subCategory &&
-        !subOptions.some(
-          (item) => (item._id || item.subCategory) === form.subCategory,
-        ) ? (
-          <option value={form.subCategory}>Current sub category</option>
-        ) : null}
-        {subOptions.map((item) => (
-          <option
-            key={item._id || item.subCategory}
-            value={item._id || item.subCategory}
-          >
-            {item.subCategory || "Sub category"}
-          </option>
-        ))}
-      </SelectField>
-      <SelectField
-        label="Company"
-        required
-        disabled={loadingCompanies}
-        value={form.company}
-        onChange={(value) => setForm((prev) => ({ ...prev, company: value }))}
-      >
-        <option value="">
-          {loadingCompanies ? "Loading companies…" : "Select company"}
-        </option>
-        {form.company &&
-        !formCompanies.some((company) => company._id === form.company) ? (
-          <option value={form.company}>Current company</option>
-        ) : null}
-        {formCompanies.map((company) => (
-          <option key={company._id} value={company._id}>
-            {companyLabel(company)}
-          </option>
-        ))}
-      </SelectField>
-      <TextField
-        label="Unit"
-        required
-        value={form.unit}
-        onChange={(e) => setForm((prev) => ({ ...prev, unit: e.target.value }))}
-      />
-      <TextField
-        label="Ratio"
-        required
-        type="number"
-        min={1}
-        value={form.ratio}
-        onChange={(e) => setForm((prev) => ({ ...prev, ratio: e.target.value }))}
-      />
-      {showQty ? (
-      <TextField
-        label="Amount in units"
-        required
-        type="number"
-        min={0}
-        value={form.amountInUnits}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, amountInUnits: e.target.value }))
-        }
-      />
-      ) : null}
-      {showPrice ? (
-      <TextField
-        label="Base selling price"
-        required
-        type="number"
-        min={0}
-        step="0.01"
-        value={form.sellingPrice}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, sellingPrice: e.target.value }))
-        }
-      />
-      ) : null}
-      <TextField
-        label="Description"
-        optional
-        value={form.description}
-        onChange={(e) =>
-          setForm((prev) => ({ ...prev, description: e.target.value }))
-        }
-      />
-      <TextField
-        label="Carton weight"
-        optional
-        type="number"
-        min={0}
-        step="0.01"
-        value={form.cartonWeight}
-        onChange={(e) => setForm((prev) => ({ ...prev, cartonWeight: e.target.value }))}
-      />
-      <TextField
-        label="Carton dimensions"
-        optional
-        value={form.cartonDimensions}
-        onChange={(e) => setForm((prev) => ({ ...prev, cartonDimensions: e.target.value }))}
-        placeholder="L x W x H"
-      />
-      <TextField
-        label="CBM"
-        optional
-        type="number"
-        min={0}
-        step="0.0001"
-        value={form.cbm}
-        onChange={(e) => setForm((prev) => ({ ...prev, cbm: e.target.value }))}
-      />
-      <TextField
-        label="Piece weight"
-        optional
-        type="number"
-        min={0}
-        step="0.01"
-        value={form.pieceWeight}
-        onChange={(e) => setForm((prev) => ({ ...prev, pieceWeight: e.target.value }))}
-      />
-      <TextField
-        label="Piece dimensions"
-        optional
-        value={form.pieceDimensions}
-        onChange={(e) => setForm((prev) => ({ ...prev, pieceDimensions: e.target.value }))}
-        placeholder="L x W x H"
-      />
-      <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
-        <input
-          type="checkbox"
-          checked={form.isDisplay}
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <TextField
+          label="Item code"
+          required
+          value={form.itemRef}
           onChange={(e) =>
-            setForm((prev) => ({ ...prev, isDisplay: e.target.checked }))
+            setForm((prev) => ({ ...prev, itemRef: e.target.value }))
           }
         />
-        Display in catalog
-      </label>
+        <TextField
+          label="Item name"
+          required
+          value={form.itemName}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, itemName: e.target.value }))
+          }
+        />
+        <TextField
+          label="Barcode"
+          value={form.barCode}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, barCode: e.target.value }))
+          }
+        />
+        <TextField
+          label="Base item code"
+          optional
+          value={form.baseItemCode}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, baseItemCode: e.target.value }))
+          }
+        />
+        <SelectField
+          label="Category"
+          required
+          value={form.category}
+          onChange={(value) =>
+            setForm((prev) => ({ ...prev, category: value, subCategory: "" }))
+          }
+        >
+          <option value="">
+            {loadingCategories ? "Loading categories…" : "Select category"}
+          </option>
+          {groups.map((group) => (
+            <option
+              key={group.masterCategoryId || group.name}
+              value={group.masterCategoryId || group.name}
+            >
+              {group.name}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Sub-category"
+          optional
+          disabled={!selectedGroup || loadingCategories}
+          value={form.subCategory}
+          onChange={(value) =>
+            setForm((prev) => ({ ...prev, subCategory: value }))
+          }
+        >
+          <option value="">
+            {loadingCategories
+              ? "Loading categories…"
+              : selectedGroup
+                ? "No sub-category"
+                : "Select a category first"}
+          </option>
+          {form.subCategory &&
+          !subOptions.some(
+            (item) => (item._id || item.subCategory) === form.subCategory,
+          ) ? (
+            <option value={form.subCategory}>Current sub-category</option>
+          ) : null}
+          {subOptions.map((item) => (
+            <option
+              key={item._id || item.subCategory}
+              value={item._id || item.subCategory}
+            >
+              {item.subCategory || "Sub-category"}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Company"
+          required
+          disabled={loadingCompanies}
+          value={form.company}
+          onChange={(value) => setForm((prev) => ({ ...prev, company: value }))}
+        >
+          <option value="">
+            {loadingCompanies ? "Loading companies…" : "Select company"}
+          </option>
+          {form.company &&
+          !formCompanies.some((company) => company._id === form.company) ? (
+            <option value={form.company}>Current company</option>
+          ) : null}
+          {formCompanies.map((company) => (
+            <option key={company._id} value={company._id}>
+              {companyLabel(company)}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Unit"
+          required
+          value={form.unit}
+          onChange={(value) => setForm((prev) => ({ ...prev, unit: value }))}
+        >
+          <option value="">Select unit</option>
+          {form.unit && !SHMP_UNITS.includes(form.unit as (typeof SHMP_UNITS)[number]) ? (
+            <option value={form.unit}>{form.unit}</option>
+          ) : null}
+          {SHMP_UNITS.map((unit) => (
+            <option key={unit} value={unit}>
+              {unit}
+            </option>
+          ))}
+        </SelectField>
+        <RatioPairField
+          kindLabel="Unit ratio"
+          kind={form.unitRatioKind}
+          kindOptions={UNIT_RATIO_KINDS}
+          onKindChange={(unitRatioKind) =>
+            setForm((prev) => ({ ...prev, unitRatioKind }))
+          }
+          value={form.unitRatioValue}
+          onValueChange={(unitRatioValue) =>
+            setForm((prev) => ({ ...prev, unitRatioValue }))
+          }
+          hint={UNIT_RATIO_HINT}
+        />
+        <RatioPairField
+          kindLabel="Carton ratio"
+          kind={form.cartonRatioKind}
+          kindOptions={CARTON_RATIO_KINDS}
+          onKindChange={(cartonRatioKind) =>
+            setForm((prev) => ({ ...prev, cartonRatioKind }))
+          }
+          value={form.cartonRatioValue}
+          onValueChange={(cartonRatioValue) =>
+            setForm((prev) => ({ ...prev, cartonRatioValue }))
+          }
+          hint={CARTON_RATIO_HINT}
+        />
+        {showQty ? (
+          <TextField
+            label="Amount in units"
+            required
+            type="number"
+            min={0}
+            value={form.amountInUnits}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, amountInUnits: e.target.value }))
+            }
+          />
+        ) : null}
+        {showPrice ? (
+          <TextField
+            label="Base selling price"
+            required
+            type="number"
+            min={0}
+            step="0.01"
+            value={form.sellingPrice}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, sellingPrice: e.target.value }))
+            }
+          />
+        ) : null}
+        <TextField
+          label="Description"
+          optional
+          value={form.description}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, description: e.target.value }))
+          }
+        />
+        <TextField
+          label="Carton weight"
+          optional
+          type="number"
+          min={0}
+          step="0.01"
+          value={form.cartonWeight}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, cartonWeight: e.target.value }))
+          }
+        />
+        <TextField
+          label="Carton dimensions"
+          optional
+          value={form.cartonDimensions}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, cartonDimensions: e.target.value }))
+          }
+          placeholder="L x W x H"
+        />
+        <TextField
+          label="CBM"
+          optional
+          type="number"
+          min={0}
+          step="0.0001"
+          value={form.cbm}
+          onChange={(e) => setForm((prev) => ({ ...prev, cbm: e.target.value }))}
+        />
+        <TextField
+          label="Piece weight"
+          optional
+          type="number"
+          min={0}
+          step="0.01"
+          value={form.pieceWeight}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, pieceWeight: e.target.value }))
+          }
+        />
+        <TextField
+          label="Piece dimensions"
+          optional
+          value={form.pieceDimensions}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, pieceDimensions: e.target.value }))
+          }
+          placeholder="L x W x H"
+        />
+        <label className="flex items-end gap-2 pb-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={form.isDisplay}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, isDisplay: e.target.checked }))
+            }
+          />
+          Display in catalog
+        </label>
+      </div>
 
-      <div className="sm:col-span-2 lg:col-span-3">
+      <div className="space-y-3 border-t border-line pt-4">
+        <div>
+          <h3 className="text-sm font-semibold text-ink">Packing</h3>
+          <p className="text-xs text-slate-500">
+            Required packing counts for this item. Hover the info icons for
+            what each field means.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TextField
+            label="Labels"
+            required
+            type="number"
+            min={0}
+            step="1"
+            hint={PACKING_LABELS_HINT}
+            value={form.packingLabels}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, packingLabels: e.target.value }))
+            }
+          />
+          <TextField
+            label="Inners (Boxes)"
+            required
+            type="number"
+            min={0}
+            step="1"
+            hint={PACKING_INNERS_HINT}
+            value={form.packingInners}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, packingInners: e.target.value }))
+            }
+          />
+          <TextField
+            label="Outers (Cartons)"
+            required
+            type="number"
+            min={0}
+            step="1"
+            hint={PACKING_OUTERS_HINT}
+            value={form.packingOuters}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, packingOuters: e.target.value }))
+            }
+          />
+        </div>
+      </div>
+
+      <div>
         <StoreVisibilityEditor
           showPrice={showPrice}
           pricing={form.pricing}

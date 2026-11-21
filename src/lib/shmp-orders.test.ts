@@ -6,6 +6,7 @@ import {
   orderMatchesQuery,
   orderPayableAmount,
   orderSection,
+  orderStatusClass,
   orderStoreName,
   orderStoreUid,
   readyDeliveryLines,
@@ -124,5 +125,16 @@ describe("orderMatchesQuery", () => {
     assert.equal(orderMatchesQuery(order, "al ain"), true);
     assert.equal(orderMatchesQuery(order, "aa-01"), true);
     assert.equal(orderMatchesQuery(order, "missing"), false);
+  });
+});
+
+describe("orderStatusClass", () => {
+  it("maps lifecycle statuses to distinct badge colors", () => {
+    assert.match(orderStatusClass("Pending"), /amber/);
+    assert.match(orderStatusClass("Confirmed"), /sky/);
+    assert.match(orderStatusClass("Delivered"), /emerald/);
+    assert.match(orderStatusClass("Ready to deliver"), /violet/);
+    assert.match(orderStatusClass("InProduction"), /indigo/);
+    assert.match(orderStatusClass("Something else"), /slate/);
   });
 });

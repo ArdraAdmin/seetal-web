@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  canEditShmpOrder,
+  canSeeShmpOrderValue,
   catalogItemAllowed,
   grantWhenEnabled,
   permissionsForEditor,
@@ -108,6 +110,50 @@ describe("SHMP permission grants", () => {
     const approvals = grantWhenEnabled("approvals");
     assert.equal("approve" in approvals && approvals.approve, false);
     assert.equal("read" in approvals && approvals.read, true);
+  });
+
+  it("defaults orders value and edit off when the module is newly enabled", () => {
+    const orders = grantWhenEnabled("orders");
+    assert.equal("edit" in orders && orders.edit, false);
+    assert.equal(
+      "fields" in orders && orders.fields.showOrderValue,
+      false,
+    );
+    const saved = sanitizeShmpPermissions({
+      version: 1,
+      shmp: {
+        orders: { fields: { showOrderValue: true }, edit: true },
+      },
+    });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) return;
+    const access = {
+      companies: ["shmp"],
+      modules: { shmp: ["orders"] },
+      explicit: true,
+      permissions: saved.permissions,
+    };
+    assert.equal(shmpFieldOn(access, "orders", "showOrderValue"), true);
+    assert.equal(shmpActionOn(access, "orders", "edit"), true);
+    assert.equal(canSeeShmpOrderValue({ role: "Admin" }), true);
+    assert.equal(canEditShmpOrder({ role: "Admin" }), true);
+    assert.equal(
+      canSeeShmpOrderValue({ role: "User", customAccess: access }),
+      true,
+    );
+    assert.equal(
+      canEditShmpOrder({
+        role: "User",
+        customAccess: {
+          ...access,
+          permissions: {
+            version: 1 as const,
+            shmp: { orders: { fields: { showOrderValue: false }, edit: false } },
+          },
+        },
+      }),
+      false,
+    );
   });
 
   it("lets production assign every worker until a user list is saved", () => {

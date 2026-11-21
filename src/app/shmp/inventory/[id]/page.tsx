@@ -69,10 +69,14 @@ function DetailField({
   label: string;
   value: ReactNode;
 }) {
+  const empty =
+    value == null ||
+    value === "" ||
+    (typeof value === "number" && Number.isNaN(value));
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 font-medium text-ink">{value || "—"}</dd>
+      <dd className="mt-1 font-medium text-ink">{empty ? "—" : value}</dd>
     </div>
   );
 }
@@ -206,7 +210,7 @@ function InventoryItemDetail() {
         title={product?.itemName || "Inventory item"}
         subtitle={
           product
-            ? `Ref ${product.itemRef || "—"} · full product details`
+            ? `Code ${product.itemRef || "—"} · full product details`
             : "Product details"
         }
         actions={
@@ -320,7 +324,7 @@ function InventoryItemDetail() {
             </h2>
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <DetailField label="Item name" value={product.itemName} />
-              <DetailField label="Item ref" value={product.itemRef} />
+              <DetailField label="Item code" value={product.itemRef} />
               <DetailField label="Base item code" value={baseCode} />
               <DetailField
                 label="Barcode"
@@ -331,7 +335,7 @@ function InventoryItemDetail() {
                 value={category?.categoryName}
               />
               <DetailField
-                label="Sub category"
+                label="Sub-category"
                 value={category?.subCategoryName}
               />
               <DetailField
@@ -339,7 +343,35 @@ function InventoryItemDetail() {
                 value={companyNameOf(product)}
               />
               <DetailField label="Unit" value={product.unit} />
-              <DetailField label="Ratio" value={product.ratio} />
+              <DetailField
+                label="Unit ratio"
+                value={
+                  product.unitRatioKind || product.unitRatioValue != null
+                    ? `${product.unitRatioKind || "—"} · ${product.unitRatioValue ?? "—"}`
+                    : "—"
+                }
+              />
+              <DetailField
+                label="Carton ratio"
+                value={
+                  product.cartonRatioKind || product.cartonRatioValue != null
+                    ? `${product.cartonRatioKind || "—"} · ${product.cartonRatioValue ?? "—"}`
+                    : "—"
+                }
+              />
+              <DetailField
+                label="Pieces per carton"
+                value={product.ratio}
+              />
+              <DetailField label="Labels" value={product.packingLabels} />
+              <DetailField
+                label="Inners (Boxes)"
+                value={product.packingInners}
+              />
+              <DetailField
+                label="Outers (Cartons)"
+                value={product.packingOuters}
+              />
               {showPrice ? (
               <DetailField
                 label="Base selling price"
