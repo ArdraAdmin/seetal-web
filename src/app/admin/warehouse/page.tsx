@@ -668,7 +668,7 @@ export default function WarehousePage() {
       ) : null}
 
       <div className="mb-5 flex flex-wrap gap-3">
-        {ACTION_BUTTONS.filter((action) => action.tag !== "daily" || tab === 4).map(
+        {ACTION_BUTTONS.filter((action) => action.tag !== "daily" || tab === 0).map(
           (action) => {
             const busy = sendingAction === action.tag;
             const open = actionMenu === action.tag;

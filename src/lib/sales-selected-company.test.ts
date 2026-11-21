@@ -52,6 +52,25 @@ describe("resolveSalesCompanyByKey", () => {
       null,
     );
   });
+
+  it("prefers STL over Seetal for the stl sales workspace", () => {
+    assert.deepEqual(
+      resolveSalesCompanyByKey("stl", [
+        { _id: "seetal-id", name: "Seetal", prefix: "Seetal" },
+        { _id: "stl-id", name: "STL", prefix: "STL" },
+      ]),
+      { id: "stl-id", name: "stl" },
+    );
+  });
+
+  it("falls back to Seetal when STL is missing", () => {
+    assert.deepEqual(
+      resolveSalesCompanyByKey("stl", [
+        { _id: "seetal-id", name: "Seetal", prefix: "Seetal" },
+      ]),
+      { id: "seetal-id", name: "stl" },
+    );
+  });
 });
 
 describe("accessFromSelectedCompany", () => {

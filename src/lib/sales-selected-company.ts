@@ -203,6 +203,14 @@ export function sellingCatalogKey(key: SalesCompanyKey): SalesInventoryKey | nul
   return null;
 }
 
+function companyMatchesExactKey(
+  company: { name?: string; prefix?: string },
+  key: SalesCompanyKey,
+) {
+  const exact = normalizeCompanyToken(key);
+  return companyTokens(company).some((token) => token === exact);
+}
+
 /** Resolve STL / SHMP inventory to a company id from `/admin/company`. */
 export function resolveSalesCompanyByKey(
   key: SalesCompanyKey,
@@ -212,6 +220,11 @@ export function resolveSalesCompanyByKey(
   const catalogKey = sellingCatalogKey(key);
   if (!catalogKey) return null;
   const aliases = COMPANY_ALIASES[catalogKey];
+  // Prefer the canonical key (e.g. STL) over aliases like Seetal so HR can
+  // keep a separate Seetal company without stealing the sales workspace.
+  const preferredName = companies.find((company) =>
+    companyMatchesExactKey(company, catalogKey),
+  );
   const exactName = companies.find((company) =>
     aliases.includes(normalizeCompanyToken(String(company.name || ""))),
   );
@@ -221,7 +234,7 @@ export function resolveSalesCompanyByKey(
   const fuzzy = companies.find((company) =>
     matchesCompanyKey(company, catalogKey),
   );
-  const match = exactName || exactPrefix || fuzzy;
+  const match = preferredName || exactName || exactPrefix || fuzzy;
   const id = String(match?._id || "").trim();
   if (!id) return null;
   return { id, name: key };

@@ -3,26 +3,15 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/components/AuthProvider";
-import { SharjahPermitFields } from "@/components/HrProfileFields";
 import {
   createWarehouseProfile,
   deleteUser,
   getMasterCategories,
   getProfile,
-  getWarehouseProfiles,
   updateWarehouseProfile,
 } from "@/lib/api";
 import { apiMessage } from "@/lib/approval";
 import { masterCategoryName, warehouseField } from "@/lib/profiles";
-import {
-  createdRecordId,
-  emptySharjahPermit,
-  loadSharjahPermit,
-  saveSharjahPermit,
-  type SharjahPermitState,
-} from "@/lib/sharjah-permit";
-import { uploadHrFile } from "@/lib/stl-features-api";
 import { parseReturnTo } from "@/lib/user-management";
 import { useToast } from "@/components/Toast";
 import {
@@ -58,7 +47,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
   const backHref =
     parseReturnTo(searchParams.get("returnTo")) || "/admin/profiles/warehouse";
   const { toast } = useToast();
-  const { user } = useAuth();
   const creating = !profileId;
   const [title, setTitle] = useState(
     creating ? "Add warehouse profile" : "Edit warehouse profile",
@@ -69,11 +57,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY);
-  const [permit, setPermit] = useState<SharjahPermitState>(emptySharjahPermit);
-  const [savedPermit, setSavedPermit] = useState<SharjahPermitState>(emptySharjahPermit);
-  const [permitReady, setPermitReady] = useState(creating);
-
-  const adminId = user?.id;
 
   useEffect(() => {
     let cancelled = false;
@@ -87,9 +70,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
         setCategories(list);
         if (!profileId) {
           setForm(EMPTY);
-          setPermit(emptySharjahPermit());
-          setSavedPermit(emptySharjahPermit());
-          setPermitReady(true);
           return;
         }
         const profile = await getProfile("warehouse", profileId);
@@ -109,17 +89,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
               ? ""
               : String(warehouse.pinNumber),
         });
-        if (adminId) {
-          const loaded = await loadSharjahPermit(adminId, profileId);
-          if (cancelled) return;
-          if (loaded) {
-            setPermit(loaded);
-            setSavedPermit(loaded);
-            setPermitReady(true);
-          } else {
-            setPermitReady(false);
-          }
-        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to load profile");
@@ -131,7 +100,7 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [adminId, profileId]);
+  }, [profileId]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -163,17 +132,8 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
       } else {
         payload.category = form.category;
       }
-      let personId = profileId || "";
       if (creating) {
         const result = await createWarehouseProfile(payload);
-        personId = createdRecordId(result);
-        if (!personId) {
-          const rows = await getWarehouseProfiles().catch(() => []);
-          personId =
-            rows.find(
-              (row) => row.email?.toLowerCase() === form.email.trim().toLowerCase(),
-            )?._id || "";
-        }
         toast(apiMessage(result, "Warehouse profile created"), "success");
       } else if (profileId) {
         await updateWarehouseProfile(profileId, {
@@ -181,34 +141,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
           isSuperManager: form.isSuperManager ? "true" : "false",
         });
         toast("Warehouse profile updated", "success");
-      }
-      const permitChanged =
-        permit.expiry !== savedPermit.expiry || permit.file?.key !== savedPermit.file?.key;
-      const hasPermit = Boolean(permit.expiry || permit.file);
-      if (permitReady && permitChanged && (hasPermit || !creating)) {
-        if (!adminId || !personId) {
-          if (hasPermit) {
-            toast("The profile was saved, but the Sharjah permit could not be stored.", "error");
-          }
-        } else {
-          try {
-            await saveSharjahPermit({
-              adminUserId: adminId,
-              personId,
-              scope: "stl",
-              permit,
-              fallbackName: form.name.trim(),
-            });
-          } catch (permitError) {
-            toast(
-              permitError instanceof Error
-                ? `${permitError.message} The profile was saved, but the Sharjah permit was not.`
-                : "The profile was saved, but the Sharjah permit was not.",
-              "error",
-            );
-            return;
-          }
-        }
       }
       router.push(backHref);
     } catch (err) {
@@ -334,17 +266,6 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
                 </select>
               </label>
             )}
-            <SharjahPermitFields
-              expiry={permit.expiry}
-              file={permit.file}
-              disabled={saving || deleting || !permitReady}
-              onExpiryChange={(expiry) => setPermit((current) => ({ ...current, expiry }))}
-              onFileChange={(file) => setPermit((current) => ({ ...current, file }))}
-              onUpload={(selected) => {
-                if (!adminId) return Promise.reject(new Error("Sign in again"));
-                return uploadHrFile(adminId, selected);
-              }}
-            />
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <PrimaryButton type="submit" disabled={saving || deleting}>
                 {saving ? "Saving…" : creating ? "Add profile" : "Save"}

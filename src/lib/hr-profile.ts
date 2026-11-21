@@ -297,16 +297,3 @@ export function validateHrProfileForm(
   }
   return null;
 }
-
-export function profileWithSharjahPermit(
-  profile: HrProfile | null | undefined,
-  expiry: string,
-  file: HrFileValue,
-  fallbackName = "",
-  scope?: HrSalaryScope,
-) {
-  const form = hrProfileToForm(profile, fallbackName, scope);
-  form.sharjahPermitExpiry = expiry;
-  form.sharjahPermitCopy = file;
-  return hrProfilePayload(form, scope);
-}

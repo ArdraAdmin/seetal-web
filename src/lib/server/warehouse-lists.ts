@@ -262,7 +262,11 @@ export async function buildWarehouseList(token: string | null, tag: string) {
   const { database } = await assertWarehouseUser(token);
   const extra: Document =
     tag === "daily"
-      ? { loadCheck: true, unloaded: { $ne: true }, firstCheck: true }
+      ? {
+          doubleCheck: true,
+          loadCheck: { $ne: true },
+          unloaded: { $ne: true },
+        }
       : tag === "customs"
         ? { loadCheck: { $ne: true } }
         : {};

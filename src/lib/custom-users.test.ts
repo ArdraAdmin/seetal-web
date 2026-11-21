@@ -123,6 +123,7 @@ describe("custom user access", () => {
   it("recognises the four companies and filters a module's data", () => {
     assert.equal(companyKeyFromRecord({ name: "SH Lakshmi" }), "shlaxmi");
     assert.equal(companyKeyFromRecord({ name: "STL" }), "stl");
+    assert.equal(companyKeyFromRecord({ name: "Seetal" }), "stl");
     assert.equal(companyKeyFromRecord({ prefix: "SHMP" }), "shmp");
     assert.equal(access.ok, true);
     if (!access.ok) return;
@@ -134,6 +135,29 @@ describe("custom user access", () => {
     assert.deepEqual(
       visible.map((company) => company.name),
       ["STL"],
+    );
+  });
+
+  it("includes Seetal with STL when filtering HR companies", () => {
+    const hrAccess = sanitizeCustomAccess({
+      companies: ["stl"],
+      modules: { stl: ["hr"] },
+    });
+    assert.equal(hrAccess.ok, true);
+    if (!hrAccess.ok) return;
+    const visible = filterCompaniesForModule(
+      [
+        { name: "STL" },
+        { name: "Seetal" },
+        { name: "Sarvah" },
+        { name: "SHMP" },
+      ],
+      hrAccess.access,
+      "hr",
+    );
+    assert.deepEqual(
+      visible.map((company) => company.name),
+      ["STL", "Seetal"],
     );
   });
 
