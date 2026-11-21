@@ -34,7 +34,7 @@ import {
   loadSelectedSalesCompany,
   loadSalesWorkspace,
 } from "@/lib/sales-selected-company";
-import { shouldMergeSarvahHomesInventory } from "@/lib/sarvah-homes-sales";
+import { shouldShowSarvahHomesUnderSarvah } from "@/lib/sarvah-homes-sales";
 import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 import {
   normalizeDeliveryDateInput,
@@ -168,9 +168,8 @@ export default function SalesCartPage() {
       setDeliveryDate(normalized.date);
       toast(SUNDAY_DELIVERY_OFF_MESSAGE, "info");
     }
-    const forceSarvahInvoice = shouldMergeSarvahHomesInventory(
+    const forceSarvahInvoice = shouldShowSarvahHomesUnderSarvah(
       loadSalesWorkspace(),
-      storeName,
     );
     const sarvahCompanyId = forceSarvahInvoice
       ? loadSelectedSalesCompany()?.id

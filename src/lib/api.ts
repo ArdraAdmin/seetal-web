@@ -67,14 +67,7 @@ import {
   saveSelectedSalesCompany,
   type SalesCompanyKey,
 } from "./sales-selected-company";
-import {
-  mergeSarvahAndAssignedShmpProducts,
-  shouldMergeSarvahHomesInventory,
-} from "./sarvah-homes-sales";
-import {
-  filterShmpSalesInventory,
-  pageShmpAssignedInventory,
-} from "./shmp-sales-inventory";
+import { pageShmpAssignedInventory } from "./shmp-sales-inventory";
 import { exportRangeBounds } from "./invoice";
 import { viewableVehicleFileType } from "./vehicle-records";
 
@@ -2714,33 +2707,6 @@ export async function fetchShmpStoreInventory(
   return Array.isArray(data) ? (data as Product[]) : [];
 }
 
-/**
- * Manufacturing products assigned to SHMP Sarvah Homes — for Sarvah-card
- * salesmen at any classic store. Remote API first, then Mongo fallback.
- */
-export async function fetchSarvahHomesAssignedInventory(userId: string) {
-  try {
-    const data = await request<{
-      store?: { _id?: string; storeName?: string };
-      products?: Product[];
-    }>("/sales/sarvahHomesInventory", {
-      method: "POST",
-      body: JSON.stringify({ userId }),
-    });
-    if (Array.isArray(data?.products)) return data.products;
-  } catch {
-    /* Fall through to the app Mongo copy. */
-  }
-  const data = await siteRequest<{
-    store?: { _id?: string; storeName?: string };
-    products?: Product[];
-  }>("/api/sales/sarvah-homes-inventory", {
-    method: "POST",
-    body: JSON.stringify({ userId }),
-  });
-  return Array.isArray(data?.products) ? data.products : [];
-}
-
 export function fetchSalesStoreAccess(storeId: string, userId: string) {
   return request<{
     assigned: boolean;
@@ -3709,52 +3675,6 @@ export function localSalesInventoryPage(
   return sliceSalesInventoryPage(matched, uiPage);
 }
 
-async function loadSarvahCatalogueProducts(tag: string, cat: string, subCat: string) {
-  const selected = loadSelectedSalesCompany();
-  const catalog = catalogForAccess(loadSalesCompanyAccess());
-  if (
-    catalog &&
-    catalog.length > 0 &&
-    (!(cat || subCat) || catalogSupportsCategoryFilter(catalog))
-  ) {
-    const needle = tag.trim().toLowerCase();
-    if (!needle && !cat && !subCat) return catalog;
-    const matched: Product[] = [];
-    for (const row of salesCatalogRows(catalog)) {
-      if (needle && !row.hay.includes(needle)) continue;
-      if (cat && !row.categories.includes(cat)) continue;
-      if (subCat && row.subId !== subCat && row.subName !== subCat) continue;
-      matched.push(row.product);
-    }
-    return matched;
-  }
-  if (!selected?.id) return [] as Product[];
-  const stubs = await ensureCompanyStubs(selected.id);
-  const enriched = await enrichSalesProducts(stubs);
-  return filterShmpSalesInventory(enriched, tag, cat, subCat);
-}
-
-/**
- * Any store under the Sarvah card: Sarvah selling catalogue plus manufacturing
- * products assigned to the SHMP Sarvah Homes store only.
- */
-export async function loadSarvahHomesMergedInventoryPage(
-  _storeId: string,
-  userId: string,
-  uiPage: number,
-  tag = "",
-  cat = "",
-  subCat = "",
-) {
-  const [sarvahProducts, assignedShmp] = await Promise.all([
-    loadSarvahCatalogueProducts(tag, cat, subCat),
-    fetchSarvahHomesAssignedInventory(userId),
-  ]);
-  const filteredShmp = filterShmpSalesInventory(assignedShmp, tag, cat, subCat);
-  const merged = mergeSarvahAndAssignedShmpProducts(sarvahProducts, filteredShmp);
-  return sliceSalesInventoryPage(merged, uiPage);
-}
-
 /**
  * SHMP sales card: manufacturing products assigned to this store only.
  * Does not enrich from Sarvah/STL selling rows that share an itemRef.
@@ -3789,19 +3709,10 @@ export async function loadSalesInventoryUiPage(
   tempStore = false,
   cat = "",
   subCat = "",
-  storeName = "",
+  _storeName = "",
 ) {
-  if (shouldMergeSarvahHomesInventory(loadSalesWorkspace(), storeName)) {
-    return loadSarvahHomesMergedInventoryPage(
-      storeId,
-      userId,
-      uiPage,
-      tag,
-      cat,
-      subCat,
-    );
-  }
-
+  // STL / Sarvah / SH Lakshmi: company catalogue only (never SHMP stock).
+  // SHMP workspace: store-assigned manufacturing inventory only.
   if (loadSalesWorkspace() === "shmp") {
     return loadShmpStoreAssignedInventoryPage(
       storeId,

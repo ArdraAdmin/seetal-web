@@ -1,4 +1,4 @@
-import type { Product, StoreProfile } from "./types";
+import type { StoreProfile } from "./types";
 
 /** Normalized match for the SHMP store "SARVAH HOMES L L C" (and close variants). */
 export function isSarvahHomesStoreName(name: string) {
@@ -25,14 +25,14 @@ export function shouldShowSarvahHomesUnderSarvah(
 }
 
 /**
- * On every Sarvah-card store, also show manufacturing products assigned to
- * the SHMP Sarvah Homes store.
+ * Sarvah / STL / SH Lakshmi salesmen must only see their own company
+ * catalogues. Never merge SHMP manufacturing stock into those workspaces.
  */
 export function shouldMergeSarvahHomesInventory(
-  workspace: string | null | undefined,
+  _workspace?: string | null | undefined,
   _storeName?: string,
 ) {
-  return shouldShowSarvahHomesUnderSarvah(workspace);
+  return false;
 }
 
 export function pickSarvahHomesShmpStores(stores: StoreProfile[]) {
@@ -57,33 +57,6 @@ export function withSarvahHomesShmpStores(
   return merged.sort((left, right) =>
     String(left.storeName || left.name || "").localeCompare(
       String(right.storeName || right.name || ""),
-      undefined,
-      { sensitivity: "base" },
-    ),
-  );
-}
-
-/**
- * Sarvah selling catalogue first; add manufacturing products assigned to
- * Sarvah Homes that are not already in the selling list.
- */
-export function mergeSarvahAndAssignedShmpProducts(
-  sarvahProducts: Product[],
-  assignedShmpProducts: Product[],
-): Product[] {
-  const byId = new Map<string, Product>();
-  for (const product of sarvahProducts || []) {
-    const id = String(product?._id || "").trim();
-    if (id) byId.set(id, product);
-  }
-  for (const product of assignedShmpProducts || []) {
-    const id = String(product?._id || "").trim();
-    if (!id || byId.has(id)) continue;
-    byId.set(id, product);
-  }
-  return [...byId.values()].sort((left, right) =>
-    String(left.itemName || left.itemRef || "").localeCompare(
-      String(right.itemName || right.itemRef || ""),
       undefined,
       { sensitivity: "base" },
     ),

@@ -52,7 +52,6 @@ import {
   locationOrderBlockMessage,
 } from "@/lib/sales-location";
 import { loadSalesWorkspace } from "@/lib/sales-selected-company";
-import { shouldMergeSarvahHomesInventory } from "@/lib/sarvah-homes-sales";
 import { useSalesStoreAccess } from "@/lib/use-sales-store-access";
 
 function categoriesFromProducts(products: Product[]): CategoryGroup[] {
@@ -151,10 +150,9 @@ export default function SalesStoreProductsPage() {
       const gen = ++loadGen.current;
       const tag = searchTag.trim();
       const workspace = loadSalesWorkspace();
-      const mergeHomes = shouldMergeSarvahHomesInventory(workspace, storeName);
-      // Local company catalogue skips store-assigned manufacturing (SHMP /
-      // Sarvah Homes merge). Those workspaces must hit the API path.
-      if (!mergeHomes && workspace !== "shmp") {
+      // STL / Sarvah / SH Lakshmi use the selected company catalogue only.
+      // SHMP uses store-assigned manufacturing inventory from the API.
+      if (workspace !== "shmp") {
         const local = localSalesInventoryPage(nextPage, tag, cat, sub, storeId);
         if (local) {
           if (gen !== loadGen.current) return;
@@ -384,9 +382,7 @@ export default function SalesStoreProductsPage() {
             ? `No items matched “${appliedQuery}”.`
             : loadSalesWorkspace() === "shmp"
               ? "No SHMP products are assigned to this store."
-              : shouldMergeSarvahHomesInventory(loadSalesWorkspace())
-                ? "No Sarvah catalogue items or manufacturing products assigned to Sarvah Homes."
-                : "No products for this store."}
+              : "No products for this store."}
         </p>
       ) : (
         <>
