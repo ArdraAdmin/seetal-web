@@ -6,6 +6,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import {
   Banknote,
   Boxes,
+  Building2,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -123,6 +124,15 @@ const NAV: NavEntry[] = [
   },
   { kind: "link", item: { href: "/shmp/costing", label: "Product Costing", icon: Package, moduleId: "costing" } },
   { kind: "link", item: { href: "/shmp/reports", label: "Reports", icon: CalendarDays, moduleId: "reports" } },
+  {
+    kind: "link",
+    item: {
+      href: "/shmp/company",
+      label: "My company",
+      icon: Building2,
+      moduleId: "my-company",
+    },
+  },
   {
     kind: "link",
     item: {

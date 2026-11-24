@@ -14,6 +14,7 @@ import {
 } from "@/lib/shmp-api";
 import { getDrivers, getVehicles } from "@/lib/api";
 import { modulesForCompany } from "@/lib/custom-users";
+import { listCompanyDocuments } from "@/lib/company-documents-api";
 import {
   SHMP_DASHBOARD_FIELDS,
   SHMP_GRANULAR_MODULES,
@@ -24,6 +25,7 @@ import {
   SHMP_PRODUCTION_CARDS,
   SHMP_STORE_FIELDS,
   grantWhenEnabled,
+  type CompanyDocumentGrant,
   type Crud,
   type FleetGrant,
   type IdScope,
@@ -110,7 +112,6 @@ function FieldToggles({
   value: Record<string, boolean>;
   onChange: (value: Record<string, boolean>) => void;
 }) {
-  let lastGroup = "";
   const allOn = fields.every((field) => value[field.id]);
   return (
     <div className="space-y-1">
@@ -123,9 +124,8 @@ function FieldToggles({
         </button>
         <span className="text-slate-500">{allOn ? "All visible" : "Some hidden"}</span>
       </div>
-      {fields.map((field) => {
-        const showGroup = field.group && field.group !== lastGroup;
-        if (field.group) lastGroup = field.group;
+      {fields.map((field, index) => {
+        const showGroup = Boolean(field.group) && field.group !== fields[index - 1]?.group;
         return (
           <div key={field.id}>
             {showGroup ? (
@@ -165,7 +165,7 @@ function IdScopeEditor({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!hideMode || options) return;
+    if (!hideMode && scope.mode !== "selected") return;
     let cancelled = false;
     void loadOptions()
       .then((rows) => {
@@ -177,7 +177,9 @@ function IdScopeEditor({
     return () => {
       cancelled = true;
     };
-  }, [hideMode]);
+    // loadOptions is a new function every render; depending on it reloads forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideMode, scope.mode]);
 
   async function chooseSelected() {
     onChange(scope.mode === "selected" ? scope : { mode: "selected", ids: [] });
@@ -246,6 +248,32 @@ function IdScopeEditor({
           </ul>
           <p className="mt-1 text-xs text-slate-500">{scope.mode === "selected" ? scope.ids.length : 0} selected</p>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function CompanyDocumentGrantEditor({
+  grant,
+  onChange,
+  loadDocuments,
+}: {
+  grant: CompanyDocumentGrant;
+  onChange: (grant: CompanyDocumentGrant) => void;
+  loadDocuments: () => Promise<Option[]>;
+}) {
+  return (
+    <div className="space-y-3">
+      <CrudToggles value={grant.actions} onChange={(actions) => onChange({ ...grant, actions })} />
+      {grant.actions.read ? (
+        <IdScopeEditor
+          title="Documents they can see"
+          allLabel="All documents"
+          selectedLabel="Selected documents"
+          scope={grant.documents}
+          onChange={(documents) => onChange({ ...grant, documents })}
+          loadOptions={loadDocuments}
+        />
       ) : null}
     </div>
   );
@@ -371,6 +399,13 @@ export function ShmpPermissionEditor({
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 
+  async function loadDocuments() {
+    const rows = await listCompanyDocuments("shmp");
+    return rows
+      .map((row) => ({ id: row.id, label: row.title }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
   return (
     <ul className="mt-4 divide-y divide-line">
       {catalog.map((item) => {
@@ -397,6 +432,7 @@ export function ShmpPermissionEditor({
                   loadWorkers={loadWorkers}
                   loadDrivers={loadDrivers}
                   loadVehicles={loadVehicles}
+                  loadDocuments={loadDocuments}
                 />
               </div>
             ) : null}
@@ -420,6 +456,7 @@ function ModuleDetail({
   loadWorkers,
   loadDrivers,
   loadVehicles,
+  loadDocuments,
 }: {
   id: string;
   grant: ShmpGrantMap[keyof ShmpGrantMap];
@@ -433,8 +470,18 @@ function ModuleDetail({
   loadWorkers: () => Promise<Option[]>;
   loadDrivers: () => Promise<Option[]>;
   loadVehicles: () => Promise<Option[]>;
+  loadDocuments: () => Promise<Option[]>;
 }) {
   if (!grant) return null;
+  if (id === "my-company" && "documents" in grant && "actions" in grant) {
+    return (
+      <CompanyDocumentGrantEditor
+        grant={grant}
+        onChange={onChange}
+        loadDocuments={loadDocuments}
+      />
+    );
+  }
   if (id === "dashboard" && "fields" in grant) {
     return <FieldToggles fields={SHMP_DASHBOARD_FIELDS} value={grant.fields} onChange={(fields) => onChange({ fields })} />;
   }

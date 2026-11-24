@@ -1,5 +1,12 @@
-import type { FleetGrant, ShmpPermissions } from "./shmp-permissions";
+import type {
+  CompanyDocumentGrant,
+  FleetGrant,
+  SellingCompanyKey,
+  ShmpPermissions,
+} from "./shmp-permissions";
 import {
+  freshCompanyDocumentGrant,
+  fullCompanyDocumentGrant,
   fullFleetGrant,
   newFleetGrant,
   permissionsForEditor,
@@ -64,6 +71,7 @@ export const SELLING_MODULES: PortalModule[] = [
   { id: "payments", label: "Payments", href: "/admin/payments" },
   { id: "warehouse", label: "Warehouse", href: "/admin/warehouse" },
   { id: "settings", label: "Settings", href: "/admin/settings" },
+  { id: "my-company", label: "My company", href: "/admin/company" },
 ];
 
 export const SHMP_MODULES: PortalModule[] = [
@@ -89,6 +97,7 @@ export const SHMP_MODULES: PortalModule[] = [
   { id: "costing", label: "Product Costing", href: "/shmp/costing" },
   { id: "reports", label: "Reports", href: "/shmp/reports" },
   { id: "settings", label: "Settings", href: "/shmp/settings" },
+  { id: "my-company", label: "My company", href: "/shmp/company" },
 ];
 
 /** STL API module keys granted when a selling-side toggle is on. */
@@ -525,8 +534,23 @@ function sellingModuleOn(access: CustomAccess, moduleId: string) {
 
 export function sellingModuleVisible(access: CustomAccess, moduleId: string) {
   if (!sellingModuleOn(access, moduleId)) return false;
-  if (moduleId !== "drivers-vehicles") return true;
-  const grant = access.permissions?.selling;
+  if (moduleId === "drivers-vehicles") {
+    const grant = access.permissions?.selling;
+    return !grant || grant.actions.read === true;
+  }
+  if (moduleId === "my-company") {
+    return (SELLING_COMPANY_KEYS as readonly SellingCompanyKey[]).some((key) =>
+      sellingDocumentReadOn(access, key),
+    );
+  }
+  return true;
+}
+
+function sellingDocumentReadOn(access: CustomAccess, company: SellingCompanyKey) {
+  if (!access.companies.includes(company) || !moduleEnabled(access, company, "my-company")) {
+    return false;
+  }
+  const grant = access.permissions?.sellingMyCompany?.[company];
   return !grant || grant.actions.read === true;
 }
 
@@ -562,6 +586,26 @@ export function fleetRecordOn(
   return scopeAllows(grant[kind], id);
 }
 
+export function sellingMyCompanyForEditor(access?: {
+  companies?: readonly string[];
+  modules?: CustomModuleMap;
+  permissions?: ShmpPermissions | null;
+} | null): Record<SellingCompanyKey, CompanyDocumentGrant> {
+  const saved = access?.permissions?.sellingMyCompany;
+  const grants = {} as Record<SellingCompanyKey, CompanyDocumentGrant>;
+  for (const key of SELLING_COMPANY_KEYS as readonly SellingCompanyKey[]) {
+    if (saved?.[key]) {
+      grants[key] = saved[key];
+      continue;
+    }
+    const on =
+      (access?.companies || []).includes(key) &&
+      (access?.modules?.[key] || []).includes("my-company");
+    grants[key] = on ? fullCompanyDocumentGrant() : freshCompanyDocumentGrant();
+  }
+  return grants;
+}
+
 export function sellingFleetForEditor(
   access?: {
     modules?: CustomModuleMap;
@@ -587,6 +631,7 @@ export function permissionsPayloadForSave(input: {
   modules: CustomModuleMap;
   shmpPermissions: ShmpPermissions;
   sellingFleet: FleetGrant;
+  sellingMyCompany?: Partial<Record<SellingCompanyKey, CompanyDocumentGrant>>;
   existing?: { explicit?: boolean; permissions?: ShmpPermissions | null } | null;
 }): ShmpPermissions | undefined {
   const offered = new Set(input.offered);
@@ -598,11 +643,18 @@ export function permissionsPayloadForSave(input: {
       input.companies.includes(key) &&
       (input.modules[key] || []).includes("drivers-vehicles"),
   );
+  const sellingDocumentsOn = SELLING_COMPANY_KEYS.some(
+    (key) =>
+      input.companies.includes(key) &&
+      (input.modules[key] || []).includes("my-company"),
+  );
   const existingSelling = input.existing?.permissions?.selling;
+  const existingDocuments = input.existing?.permissions?.sellingMyCompany;
   const shouldSend =
     (canEditShmp && shmpSelected) ||
-    (canEditSelling && sellingFleetOn) ||
-    (canEditSelling && !sellingFleetOn && Boolean(existingSelling));
+    (canEditSelling && (sellingFleetOn || sellingDocumentsOn)) ||
+    (canEditSelling && !sellingFleetOn && Boolean(existingSelling)) ||
+    (canEditSelling && !sellingDocumentsOn && Boolean(existingDocuments));
   if (!shouldSend) return undefined;
 
   const shmp = canEditShmp
@@ -622,11 +674,38 @@ export function permissionsPayloadForSave(input: {
       ? input.sellingFleet
       : undefined;
 
+  const sellingMyCompany = sellingDocumentPayload(input, canEditSelling);
+
   return {
     version: 1,
     shmp,
     ...(selling ? { selling } : {}),
+    ...(sellingMyCompany ? { sellingMyCompany } : {}),
   };
+}
+
+function sellingDocumentPayload(
+  input: {
+    companies: readonly CustomCompanyKey[];
+    modules: CustomModuleMap;
+    sellingMyCompany?: Partial<Record<SellingCompanyKey, CompanyDocumentGrant>>;
+    existing?: { permissions?: ShmpPermissions | null } | null;
+  },
+  canEditSelling: boolean,
+): ShmpPermissions["sellingMyCompany"] {
+  if (!canEditSelling) return input.existing?.permissions?.sellingMyCompany;
+  const next: NonNullable<ShmpPermissions["sellingMyCompany"]> = {};
+  for (const key of SELLING_COMPANY_KEYS as readonly SellingCompanyKey[]) {
+    const on =
+      input.companies.includes(key) &&
+      (input.modules[key] || []).includes("my-company");
+    if (!on) continue;
+    next[key] =
+      input.sellingMyCompany?.[key] ||
+      input.existing?.permissions?.sellingMyCompany?.[key] ||
+      fullCompanyDocumentGrant();
+  }
+  return Object.keys(next).length ? next : undefined;
 }
 
 export function shmpModuleVisible(access: CustomAccess, moduleId: string) {

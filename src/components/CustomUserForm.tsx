@@ -17,6 +17,7 @@ import {
   permissionsPayloadForSave,
   selectedFieldIds,
   sellingFleetForEditor,
+  sellingMyCompanyForEditor,
   withFieldSelection,
   type CustomCompanyKey,
   type CustomModuleMap,
@@ -24,7 +25,12 @@ import {
   type UserListSide,
 } from "@/lib/custom-users";
 import { useAuth } from "@/components/AuthProvider";
-import { FleetGrantEditor, ShmpPermissionEditor } from "@/components/ShmpPermissionEditor";
+import { listCompanyDocuments } from "@/lib/company-documents-api";
+import {
+  CompanyDocumentGrantEditor,
+  FleetGrantEditor,
+  ShmpPermissionEditor,
+} from "@/components/ShmpPermissionEditor";
 import { useToast } from "@/components/Toast";
 import {
   newFleetGrant,
@@ -81,6 +87,9 @@ export function CustomUserForm({
   );
   const [sellingFleet, setSellingFleet] = useState<FleetGrant>(() =>
     sellingFleetForEditor(user),
+  );
+  const [sellingMyCompany, setSellingMyCompany] = useState(() =>
+    sellingMyCompanyForEditor(user),
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -171,6 +180,7 @@ export function CustomUserForm({
       modules: access.modules,
       shmpPermissions: permissions,
       sellingFleet,
+      sellingMyCompany,
       existing: user,
     });
     const input = {
@@ -369,6 +379,22 @@ export function CustomUserForm({
                             );
                           })}
                         </ul>
+                      ) : null}
+                      {item.id === "my-company" && on ? (
+                        <div className="mt-2 rounded-lg bg-[#f7f5f0] px-3 py-2">
+                          <CompanyDocumentGrantEditor
+                            grant={sellingMyCompany[company]}
+                            onChange={(grant) =>
+                              setSellingMyCompany((current) => ({ ...current, [company]: grant }))
+                            }
+                            loadDocuments={async () => {
+                              const rows = await listCompanyDocuments("selling", company);
+                              return rows
+                                .map((row) => ({ id: row.id, label: row.title }))
+                                .sort((a, b) => a.label.localeCompare(b.label));
+                            }}
+                          />
+                        </div>
                       ) : null}
                       {item.id === "drivers-vehicles" && on && company === fleetOwner ? (
                         <div className="mt-2 rounded-lg bg-[#f7f5f0] px-3 py-2">

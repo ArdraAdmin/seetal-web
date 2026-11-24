@@ -49,6 +49,7 @@ export type ShmpGrantMap = {
   };
   orders?: { fields: Record<string, boolean>; edit: boolean };
   "drivers-vehicles"?: FleetGrant;
+  "my-company"?: CompanyDocumentGrant;
 };
 
 export type FleetGrant = {
@@ -57,11 +58,20 @@ export type FleetGrant = {
   vehicles: IdScope;
 };
 
+export type CompanyDocumentGrant = {
+  actions: Crud;
+  documents: IdScope;
+};
+
+export type SellingCompanyKey = "stl" | "sarvah" | "shlaxmi";
+
 export type ShmpPermissions = {
   version: 1;
   shmp: ShmpGrantMap;
   /** Seetal driver and vehicle limits. Missing means full access inside the module. */
   selling?: FleetGrant;
+  /** Seetal company-document limits, one grant per company. */
+  sellingMyCompany?: Partial<Record<SellingCompanyKey, CompanyDocumentGrant>>;
 };
 
 export type ShmpField = { id: string; label: string; group?: string };
@@ -266,6 +276,7 @@ export const SHMP_GRANULAR_MODULES = [
   "production",
   "orders",
   "drivers-vehicles",
+  "my-company",
 ] as const;
 
 export type ShmpAccessLike = {
@@ -498,6 +509,7 @@ export function grantWhenEnabled(moduleId: string): ShmpGrantMap[keyof ShmpGrant
     return { fields: allFields("orders", false), edit: false };
   }
   if (moduleId === "drivers-vehicles") return newFleetGrant();
+  if (moduleId === "my-company") return freshCompanyDocumentGrant();
   if (moduleId === "production") {
     return {
       orders: { mode: "all" },
@@ -537,6 +549,7 @@ function legacyGrant(moduleId: string, access: ShmpAccessLike) {
     return { fields: allFields("orders", true), edit: true };
   }
   if (moduleId === "drivers-vehicles") return fullFleetGrant();
+  if (moduleId === "my-company") return fullCompanyDocumentGrant();
   if (moduleId === "production") {
     return {
       orders: { mode: "all" as const },
@@ -596,9 +609,36 @@ function withDriversGrant(
 }
 
 /** What the editor should show for an account that has not been saved with explicit grants. */
+export function freshCompanyDocumentGrant(): CompanyDocumentGrant {
+  return {
+    actions: crud(true, false),
+    documents: allScope(),
+  };
+}
+
+export function fullCompanyDocumentGrant(): CompanyDocumentGrant {
+  return {
+    actions: crud(true, true),
+    documents: allScope(),
+  };
+}
+
+/** An enabled module without a saved grant still sees every document. */
+function withMyCompanyGrant(
+  access: ShmpAccessLike | null | undefined,
+  permissions: ShmpPermissions,
+): ShmpPermissions {
+  const enabled = (access?.modules?.shmp || []).some((id) => id === "my-company");
+  if (!enabled || permissions.shmp["my-company"]) return permissions;
+  return {
+    ...permissions,
+    shmp: { ...permissions.shmp, "my-company": fullCompanyDocumentGrant() },
+  };
+}
+
 export function permissionsForEditor(access: ShmpAccessLike | null | undefined): ShmpPermissions {
   if (access?.explicit && access.permissions?.version === 1 && access.permissions.shmp) {
-    return withDriversGrant(access, withProductionUsers(access.permissions));
+    return withMyCompanyGrant(access, withDriversGrant(access, withProductionUsers(access.permissions)));
   }
   const shmp: ShmpGrantMap = {};
   for (const moduleId of SHMP_GRANULAR_MODULES) {
@@ -757,13 +797,44 @@ export function sanitizeShmpPermissions(
   if (source["drivers-vehicles"]) {
     shmp["drivers-vehicles"] = cleanFleet(source["drivers-vehicles"]);
   }
+  if (source["my-company"]) {
+    shmp["my-company"] = cleanCompanyDocumentGrant(source["my-company"]);
+  }
   const selling = Object.prototype.hasOwnProperty.call(body, "selling")
     ? cleanFleet((body as { selling?: unknown }).selling)
     : undefined;
+  const sellingMyCompany = cleanSellingMyCompany(
+    (body as { sellingMyCompany?: unknown }).sellingMyCompany,
+  );
   return {
     ok: true,
-    permissions: selling ? { version: 1, shmp, selling } : { version: 1, shmp },
+    permissions: {
+      version: 1,
+      shmp,
+      ...(selling ? { selling } : {}),
+      ...(sellingMyCompany ? { sellingMyCompany } : {}),
+    },
   };
+}
+
+function cleanCompanyDocumentGrant(value: unknown): CompanyDocumentGrant {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    actions: cleanCrud(row.actions, false),
+    documents: cleanScope(row.documents),
+  };
+}
+
+function cleanSellingMyCompany(
+  value: unknown,
+): Partial<Record<SellingCompanyKey, CompanyDocumentGrant>> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Record<string, unknown>;
+  const grants: Partial<Record<SellingCompanyKey, CompanyDocumentGrant>> = {};
+  for (const key of ["stl", "sarvah", "shlaxmi"] as const) {
+    if (source[key]) grants[key] = cleanCompanyDocumentGrant(source[key]);
+  }
+  return Object.keys(grants).length ? grants : undefined;
 }
 
 function cleanFleet(value: unknown): FleetGrant {
@@ -791,19 +862,27 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
   const shmp = access.permissions?.shmp ?? {};
   const hasShmp = Boolean(access.permissions?.shmp);
   const selling = access.permissions?.selling;
-  if (!hasShmp && !selling) {
+  const sellingMyCompany = access.permissions?.sellingMyCompany;
+  if (!hasShmp && !selling && !sellingMyCompany) {
     delete copy.permissions;
     return copy;
   }
-  if (!hasShmp && selling) {
+  if (!hasShmp && (selling || sellingMyCompany)) {
     copy.permissions = {
       version: 1,
       shmp: {},
-      selling: {
-        actions: selling.actions,
-        drivers: slimScope(selling.drivers),
-        vehicles: slimScope(selling.vehicles),
-      },
+      ...(selling
+        ? {
+            selling: {
+              actions: selling.actions,
+              drivers: slimScope(selling.drivers),
+              vehicles: slimScope(selling.vehicles),
+            },
+          }
+        : {}),
+      ...(sellingMyCompany
+        ? { sellingMyCompany: slimSellingMyCompany(sellingMyCompany) }
+        : {}),
     };
     return copy;
   }
@@ -833,6 +912,12 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
       vehicles: slimScope(fleet.vehicles),
     };
   }
+  if (shmp["my-company"]) {
+    next["my-company"] = {
+      actions: shmp["my-company"].actions,
+      documents: slimScope(shmp["my-company"].documents),
+    };
+  }
   copy.permissions = {
     version: 1,
     shmp: next,
@@ -845,8 +930,23 @@ export function sessionCustomAccess<T extends ShmpAccessLike>(access: T): T {
           },
         }
       : {}),
+    ...(access.permissions?.sellingMyCompany
+      ? { sellingMyCompany: slimSellingMyCompany(access.permissions.sellingMyCompany) }
+      : {}),
   };
   return copy;
+}
+
+function slimSellingMyCompany(
+  grants: NonNullable<ShmpPermissions["sellingMyCompany"]>,
+): NonNullable<ShmpPermissions["sellingMyCompany"]> {
+  const next: NonNullable<ShmpPermissions["sellingMyCompany"]> = {};
+  for (const key of ["stl", "sarvah", "shlaxmi"] as const) {
+    const grant = grants[key];
+    if (!grant) continue;
+    next[key] = { actions: grant.actions, documents: slimScope(grant.documents) };
+  }
+  return next;
 }
 
 /**
@@ -892,7 +992,8 @@ export function shmpNavVisible(
     moduleId === "inventory" ||
     moduleId === "categories" ||
     moduleId === "catalog" ||
-    moduleId === "drivers-vehicles"
+    moduleId === "drivers-vehicles" ||
+    moduleId === "my-company"
   ) {
     return shmpActionOn(access, moduleId, "read");
   }
