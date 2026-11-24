@@ -160,13 +160,41 @@ export function shmpEditLinesFromDetail(detail: ShmpOrderEditDetail): ShmpEditLi
 
 export function shmpOrderSectionFromDetail(detail: ShmpOrderEditDetail): OrderSection {
   if (detail.order?.status === "Delivered") return "delivered";
+  const details = Array.isArray(detail.order?.productDetails)
+    ? detail.order.productDetails
+    : [];
+  const unitAndRatioByProduct = new Map(
+    details.map((line) => {
+      const productId = lineProductId(line);
+      const product = asProductObject(line.product);
+      return [
+        productId,
+        {
+          unitReq: String(line.unitReq || product?.unit || "CARTONS"),
+          ratio: ratioFromApprovalLine(line),
+        },
+      ] as const;
+    }),
+  );
   const dispatch = dispatchFromLines(
-    (detail.lines || []).map((line) => ({
-      ordered: line.ordered,
-      produced: line.produced,
-      delivered: line.delivered,
-      ready: line.ready,
-    })),
+    (detail.lines || []).map((line) => {
+      const product = line.product;
+      const productId =
+        product && typeof product === "object"
+          ? String(product._id || "")
+          : typeof product === "string"
+            ? product
+            : "";
+      const meta = unitAndRatioByProduct.get(productId);
+      return {
+        ordered: line.ordered,
+        produced: line.produced,
+        delivered: line.delivered,
+        ready: line.ready,
+        unitReq: meta?.unitReq,
+        ratio: meta?.ratio,
+      };
+    }),
   );
   return orderSection({ status: detail.order?.status, dispatch });
 }

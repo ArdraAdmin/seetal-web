@@ -141,11 +141,39 @@ function entitlementNum(...values: unknown[]): number | undefined {
   return undefined;
 }
 
-function fmtDateTime(value?: string | null) {
+function fmtAttendanceTime(value?: string | null, timeOnly = false) {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  if (timeOnly) {
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function AttendanceFacts({
+  status,
+  checkInAt,
+  checkOutAt,
+  timeOnly = false,
+}: {
+  status: string;
+  checkInAt?: string | null;
+  checkOutAt?: string | null;
+  timeOnly?: boolean;
+}) {
+  return (
+    <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm text-slate-700">
+      <span className="font-medium text-slate-800">{status}</span>
+      <span>Check in: {fmtAttendanceTime(checkInAt, timeOnly)}</span>
+      <span>Check out: {fmtAttendanceTime(checkOutAt, timeOnly)}</span>
+    </p>
+  );
 }
 
 function rangeFor(todayOnly: boolean) {
@@ -388,8 +416,8 @@ function AttendancePage({
             name: person.name,
             role: person.role,
             status: "present",
-            checkInAt: null,
-            checkOutAt: null,
+            checkInAt: mark.checkInAt || null,
+            checkOutAt: mark.checkOutAt || null,
             source: "staff-mark",
           });
         }
@@ -568,14 +596,24 @@ function AttendancePage({
 
   const term = query.trim().toLowerCase();
   const today = dubaiToday();
-  const hrOnlyAll = useMemo(
+  const rosterStaff = useMemo(
     () =>
       hrPeopleMissingFromAttendance(hrStaff, [
         ...employees.map((emp) => ({ id: emp._id, name: emp.name })),
         ...users.map((accessUser) => ({ id: accessUser._id, name: accessUser.name })),
-        ...presentToday.map((row) => ({ id: row._id, name: row.name })),
       ]),
-    [employees, hrStaff, presentToday, users],
+    [employees, hrStaff, users],
+  );
+
+  const hrOnlyAll = useMemo(
+    () =>
+      hrPeopleMissingFromAttendance(rosterStaff, [
+        ...presentToday.map((row) => ({ id: row._id, name: row.name })),
+        ...presentToday
+          .filter((row) => row.personId)
+          .map((row) => ({ id: row.personId, name: "" })),
+      ]),
+    [presentToday, rosterStaff],
   );
 
   const attendanceByEmployeeId = useMemo(() => {
@@ -1013,7 +1051,7 @@ function AttendancePage({
   );
 
   const daySummary = {
-    total: employees.length + users.length + hrOnlyAll.length,
+    total: employees.length + users.length + rosterStaff.length,
     present:
       presentToday.length +
       hrOnlyAll.filter((person) =>
@@ -1032,6 +1070,14 @@ function AttendancePage({
         matchesQuery(term, [person.name, person.role, person.email]),
       ),
     [hrOnlyAll, term],
+  );
+
+  const rosterPeople = useMemo(
+    () =>
+      rosterStaff.filter((person) =>
+        matchesQuery(term, [person.name, person.role, person.email]),
+      ),
+    [rosterStaff, term],
   );
 
   const markPeopleAll = useMemo(() => {
@@ -1571,7 +1617,7 @@ function AttendancePage({
           absent={absentPeople}
           leave={leavePeople}
           employees={employees}
-          staff={hrOnly}
+          staff={rosterPeople}
           canEdit={canEditAttendance}
           onEditLeave={(row) => openMark(row.markKey, row.status, row.span)}
           personHrefFor={boardPersonHref}
@@ -1613,30 +1659,29 @@ function AttendancePage({
                     : "No one marked present yet today."}
                 </p>
               ) : (
-                <ul className="mt-4 space-y-2">
+                <ul className="mt-3 space-y-1.5">
                   {presentPeople.map((row) => (
                     <li
                       key={`${row.kind}-${row._id}`}
-                      className="flex items-start justify-between gap-3 rounded-xl border border-line p-4"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-2.5"
                     >
                       <Link
                         href={boardPresentHref(row, users, employees)}
                         className="min-w-0 flex-1 hover:underline"
                       >
                         <p className="font-semibold text-slate-900">{row.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">
+                        <p className="text-xs text-slate-500">
                           {row.role}
                           {row.designation ? ` · ${row.designation}` : ""}
                         </p>
-                        <p className="mt-2 text-sm font-medium text-slate-800">Present</p>
-                        <p className="mt-1 text-sm text-slate-700">
-                          Check in: {fmtDateTime(row.checkInAt)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-700">
-                          Check out: {fmtDateTime(row.checkOutAt)}
-                        </p>
+                        <AttendanceFacts
+                          status="Present"
+                          checkInAt={row.checkInAt}
+                          checkOutAt={row.checkOutAt}
+                          timeOnly
+                        />
                       </Link>
-                      <div className="flex shrink-0 flex-col items-end gap-2">
+                      <div className="flex shrink-0 items-center gap-3">
                         {canEditAttendance ? (
                         <button
                           type="button"
@@ -1665,26 +1710,22 @@ function AttendancePage({
                 {term ? "No records match that search." : "No recent attendance."}
               </p>
             ) : (
-              <ul className="mt-4 space-y-2">
+              <ul className="mt-3 space-y-1.5">
                 {recentRows.map((row, index) => (
                   <li
                     key={row._id || `${attendanceEmployeeId(row)}-${index}`}
-                    className="rounded-xl border border-line p-4"
+                    className="rounded-xl border border-line px-4 py-2.5"
                   >
                     <p className="font-semibold text-slate-900">
                       {attendanceEmployeeName(row)}
                     </p>
-                    <p className="mt-2 text-sm font-medium text-slate-800">
-                      {String(row.status || "").replaceAll("_", " ") || "Recorded"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      Check in: {fmtDateTime(row.checkInAt)}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      Check out: {fmtDateTime(row.checkOutAt)}
-                    </p>
+                    <AttendanceFacts
+                      status={String(row.status || "").replaceAll("_", " ") || "Recorded"}
+                      checkInAt={row.checkInAt}
+                      checkOutAt={row.checkOutAt}
+                    />
                     {row.leaveType ? (
-                      <p className="mt-2 text-sm text-slate-700">
+                      <p className="mt-1 text-sm text-slate-700">
                         Leave: {row.leaveType}
                       </p>
                     ) : null}
@@ -1719,25 +1760,31 @@ function AttendancePage({
                               : person.linkedUserId
                                 ? "Not checked in"
                                 : "Not marked";
+                    const checkInAt = portal?.checkInAt || mark?.checkInAt;
+                    const checkOutAt = portal?.checkOutAt || mark?.checkOutAt;
                     return (
                       <li
                         key={person.id}
-                        className="flex items-start justify-between gap-3 rounded-xl border border-line p-4"
+                        className="flex items-center justify-between gap-3 rounded-xl border border-line px-4 py-2.5"
                       >
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-semibold text-slate-900">{person.name}</p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="text-xs text-slate-500">
                             {person.role}
                             {person.email ? ` · ${person.email}` : ""}
                           </p>
-                          <p className="mt-2 text-sm text-slate-700">{statusLabel}</p>
-                          {portal ? (
-                            <p className="mt-1 text-sm text-slate-700">
-                              Check in: {fmtDateTime(portal.checkInAt)}
-                            </p>
-                          ) : null}
+                          {checkInAt || checkOutAt ? (
+                            <AttendanceFacts
+                              status={statusLabel}
+                              checkInAt={checkInAt}
+                              checkOutAt={checkOutAt}
+                              timeOnly
+                            />
+                          ) : (
+                            <p className="mt-1 text-sm text-slate-700">{statusLabel}</p>
+                          )}
                         </div>
-                        <div className="flex shrink-0 flex-col items-end gap-2">
+                        <div className="flex shrink-0 items-center gap-3">
                           <button
                             type="button"
                             className="font-medium text-brand-dark underline"

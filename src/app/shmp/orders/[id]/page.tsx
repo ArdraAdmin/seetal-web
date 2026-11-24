@@ -5,7 +5,14 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { DeliverOrderDialog } from "@/components/DeliverOrderDialog";
 import { useAuth } from "@/components/AuthProvider";
-import { assignedWorkerName, productionStatusClass } from "@/lib/shmp-order-item";
+import {
+  assignedWorkerName,
+  formatOrderItemQtyLine,
+  orderLineUnitLabel,
+  productionStatusClass,
+  ratioByProductId,
+  unitReqByProductId,
+} from "@/lib/shmp-order-item";
 import {
   deliveryLineName,
   deliveryTripCartons,
@@ -30,13 +37,21 @@ type AssignedWorker = {
 };
 
 type DetailLine = {
-  product?: { _id?: string; itemName?: string; itemRef?: string };
+  product?: {
+    _id?: string;
+    itemName?: string;
+    itemRef?: string;
+    unit?: string;
+    ratio?: number;
+  };
   ordered?: number;
   produced?: number;
   delivered?: number;
   ready?: number;
   remainingProduction?: number;
   productionStatus?: string;
+  unitReq?: string;
+  ratio?: number;
   assignedWorkers?: AssignedWorker[];
 };
 
@@ -45,6 +60,10 @@ type OrderDetail = {
     _id?: string;
     status?: string;
     tempOrderInvoiceNo?: string;
+    productDetails?: Array<{
+      product?: string | { _id?: string; ratio?: number } | null;
+      unitReq?: string | null;
+    }>;
   };
   lines?: DetailLine[];
 };
@@ -91,7 +110,25 @@ export default function ShmpOrderDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  const dispatch: ShmpOrderDispatch = dispatchFromLines(detail?.lines || []);
+  const unitByProduct = unitReqByProductId(detail?.order?.productDetails);
+  const ratioByProduct = ratioByProductId(detail?.order?.productDetails);
+  const dispatch: ShmpOrderDispatch = dispatchFromLines(
+    (detail?.lines || []).map((line) => {
+      const pid = String(line.product?._id || "");
+      return {
+        ordered: line.ordered,
+        produced: line.produced,
+        delivered: line.delivered,
+        ready: line.ready,
+        unitReq:
+          line.unitReq ||
+          unitByProduct.get(pid) ||
+          line.product?.unit ||
+          "CARTONS",
+        ratio: line.ratio || line.product?.ratio || ratioByProduct.get(pid) || 0,
+      };
+    }),
+  );
   const invoice = detail?.order?.tempOrderInvoiceNo || orderId || "Order";
   const canDeliver = dispatch.section === "ready";
   const vehicleLabels = deliveryVehicleSummary(trips);
@@ -183,6 +220,17 @@ export default function ShmpOrderDetailPage() {
             <div className="mt-3 space-y-3">
               {(detail?.lines || []).map((line) => {
                 const pid = String(line.product?._id || "");
+                const unit =
+                  line.unitReq ||
+                  unitByProduct.get(pid) ||
+                  line.product?.unit ||
+                  "CARTONS";
+                const ratio =
+                  line.ratio ||
+                  line.product?.ratio ||
+                  ratioByProduct.get(pid) ||
+                  0;
+                const unitLabel = orderLineUnitLabel(unit);
                 return (
                   <div
                     key={pid || line.product?.itemRef}
@@ -204,17 +252,20 @@ export default function ShmpOrderDetailPage() {
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-slate-600">
-                      {Number(line.ordered || 0)} ordered ·{" "}
-                      {Number(line.produced || 0)} packed ·{" "}
-                      {Number(line.ready || 0)} ready ·{" "}
-                      {Number(line.delivered || 0)} delivered
+                      {formatOrderItemQtyLine({
+                        ordered: line.ordered,
+                        produced: line.produced,
+                        ready: line.ready,
+                        delivered: line.delivered,
+                        unit,
+                      })}
                     </p>
                     {(line.assignedWorkers || []).length ? (
                       <ul className="mt-2 space-y-1 text-xs text-slate-600">
                         {(line.assignedWorkers || []).map((worker, index) => (
                           <li key={`${pid}-${index}`}>
                             {assignedWorkerName(worker.employee)} ·{" "}
-                            {Number(worker.cartonQty || 0)} cartons
+                            {Number(worker.cartonQty || 0)} {unitLabel}
                           </li>
                         ))}
                       </ul>

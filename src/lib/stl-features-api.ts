@@ -635,9 +635,11 @@ export async function recordHrFine(
 export type HrStaffAttendanceMark = {
   staffId: string;
   date: string;
-    status: "present" | "absent" | "leave" | "holiday" | string;
+  status: "present" | "absent" | "leave" | "holiday" | string;
   leaveType?: string | null;
   reason?: string;
+  checkInAt?: string | null;
+  checkOutAt?: string | null;
 };
 
 export async function getHrStaffAttendance(

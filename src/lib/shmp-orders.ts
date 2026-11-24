@@ -5,6 +5,31 @@ export type ShmpOrderStore = {
   city?: string;
 };
 
+function isPcsUnit(unit?: string | null) {
+  const raw = String(unit || "").trim().toUpperCase();
+  return raw === "PCS" || raw === "PC" || raw === "PIECE" || raw === "PIECES";
+}
+
+/** Line qty → cartons when unitReq is PCS (ordered / packed / ready / delivered). */
+function qtyInCartons(
+  qty: number | null | undefined,
+  unit?: string | null,
+  ratio?: number | null,
+) {
+  const n = Number(qty) || 0;
+  if (!isPcsUnit(unit)) return n;
+  const r = Number(ratio) || 0;
+  if (!(r > 0)) return n;
+  return n / r;
+}
+
+function formatCartonQty(qty: number) {
+  const n = Number(qty) || 0;
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n - Math.round(n)) < 0.0001) return String(Math.round(n));
+  return String(Math.round(n * 100) / 100);
+}
+
 /** Colored pill classes for SHMP order lifecycle status text. */
 export function orderStatusClass(status?: string | null) {
   const value = String(status || "").trim().toLowerCase();
@@ -90,6 +115,8 @@ export function dispatchFromLines(
     produced?: number;
     delivered?: number;
     ready?: number | null;
+    unitReq?: string | null;
+    ratio?: number | null;
   }>,
 ): ShmpOrderDispatch {
   let ordered = 0;
@@ -97,13 +124,15 @@ export function dispatchFromLines(
   let delivered = 0;
   let ready = 0;
   for (const line of lines) {
-    const orderedQty = Number(line.ordered) || 0;
-    const producedQty = Number(line.produced) || 0;
-    const deliveredQty = Number(line.delivered) || 0;
+    const unit = line.unitReq;
+    const ratio = line.ratio;
+    const orderedQty = qtyInCartons(line.ordered, unit, ratio);
+    const producedQty = qtyInCartons(line.produced, unit, ratio);
+    const deliveredQty = qtyInCartons(line.delivered, unit, ratio);
     const readyQty =
       line.ready == null
         ? Math.max(0, producedQty - deliveredQty)
-        : Math.max(0, Number(line.ready) || 0);
+        : qtyInCartons(line.ready, unit, ratio);
     ordered += orderedQty;
     produced += producedQty;
     delivered += deliveredQty;
@@ -119,11 +148,11 @@ export function dispatchFromLines(
 }
 
 export function cartonProgressLabel(dispatch?: ShmpOrderDispatch | null) {
-  const ordered = Number(dispatch?.ordered) || 0;
-  const produced = Number(dispatch?.produced) || 0;
-  const ready = Number(dispatch?.ready) || 0;
-  const delivered = Number(dispatch?.delivered) || 0;
-  return `${produced} packed · ${ready} ready · ${delivered} delivered of ${ordered}`;
+  const ordered = formatCartonQty(Number(dispatch?.ordered) || 0);
+  const produced = formatCartonQty(Number(dispatch?.produced) || 0);
+  const ready = formatCartonQty(Number(dispatch?.ready) || 0);
+  const delivered = formatCartonQty(Number(dispatch?.delivered) || 0);
+  return `${produced} cartons packed · ${ready} cartons ready · ${delivered} cartons delivered of ${ordered}`;
 }
 
 export type ReadyDeliveryLine = {

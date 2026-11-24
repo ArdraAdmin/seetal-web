@@ -104,7 +104,30 @@ describe("dispatchFromLines", () => {
         ready: 30,
         delivered: 20,
       }),
-      "50 packed · 30 ready · 20 delivered of 100",
+      "50 cartons packed · 30 cartons ready · 20 cartons delivered of 100",
+    );
+  });
+
+  it("converts PCS line qtys into cartons for order totals", () => {
+    assert.deepEqual(
+      dispatchFromLines([
+        { ordered: 50, produced: 0, delivered: 0, unitReq: "CARTONS" },
+        { ordered: 100, produced: 0, delivered: 0, unitReq: "CARTONS" },
+        {
+          ordered: 2400,
+          produced: 30,
+          delivered: 0,
+          unitReq: "PCS",
+          ratio: 24,
+        },
+      ]),
+      {
+        ordered: 250,
+        produced: 1.25,
+        delivered: 0,
+        ready: 1.25,
+        section: "ready",
+      },
     );
   });
 });

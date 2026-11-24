@@ -1,5 +1,9 @@
 import { shmpOrderDetail } from "./shmp-api";
 import {
+  ratioByProductId,
+  unitReqByProductId,
+} from "./shmp-order-item";
+import {
   dispatchFromLines,
   type ShmpOrderDispatch,
 } from "./shmp-orders";
@@ -7,14 +11,64 @@ import {
 type DispatchOrder = {
   _id?: string;
   dispatch?: ShmpOrderDispatch | null;
+  productDetails?: Array<{
+    product?: string | { _id?: string; ratio?: number } | null;
+    quantityReq?: number;
+    unitReq?: string | null;
+    manualCompletedQty?: number | null;
+  }>;
 };
 
-/** Older list responses omit dispatch. Fill it from each order's line quantities. */
+type OrderDetailForDispatch = {
+  order?: {
+    productDetails?: Array<{
+      product?: string | { _id?: string; ratio?: number } | null;
+      unitReq?: string | null;
+    }>;
+  };
+  lines?: Array<{
+    product?: { _id?: string; unit?: string; ratio?: number };
+    ordered?: number;
+    produced?: number;
+    delivered?: number;
+    ready?: number;
+    unitReq?: string;
+    ratio?: number;
+  }>;
+};
+
+export function dispatchFromOrderDetail(
+  detail: OrderDetailForDispatch,
+): ShmpOrderDispatch {
+  const unitByProduct = unitReqByProductId(detail.order?.productDetails);
+  const ratioByProduct = ratioByProductId(detail.order?.productDetails);
+  return dispatchFromLines(
+    (detail.lines || []).map((line) => {
+      const pid = String(line.product?._id || "");
+      return {
+        ordered: line.ordered,
+        produced: line.produced,
+        delivered: line.delivered,
+        ready: line.ready,
+        unitReq:
+          line.unitReq ||
+          unitByProduct.get(pid) ||
+          line.product?.unit ||
+          "CARTONS",
+        ratio: line.ratio || line.product?.ratio || ratioByProduct.get(pid) || 0,
+      };
+    }),
+  );
+}
+
+/**
+ * Prefer API dispatch when present, but always rebuild from order detail so
+ * PCS lines are converted to cartons (list APIs may still return raw sums).
+ */
 export async function ensureOrderDispatch<T extends DispatchOrder>(
   orders: T[],
 ): Promise<T[]> {
   if (!orders.length) return orders;
-  if (orders.some((order) => order.dispatch?.section)) return orders;
 
   const result = new Array<T>(orders.length);
   let next = 0;
@@ -30,17 +84,10 @@ export async function ensureOrderDispatch<T extends DispatchOrder>(
         continue;
       }
       try {
-        const detail = (await shmpOrderDetail(id)) as {
-          lines?: Array<{
-            ordered?: number;
-            produced?: number;
-            delivered?: number;
-            ready?: number;
-          }>;
-        };
+        const detail = (await shmpOrderDetail(id)) as OrderDetailForDispatch;
         result[index] = {
           ...order,
-          dispatch: dispatchFromLines(detail.lines || []),
+          dispatch: dispatchFromOrderDetail(detail),
         };
       } catch {
         result[index] = order;

@@ -85,3 +85,108 @@ export function canMarkOrderItemComplete(line: {
   if (String(line.productionStatus || "").trim() === "Assigned") return true;
   return Array.isArray(line.assignedWorkers) && line.assignedWorkers.length > 0;
 }
+
+/** True when the order line was placed in pieces rather than cartons. */
+export function isPcsUnit(unit?: string | null) {
+  const raw = String(unit || "").trim().toUpperCase();
+  return raw === "PCS" || raw === "PC" || raw === "PIECE" || raw === "PIECES";
+}
+
+/** Display label for an order line unit (CARTONS / PCS). */
+export function orderLineUnitLabel(unit?: string | null) {
+  return isPcsUnit(unit) ? "pcs" : "cartons";
+}
+
+/** Format a carton count for display (trim trailing zeros from fractions). */
+export function formatCartonQty(qty: number) {
+  const n = Number(qty) || 0;
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n - Math.round(n)) < 0.0001) return String(Math.round(n));
+  return String(Math.round(n * 100) / 100);
+}
+
+/** Convert a line qty into cartons when unitReq is PCS. */
+export function qtyInCartons(
+  qty: number | null | undefined,
+  unit?: string | null,
+  ratio?: number | null,
+) {
+  const n = Number(qty) || 0;
+  if (!isPcsUnit(unit)) return n;
+  const r = Number(ratio) || 0;
+  if (!(r > 0)) return n;
+  return n / r;
+}
+
+function productIdFromDetail(product: unknown) {
+  if (!product) return "";
+  if (typeof product === "string") return product;
+  if (typeof product === "object" && product && "_id" in product) {
+    return String((product as { _id?: string })._id || "");
+  }
+  return "";
+}
+
+/** Map product id → unitReq from saved order productDetails. */
+export function unitReqByProductId(
+  productDetails:
+    | Array<{
+        product?: string | { _id?: string } | null;
+        unitReq?: string | null;
+      }>
+    | null
+    | undefined,
+) {
+  const map = new Map<string, string>();
+  for (const row of productDetails || []) {
+    const id = productIdFromDetail(row.product);
+    if (!id) continue;
+    const unit = String(row.unitReq || "").trim();
+    if (unit) map.set(id, unit);
+  }
+  return map;
+}
+
+/** Map product id → pieces-per-carton from populated productDetails. */
+export function ratioByProductId(
+  productDetails:
+    | Array<{
+        product?: string | { _id?: string; ratio?: number } | null;
+      }>
+    | null
+    | undefined,
+) {
+  const map = new Map<string, number>();
+  for (const row of productDetails || []) {
+    const id = productIdFromDetail(row.product);
+    if (!id) continue;
+    const product = row.product;
+    const ratio =
+      product && typeof product === "object"
+        ? Number(product.ratio) || 0
+        : 0;
+    if (ratio > 0) map.set(id, ratio);
+  }
+  return map;
+}
+
+/**
+ * Line quantities stay in the line unit.
+ * PCS: "2400 pcs ordered · 30 pcs packed · …"
+ * CARTONS: "50 cartons ordered · 0 cartons packed · …"
+ */
+export function formatOrderItemQtyLine(input: {
+  ordered?: number | null;
+  produced?: number | null;
+  ready?: number | null;
+  delivered?: number | null;
+  unit?: string | null;
+}) {
+  const unit = orderLineUnitLabel(input.unit);
+  return [
+    `${formatCartonQty(Number(input.ordered || 0))} ${unit} ordered`,
+    `${formatCartonQty(Number(input.produced || 0))} ${unit} packed`,
+    `${formatCartonQty(Number(input.ready || 0))} ${unit} ready`,
+    `${formatCartonQty(Number(input.delivered || 0))} ${unit} delivered`,
+  ].join(" · ");
+}

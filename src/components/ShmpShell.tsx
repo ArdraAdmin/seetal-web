@@ -87,6 +87,30 @@ const NAV: NavEntry[] = [
   {
     kind: "link",
     item: {
+      href: "/shmp/drivers-vehicles",
+      label: "Drivers & vehicles",
+      icon: Truck,
+      moduleId: "drivers-vehicles",
+      match: ["/shmp/drivers-vehicles", "/shmp/drivers", "/shmp/vehicles"],
+    },
+  },
+  {
+    kind: "link",
+    item: {
+      href: "/shmp/company",
+      label: "My company",
+      icon: Building2,
+      moduleId: "my-company",
+    },
+  },
+  { kind: "link", item: { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" } },
+  { kind: "link", item: { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
+  { kind: "link", item: { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
+  { kind: "link", item: { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" } },
+  { kind: "link", item: { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" } },
+  {
+    kind: "link",
+    item: {
       href: "/shmp/approvals",
       label: "Approvals",
       icon: ShieldCheck,
@@ -104,35 +128,10 @@ const NAV: NavEntry[] = [
       children: HR_CHILDREN,
     },
   },
-  { kind: "link", item: { href: "/shmp/stores", label: "Stores", icon: Store, moduleId: "stores" } },
-  { kind: "link", item: { href: "/shmp/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
-  { kind: "link", item: { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
-  { kind: "link", item: { href: "/shmp/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
-  { kind: "link", item: { href: "/shmp/production", label: "Production", icon: Factory, moduleId: "production" } },
-  { kind: "link", item: { href: "/shmp/rm", label: "RM Store", icon: Boxes, moduleId: "rm" } },
   { kind: "link", item: { href: "/shmp/orders", label: "Orders", icon: ClipboardList, moduleId: "orders" } },
   { kind: "link", item: { href: "/shmp/delivery", label: "Delivery", icon: PackageCheck, moduleId: "delivery" } },
-  {
-    kind: "link",
-    item: {
-      href: "/shmp/drivers-vehicles",
-      label: "Drivers & vehicles",
-      icon: Truck,
-      moduleId: "drivers-vehicles",
-      match: ["/shmp/drivers-vehicles", "/shmp/drivers", "/shmp/vehicles"],
-    },
-  },
   { kind: "link", item: { href: "/shmp/costing", label: "Product Costing", icon: Package, moduleId: "costing" } },
   { kind: "link", item: { href: "/shmp/reports", label: "Reports", icon: CalendarDays, moduleId: "reports" } },
-  {
-    kind: "link",
-    item: {
-      href: "/shmp/company",
-      label: "My company",
-      icon: Building2,
-      moduleId: "my-company",
-    },
-  },
   {
     kind: "link",
     item: {
@@ -143,6 +142,7 @@ const NAV: NavEntry[] = [
       fullAdminOnly: true,
     },
   },
+  { kind: "link", item: { href: "/shmp/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
   { kind: "link", item: { href: "/shmp/settings", label: "Settings", icon: Settings, moduleId: "settings" } },
 ];
 

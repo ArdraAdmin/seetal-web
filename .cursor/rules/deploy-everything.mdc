@@ -1,0 +1,13 @@
+---
+description: Deploy means ship every local change
+alwaysApply: true
+---
+
+# Deploy means everything changed
+
+When the user says deploy, ship every local change, update, and new file in the web app and the API.
+
+- Include uncommitted work. Do not leave related edits out of the commit.
+- STLWeb goes to production by committing and pushing `main`, which Vercel builds.
+- STLAPI goes live by committing and pushing to Heroku `master` on `stl-api-testing`.
+- Skip only secrets (`.env`, credentials). Say so if a file was left out for that reason.

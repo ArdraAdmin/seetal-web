@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   canMarkOrderItemComplete,
+  formatOrderItemQtyLine,
   isOrderItemDone,
+  orderLineUnitLabel,
   parseSplitAssignments,
   productionStatusClass,
+  qtyInCartons,
   remainingCartons,
+  unitReqByProductId,
 } from "./shmp-order-item.ts";
 
 describe("parseSplitAssignments", () => {
@@ -122,5 +126,60 @@ describe("canMarkOrderItemComplete", () => {
       false,
     );
     assert.equal(canMarkOrderItemComplete({}), false);
+  });
+});
+
+describe("orderLineUnitLabel", () => {
+  it("maps PCS and CARTONS to display labels", () => {
+    assert.equal(orderLineUnitLabel("PCS"), "pcs");
+    assert.equal(orderLineUnitLabel("pcs"), "pcs");
+    assert.equal(orderLineUnitLabel("CARTONS"), "cartons");
+    assert.equal(orderLineUnitLabel("CTN"), "cartons");
+    assert.equal(orderLineUnitLabel(""), "cartons");
+  });
+});
+
+describe("unitReqByProductId", () => {
+  it("indexes unitReq by product id", () => {
+    const map = unitReqByProductId([
+      { product: { _id: "p1" }, unitReq: "PCS" },
+      { product: "p2", unitReq: "CARTONS" },
+      { product: { _id: "p3" }, unitReq: "  " },
+    ]);
+    assert.equal(map.get("p1"), "PCS");
+    assert.equal(map.get("p2"), "CARTONS");
+    assert.equal(map.has("p3"), false);
+  });
+});
+
+describe("qtyInCartons", () => {
+  it("converts PCS using pieces per carton", () => {
+    assert.equal(qtyInCartons(2400, "PCS", 24), 100);
+    assert.equal(qtyInCartons(50, "CARTONS", 24), 50);
+  });
+});
+
+describe("formatOrderItemQtyLine", () => {
+  it("shows quantities in the line unit", () => {
+    assert.equal(
+      formatOrderItemQtyLine({
+        ordered: 50,
+        produced: 0,
+        ready: 0,
+        delivered: 0,
+        unit: "CARTONS",
+      }),
+      "50 cartons ordered · 0 cartons packed · 0 cartons ready · 0 cartons delivered",
+    );
+    assert.equal(
+      formatOrderItemQtyLine({
+        ordered: 2400,
+        produced: 30,
+        ready: 30,
+        delivered: 0,
+        unit: "PCS",
+      }),
+      "2400 pcs ordered · 30 pcs packed · 30 pcs ready · 0 pcs delivered",
+    );
   });
 });
