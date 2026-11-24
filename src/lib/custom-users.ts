@@ -735,13 +735,14 @@ function longestMatch(modules: PortalModule[], pathname: string) {
   return best;
 }
 
-/** User management and tracking stay closed to every custom account. */
+/** User management and the sales map stay closed to every custom account. */
 export function customUserRestrictedPath(pathname: string) {
   return (
     prefixHit(pathname, "/admin/users") ||
     prefixHit(pathname, "/shmp/users") ||
     prefixHit(pathname, "/admin/permissions") ||
     prefixHit(pathname, "/admin/targets") ||
+    prefixHit(pathname, "/admin/sales-map") ||
     prefixHit(pathname, "/admin/tracking")
   );
 }

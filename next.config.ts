@@ -16,6 +16,15 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: "/admin/tracking",
+        destination: "/admin/sales-map",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

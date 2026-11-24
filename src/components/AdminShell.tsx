@@ -143,8 +143,8 @@ const NAV: NavEntry[] = [
   {
     kind: "link",
     item: {
-      href: "/admin/tracking",
-      label: "Tracking",
+      href: "/admin/sales-map",
+      label: "Sales map",
       icon: MapPinned,
       trackingOnly: true,
     },
