@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { deleteHrStaff, getHrStaff, type HrStaff } from "@/lib/stl-features-api";
+import {
+  deleteHrStaff,
+  getHrStaff,
+  updateHrStaffShift,
+  type HrStaff,
+} from "@/lib/stl-features-api";
+import { HR_SHIFTS, hrShiftOptionLabel, normalizeHrShift, type HrShiftId } from "@/lib/hr-shift";
+import { shmpActionOn } from "@/lib/shmp-permissions";
 import { useAuth } from "@/components/AuthProvider";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { useToast } from "@/components/Toast";
@@ -32,6 +39,7 @@ type HrRow = {
   joiningDate?: string | null;
   yearsOfService?: number | null;
   visaExpiry?: string;
+  shift: HrShiftId | "";
 };
 
 function visaSoon(expiry?: string) {
@@ -48,6 +56,7 @@ export default function ShmpHrPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const supervisor = isSupervisor(user);
+  const canEditShift = shmpActionOn(user?.customAccess, "hr", "update");
   const show = (fieldId: string) =>
     portalFieldVisible(user?.customAccess, "shmp", "hr", fieldId);
   const [staff, setStaff] = useState<HrRow[]>([]);
@@ -72,6 +81,7 @@ export default function ShmpHrPage() {
         joiningDate: row.joiningDate,
         yearsOfService: row.yearsOfService,
         visaExpiry: row.hrProfile?.visaExpiry,
+        shift: normalizeHrShift(row.shift),
       }));
       setStaff(rows);
     } catch (e) {
@@ -92,6 +102,24 @@ export default function ShmpHrPage() {
       : staff;
     return sortHrStaff(matched, sort);
   }, [staff, term, sort]);
+
+  async function onShift(row: HrRow, shift: HrShiftId | "") {
+    if (!user?.id || !canEditShift) return;
+    const previous = row.shift;
+    setStaff((current) =>
+      current.map((person) => (person.id === row.id ? { ...person, shift } : person)),
+    );
+    try {
+      await updateHrStaffShift(user.id, row.id, shift);
+    } catch (err) {
+      setStaff((current) =>
+        current.map((person) =>
+          person.id === row.id ? { ...person, shift: previous } : person,
+        ),
+      );
+      toast(err instanceof Error ? err.message : "Could not save shift", "error");
+    }
+  }
 
   async function onDeleteStaff(row: HrRow) {
     if (row.kind !== "staff" || !user?.id) return;
@@ -174,6 +202,7 @@ export default function ShmpHrPage() {
                 <th className="px-4 py-2">No.</th>
                 <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Role</th>
+                <th className="px-4 py-2">Shift</th>
                 <th className="px-4 py-2">Joined</th>
                 <th className="px-4 py-2 text-right">Years</th>
                 {show("visa") ? <th className="px-4 py-2">Visa expiry</th> : null}
@@ -194,6 +223,24 @@ export default function ShmpHrPage() {
                     </button>
                   </td>
                   <td className="px-4 py-2">{s.role}</td>
+                  <td className="px-4 py-2">
+                    <select
+                      aria-label={`Shift for ${s.name}`}
+                      className="min-h-10 w-full min-w-52 rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand disabled:bg-[#f7f5f0]"
+                      value={s.shift}
+                      disabled={!canEditShift}
+                      onChange={(event) =>
+                        void onShift(s, event.target.value as HrShiftId | "")
+                      }
+                    >
+                      <option value="">Select shift</option>
+                      {HR_SHIFTS.map((shift) => (
+                        <option key={shift.id} value={shift.id}>
+                          {hrShiftOptionLabel(shift.id)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
                   <td className="px-4 py-2">{formatHrDate(s.joiningDate)}</td>
                   <td className="px-4 py-2 text-right">{s.yearsOfService ?? "-"}</td>
                   {show("visa") ? (

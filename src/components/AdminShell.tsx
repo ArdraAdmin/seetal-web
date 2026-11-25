@@ -116,6 +116,15 @@ const NAV: NavEntry[] = [
       match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
     },
   },
+  {
+    kind: "link",
+    item: {
+      href: "/admin/company",
+      label: "My company",
+      icon: Building2,
+      moduleId: "my-company",
+    },
+  },
   { kind: "link", item: { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" } },
   { kind: "link", item: { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
   { kind: "link", item: { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
@@ -173,15 +182,6 @@ const NAV: NavEntry[] = [
   { kind: "link", item: { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
   { kind: "link", item: { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" } },
   { kind: "link", item: { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse, moduleId: "warehouse" } },
-  {
-    kind: "link",
-    item: {
-      href: "/admin/company",
-      label: "My company",
-      icon: Building2,
-      moduleId: "my-company",
-    },
-  },
   { kind: "link", item: { href: "/admin/settings", label: "Settings", icon: Settings, moduleId: "settings" } },
 ];
 

@@ -813,6 +813,8 @@ export type HrStaff = {
   joiningDate?: string | null;
   /** Machine-issued terminal user id (e.g. device enrollment id). */
   biometricUserId?: string;
+  /** day is 5:30 AM–5:30 PM. night is 5:30 PM–5:30 AM. */
+  shift?: "day" | "night" | "morning" | "";
   hrProfile?: HrProfile;
 };
 
@@ -928,6 +930,7 @@ export async function createHrStaff(
     hrProfile: Record<string, unknown>;
     linkedUserId?: string;
     biometricUserId?: string;
+    shift?: "day" | "night" | "";
   },
 ) {
   return request<HrStaff>("/admin/hr/staff", {
@@ -949,6 +952,17 @@ export async function deleteHrStaff(adminUserId: string, id: string) {
   );
 }
 
+export async function updateHrStaffShift(
+  adminUserId: string,
+  id: string,
+  shift: "day" | "night" | "",
+) {
+  return request<HrStaff>(`/admin/hr/staff/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ userId: adminUserId, shift, shiftOnly: true }),
+  });
+}
+
 export async function updateHrStaffRecord(
   adminUserId: string,
   id: string,
@@ -959,6 +973,7 @@ export async function updateHrStaffRecord(
     joiningDate?: string;
     linkedUserId?: string | null;
     biometricUserId?: string;
+    shift?: "day" | "night" | "";
     enforceDocuments?: boolean;
   },
 ) {

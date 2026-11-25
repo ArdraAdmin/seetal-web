@@ -32,23 +32,47 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Master category for an SHMP production product. Subcategory is the fallback. */
-export function inventoryCategoryLabel(product: {
+function isDatabaseId(value: string): boolean {
+  return /^[a-f0-9]{24}$/i.test(value);
+}
+
+/** Category display name. A stored id is not a name. */
+function categoryName(value: string): string {
+  const name = value.split(" — ")[0].trim();
+  if (!name || isDatabaseId(name)) return "";
+  return name;
+}
+
+export type InventoryCategoryProduct = {
   category?: unknown;
   categoryName?: unknown;
   masterCategoryName?: unknown;
-}): string {
-  const direct = text(product.masterCategoryName) || text(product.categoryName);
-  if (direct) return direct.split(" — ")[0].trim() || "Uncategorised";
+  shmpMasterCategory?: unknown;
+  shmpSubCategory?: unknown;
+};
+
+/** Master category for an SHMP production product. Subcategory is the fallback. */
+export function inventoryCategoryLabel(product: InventoryCategoryProduct): string {
+  const shmpMaster = categoryName(text(product.shmpMasterCategory));
+  if (shmpMaster) return shmpMaster;
+  const shmpSub = categoryName(text(product.shmpSubCategory));
+  if (shmpSub) return shmpSub;
+  const direct = categoryName(
+    text(product.masterCategoryName) || text(product.categoryName),
+  );
+  if (direct) return direct;
   if (product.category && typeof product.category === "object") {
     const category = product.category as Record<string, unknown>;
-    const master = text(category.masterCategoryName) || text(category.masterCategory);
-    if (master) return master.split(" — ")[0].trim() || "Uncategorised";
-    const sub = text(category.subCategory);
+    const master = categoryName(
+      text(category.masterCategoryName) || text(category.masterCategory),
+    );
+    if (master) return master;
+    const sub = categoryName(text(category.subCategory));
     if (sub) return sub;
   }
-  if (typeof product.category === "string" && product.category.trim()) {
-    return product.category.trim();
+  if (typeof product.category === "string") {
+    const named = categoryName(product.category);
+    if (named) return named;
   }
   return "Uncategorised";
 }
@@ -64,13 +88,7 @@ export function stockLineValue(product: ShmpStockProduct): number {
 
 /** On-hand value of SHMP production stock, grouped by category. */
 export function shmpInventoryCategoryRows(
-  products: Array<
-    ShmpStockProduct & {
-      category?: unknown;
-      categoryName?: unknown;
-      masterCategoryName?: unknown;
-    }
-  >,
+  products: Array<ShmpStockProduct & InventoryCategoryProduct>,
 ): SalesCategorySlice[] {
   const grouped = new Map<string, number>();
   for (const product of products) {

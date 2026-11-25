@@ -53,6 +53,7 @@ export const SELLING_MODULES: PortalModule[] = [
     href: "/admin/drivers-vehicles",
     match: ["/admin/drivers-vehicles", "/admin/drivers", "/admin/vehicles"],
   },
+  { id: "my-company", label: "My company", href: "/admin/company" },
   { id: "stores", label: "Stores", href: "/admin/stores" },
   { id: "inventory", label: "Inventory", href: "/admin/inventory" },
   { id: "catalog", label: "Catalog", href: "/admin/catalog" },
@@ -71,7 +72,6 @@ export const SELLING_MODULES: PortalModule[] = [
   { id: "payments", label: "Payments", href: "/admin/payments" },
   { id: "warehouse", label: "Warehouse", href: "/admin/warehouse" },
   { id: "settings", label: "Settings", href: "/admin/settings" },
-  { id: "my-company", label: "My company", href: "/admin/company" },
 ];
 
 export const SHMP_MODULES: PortalModule[] = [

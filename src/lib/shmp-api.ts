@@ -587,7 +587,7 @@ export const shmpCreateAccessUser = (body: {
     body: JSON.stringify(body),
   });
 
-export type ShmpWorkerShift = "morning" | "night";
+export type ShmpWorkerShift = "day" | "night" | "morning";
 
 /** Create a factory worker (Employee, no login). */
 export const shmpCreateAccessWorker = (body: {

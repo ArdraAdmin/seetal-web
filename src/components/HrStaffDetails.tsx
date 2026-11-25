@@ -7,6 +7,7 @@ import { ErrorState, LoadingState, SecondaryButton } from "@/components/ui";
 import { companyLabel, getCompanies, type CompanyRecord } from "@/lib/api";
 import { portalFieldVisible } from "@/lib/custom-users";
 import { formatHrDate, hrProfileToForm } from "@/lib/hr-profile";
+import { hrShiftOptionLabel, normalizeHrShift } from "@/lib/hr-shift";
 import { salesMoney } from "@/lib/sales";
 import { getHrStaffRecord, type HrFileRef, type HrStaff } from "@/lib/stl-features-api";
 
@@ -154,6 +155,16 @@ export function HrStaffDetails({
                   <Detail label="Company" value={company ? companyLabel(company) : profile.company} />
                 ) : null}
                 <Detail label="Joined" value={formatHrDate(staff.joiningDate)} />
+                {scope === "shmp" ? (
+                  <Detail
+                    label="Shift"
+                    value={
+                      normalizeHrShift(staff.shift)
+                        ? hrShiftOptionLabel(normalizeHrShift(staff.shift) as "day" | "night")
+                        : "-"
+                    }
+                  />
+                ) : null}
                 <Detail label="Years of service" value={staff.yearsOfService ?? "-"} />
                 <Detail label="Food served" value={profile.foodServed ? "On" : "Off"} />
                 {scope === "shmp" ? (

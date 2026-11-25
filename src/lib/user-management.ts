@@ -132,6 +132,13 @@ export function readAccessPeople(data: unknown, role: string): DirectoryPerson[]
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function workerShiftName(value: unknown): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "day" || raw === "morning") return "Day";
+  if (raw === "night") return "Night";
+  return "";
+}
+
 export function readWorkers(data: unknown): DirectoryPerson[] {
   const rows: DirectoryPerson[] = [];
   for (const item of peopleList(data)) {
@@ -140,10 +147,7 @@ export function readWorkers(data: unknown): DirectoryPerson[] {
     const id = text(row._id);
     if (!id || row.isActive === false) continue;
     const designation = text(row.designation);
-    const shift = text(row.defaultShift);
-    const shiftLabel = shift
-      ? shift.charAt(0).toUpperCase() + shift.slice(1)
-      : "";
+    const shiftLabel = workerShiftName(row.defaultShift);
     rows.push({
       id,
       name: text(row.name) || "Unnamed",

@@ -20,6 +20,7 @@ import {
   PrimaryButton,
   TextField,
 } from "@/components/ui";
+import { HR_SHIFTS, hrShiftOptionLabel, normalizeHrShift, type HrShiftId } from "@/lib/hr-shift";
 import {
   emptyHrProfileForm,
   hrProfilePayload,
@@ -80,6 +81,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
   const [joiningDate, setJoiningDate] = useState("");
   const [linkedUserId, setLinkedUserId] = useState("");
   const [biometricUserId, setBiometricUserId] = useState("");
+  const [shift, setShift] = useState<HrShiftId | "">("");
   const [candidates, setCandidates] = useState<Array<{ id: string; name: string; email: string; role: string }>>([]);
   const [loading, setLoading] = useState(!creating);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +101,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
       setJoiningDate(toDateInput(record.joiningDate));
       setLinkedUserId(record.linkedUserId || "");
       setBiometricUserId(record.biometricUserId || "");
+      setShift(normalizeHrShift(record.shift));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load staff");
     } finally {
@@ -162,6 +165,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
           joiningDate,
           linkedUserId: linkedUserId || undefined,
           biometricUserId: biometricUserId.trim() || undefined,
+          ...(shmpHr ? { shift } : {}),
           hrProfile,
         });
         toast("Staff record added", "success");
@@ -175,6 +179,7 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
         joiningDate,
         linkedUserId: linkedUserId || null,
         biometricUserId: biometricUserId.trim(),
+        ...(shmpHr ? { shift } : {}),
         enforceDocuments: true,
       });
       toast("Staff record saved", "success");
@@ -237,6 +242,23 @@ export function HrStaffEditor({ scope }: { scope: "stl" | "shmp" }) {
               ) : null}
               {hrField("joiningDate") ? (
               <TextField label="Joined" type="date" required value={joiningDate} onChange={(event) => setJoiningDate(event.target.value)} />
+              ) : null}
+              {shmpHr ? (
+              <label className="block space-y-1.5">
+                <span className="text-[13px] font-medium text-slate-700">Shift</span>
+                <select
+                  className="min-h-10 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                  value={shift}
+                  onChange={(event) => setShift(event.target.value as HrShiftId | "")}
+                >
+                  <option value="">Select shift</option>
+                  {HR_SHIFTS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {hrShiftOptionLabel(option.id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               ) : null}
               {hrField("linkedUserId") ? (
               <SearchableSelect

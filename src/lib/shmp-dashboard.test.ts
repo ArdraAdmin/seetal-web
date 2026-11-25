@@ -70,6 +70,44 @@ describe("shmpInventoryCategoryRows", () => {
     assert.equal(inventoryCategoryLabel({}), "Uncategorised");
   });
 
+  it("uses the SHMP category name and hides a raw category id", () => {
+    const rows = shmpInventoryCategoryRows([
+      {
+        sellingPrice: 10,
+        ratio: 1,
+        inQty: { amountInCartons: 2, amountInUnits: 0 },
+        shmpMasterCategory: "Candles",
+        shmpSubCategory: "Tea lights",
+        category: "6738131fcf834582ccc6f6ec",
+      },
+      {
+        sellingPrice: 4,
+        ratio: 1,
+        inQty: { amountInCartons: 1, amountInUnits: 0 },
+        shmpSubCategory: "Basins",
+        category: "6738131fcf834582ccc6f6ec",
+      },
+      {
+        sellingPrice: 3,
+        ratio: 1,
+        inQty: { amountInCartons: 1, amountInUnits: 0 },
+        category: "6738131fcf834582ccc6f6ec",
+      },
+    ]);
+    assert.deepEqual(rows, [
+      { key: "Candles", label: "Candles", value: 20 },
+      { key: "Basins", label: "Basins", value: 4 },
+      { key: "Uncategorised", label: "Uncategorised", value: 3 },
+    ]);
+    assert.equal(
+      inventoryCategoryLabel({
+        shmpMasterCategory: "Gifting — Party",
+        category: "6738131fcf834582ccc6f6ec",
+      }),
+      "Gifting",
+    );
+  });
+
   it("returns no rows when there is no stock", () => {
     assert.deepEqual(shmpInventoryCategoryRows([]), []);
     assert.equal(categorySliceTotal([]), 0);

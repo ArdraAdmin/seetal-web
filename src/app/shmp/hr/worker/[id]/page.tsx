@@ -19,8 +19,8 @@ import {
   shmpEmployees,
   shmpSetLeaveEntitlement,
   shmpUpdateEmployee,
-  type ShmpWorkerShift,
 } from "@/lib/shmp-api";
+import { HR_SHIFTS, hrShiftOptionLabel, normalizeHrShift, type HrShiftId } from "@/lib/hr-shift";
 import {
   LoadingState,
   PrimaryButton,
@@ -34,7 +34,6 @@ import { SalarySlipCard } from "@/components/SalarySlipCard";
 import {
   AttendanceHistory,
   DESIGNATIONS,
-  capitalize,
   leaveLabel,
   loadWorkerLeave,
   unwrapEmployee,
@@ -86,7 +85,7 @@ function WorkerDetail() {
   const [name, setName] = useState("");
   const [designation, setDesignation] = useState<Designation>("Operator");
   const [biometricId, setBiometricId] = useState("");
-  const [shift, setShift] = useState<ShmpWorkerShift | "">("");
+  const [shift, setShift] = useState<HrShiftId | "">("");
   const [annual, setAnnual] = useState("");
   const [sick, setSick] = useState("");
   const [saving, setSaving] = useState(false);
@@ -120,7 +119,7 @@ function WorkerDetail() {
           : "Staff",
       );
       setBiometricId(merged.biometricId || "");
-      setShift(merged.defaultShift || "");
+      setShift(normalizeHrShift(merged.defaultShift));
       setAnnual(
         String(
           merged.leave?.entitlement ?? merged.annualLeaveEntitlement ?? "",
@@ -261,13 +260,14 @@ function WorkerDetail() {
             <select
               className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
               value={shift}
-              onChange={(e) =>
-                setShift(e.target.value as ShmpWorkerShift | "")
-              }
+              onChange={(e) => setShift(e.target.value as HrShiftId | "")}
             >
-              <option value="">Not set</option>
-              <option value="morning">Morning</option>
-              <option value="night">Night</option>
+              <option value="">Select shift</option>
+              {HR_SHIFTS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {hrShiftOptionLabel(option.id)}
+                </option>
+              ))}
             </select>
           </label>
           <TextField
@@ -307,7 +307,14 @@ function WorkerDetail() {
             <DetailField label="Name" value={emp.name} />
             <DetailField label="Type" value={emp.designation} />
             <DetailField label="Biometric ID" value={emp.biometricId} />
-            <DetailField label="Shift" value={capitalize(emp.defaultShift)} />
+            <DetailField
+              label="Shift"
+              value={
+                normalizeHrShift(emp.defaultShift)
+                  ? hrShiftOptionLabel(normalizeHrShift(emp.defaultShift) as HrShiftId)
+                  : undefined
+              }
+            />
             <DetailField label="Email" value={emp.email} />
             <DetailField label="Mobile" value={emp.mobileNumber} />
             <DetailField label="Annual leave remaining" value={leave.annual} />
