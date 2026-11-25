@@ -16,6 +16,7 @@ describe("parseHrDayFilter", () => {
     assert.equal(parseHrDayFilter("absent"), "absent");
     assert.equal(parseHrDayFilter("leave"), "leave");
     assert.equal(parseHrDayFilter("total"), "total");
+    assert.equal(parseHrDayFilter("late"), "late");
   });
 
   it("rejects unknown or empty values", () => {
@@ -30,6 +31,7 @@ describe("attendanceFilterHref", () => {
   it("builds the attendance roster deep link", () => {
     assert.equal(attendanceFilterHref("present"), "/shmp/attendance?filter=present");
     assert.equal(attendanceFilterHref("leave"), "/shmp/attendance?filter=leave");
+    assert.equal(attendanceFilterHref("late"), "/shmp/attendance?filter=late");
     assert.equal(hrFilterHref("absent"), "/shmp/attendance?filter=absent");
   });
 });

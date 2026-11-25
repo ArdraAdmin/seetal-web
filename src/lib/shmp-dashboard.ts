@@ -1,4 +1,4 @@
-export type HrDayFilter = "total" | "present" | "absent" | "leave";
+export type HrDayFilter = "total" | "present" | "absent" | "leave" | "late";
 
 export function parseHrDayFilter(
   value: string | null | undefined,
@@ -7,7 +7,8 @@ export function parseHrDayFilter(
     value === "total" ||
     value === "present" ||
     value === "absent" ||
-    value === "leave"
+    value === "leave" ||
+    value === "late"
   ) {
     return value;
   }

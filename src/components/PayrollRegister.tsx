@@ -834,6 +834,9 @@ export function PayrollRegister() {
                 <th scope="col" className="px-4 py-2 font-medium">Name</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Absent days</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Present days</th>
+                {scope === "shmp" ? (
+                  <th scope="col" className="px-4 py-2 text-right font-medium">Late</th>
+                ) : null}
                 <th scope="col" className="px-4 py-2 text-right font-medium">Basic salary</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">Other benefits</th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">OT Sundays</th>
@@ -869,6 +872,9 @@ export function PayrollRegister() {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatDays(row.presentDays)}</td>
+                  {scope === "shmp" ? (
+                    <td className="px-4 py-2 text-right tabular-nums">{formatDays(row.lateDays ?? 0)}</td>
+                  ) : null}
                   <td className="px-4 py-2 text-right tabular-nums">{salesMoney(row.basicSalary)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{salesMoney(row.otherBenefits)}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{salesMoney(row.otSundays)}</td>
@@ -909,6 +915,7 @@ export function PayrollRegister() {
                 <th scope="row" className="px-4 py-2 text-left">Total</th>
                 <td className="px-4 py-2" />
                 <td className="px-4 py-2" />
+                {scope === "shmp" ? <td className="px-4 py-2" /> : null}
                 {moneyKeys.map((key) => (
                   <td
                     key={key}
@@ -1190,6 +1197,13 @@ export function PayrollRegister() {
                     onChange={(event) => applyAbsent(event.target.value)}
                   />
                 </div>
+                <p className="text-sm text-slate-600">
+                  Late{" "}
+                  <span className="font-semibold tabular-nums text-ink">
+                    {formatDays(editing.lateDays ?? 0)}
+                  </span>
+                  . Morning check-in after 5:45 AM. This does not change pay.
+                </p>
                 <div className="rounded-xl border border-line p-3">
                   <p className="text-sm font-medium text-ink">Edit attendance</p>
                   <p className="mt-1 text-xs text-slate-500">

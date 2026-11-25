@@ -66,6 +66,7 @@ import {
   type ShmpAttendanceRow,
   type ShmpPresentTodayRow,
 } from "@/lib/shmp-api";
+import { isLateCheckIn } from "@/lib/attendance-late";
 import { parseHrDayFilter } from "@/lib/shmp-dashboard";
 import {
   EmptyState,
@@ -99,6 +100,7 @@ type HrListPerson = {
   linkedUserId: string;
   productionWorker: boolean;
   productionEmployeeId: string;
+  shift?: string;
 };
 
 function dubaiToday() {
@@ -161,15 +163,22 @@ function AttendanceFacts({
   checkInAt,
   checkOutAt,
   timeOnly = false,
+  late = false,
 }: {
   status: string;
   checkInAt?: string | null;
   checkOutAt?: string | null;
   timeOnly?: boolean;
+  late?: boolean;
 }) {
   return (
     <p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm text-slate-700">
       <span className="font-medium text-slate-800">{status}</span>
+      {late ? (
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+          Late
+        </span>
+      ) : null}
       <span>Check in: {fmtAttendanceTime(checkInAt, timeOnly)}</span>
       <span>Check out: {fmtAttendanceTime(checkOutAt, timeOnly)}</span>
     </p>
@@ -257,7 +266,8 @@ function AttendancePage({
     }
     return boardPersonHref(target.kind, target.id);
   }
-  const dayFilter = parseHrDayFilter(searchParams.get("filter"));
+  const parsedFilter = parseHrDayFilter(searchParams.get("filter"));
+  const dayFilter = scope === "stl" && parsedFilter === "late" ? null : parsedFilter;
   const [query, setQuery] = useState("");
   const [todayOnly, setTodayOnly] = useState(true);
   const [employees, setEmployees] = useState<Emp[]>([]);
@@ -508,6 +518,7 @@ function AttendancePage({
           productionEmployeeId: row.hrProfile?.productionEmployeeId
             ? String(row.hrProfile.productionEmployeeId)
             : "",
+          shift: row.shift || "",
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       const shadows = productionShadowEmployees(workers, hrPeople);
@@ -655,6 +666,26 @@ function AttendancePage({
     if (row.kind === "worker") return `worker:${personIdForPresent(row, "worker")}`;
     if (row.kind === "staff") return `staff:${personIdForPresent(row, "staff")}`;
     return `portal:${personIdForPresent(row, "portal")}`;
+  }
+
+  function shiftForPresent(row: ShmpPresentTodayRow) {
+    if (row.shift) return row.shift;
+    const ids = [row.personId, row._id].filter((id): id is string => Boolean(id));
+    if (row.kind === "worker") {
+      const worker = employees.find((emp) => ids.includes(emp._id));
+      if (worker?.defaultShift) return worker.defaultShift;
+      const linked = hrStaff.find(
+        (person) =>
+          person.productionEmployeeId && ids.includes(person.productionEmployeeId),
+      );
+      return linked?.shift || "";
+    }
+    const staff = hrStaff.find(
+      (person) =>
+        ids.includes(person.id) ||
+        (person.linkedUserId ? ids.includes(person.linkedUserId) : false),
+    );
+    return staff?.shift || "";
   }
 
   const presentWorkerIds = useMemo(
@@ -1063,6 +1094,55 @@ function AttendancePage({
   };
 
   const leaveCount = leaveAwayToday.length;
+
+  const lateRoster = useMemo(() => {
+    if (scope !== "shmp") return [];
+    const people: Array<{
+      key: string;
+      href: string;
+      name: string;
+      meta: string;
+      checkInAt?: string | null;
+    }> = [];
+    const seen = new Set<string>();
+    function push(person: (typeof people)[number]) {
+      if (seen.has(person.key)) return;
+      seen.add(person.key);
+      people.push(person);
+    }
+    for (const row of presentToday) {
+      if (!isLateCheckIn(shiftForPresent(row), row.checkInAt)) continue;
+      push({
+        key: `${row.kind}-${row._id}`,
+        href: boardPresentHref(row, users, employees),
+        name: row.name,
+        meta: [row.role, row.designation].filter(Boolean).join(" · "),
+        checkInAt: row.checkInAt,
+      });
+    }
+    for (const person of hrOnlyAll) {
+      const mark = staffMarks.find(
+        (row) => row.staffId === person.id && row.date === today && row.status === "present",
+      );
+      if (!mark || !isLateCheckIn(person.shift, mark.checkInAt)) continue;
+      push({
+        key: `staff-${person.id}`,
+        href: boardPersonHref("staff", person.id),
+        name: person.name,
+        meta: person.role || "Staff",
+        checkInAt: mark.checkInAt,
+      });
+    }
+    return people;
+  }, [employees, hrOnlyAll, hrStaff, presentToday, scope, staffMarks, today, users]);
+
+  const latePeople = useMemo(
+    () =>
+      lateRoster.filter((person) =>
+        matchesQuery(term, [person.name, person.meta]),
+      ),
+    [lateRoster, term],
+  );
 
   const hrOnly = useMemo(
     () =>
@@ -1575,7 +1655,7 @@ function AttendancePage({
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className={`grid gap-3 sm:grid-cols-2 ${scope === "shmp" ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
         <Metric
           label="Total staff"
           value={String(daySummary.total)}
@@ -1600,6 +1680,14 @@ function AttendancePage({
           active={dayFilter === "leave"}
           onClick={() => toggleDayFilter("leave")}
         />
+        {scope === "shmp" ? (
+          <Metric
+            label="Late today"
+            value={String(lateRoster.length)}
+            active={dayFilter === "late"}
+            onClick={() => toggleDayFilter("late")}
+          />
+        ) : null}
       </div>
 
       {error ? (
@@ -1616,6 +1704,7 @@ function AttendancePage({
           present={presentPeople}
           absent={absentPeople}
           leave={leavePeople}
+          late={latePeople}
           employees={employees}
           staff={rosterPeople}
           canEdit={canEditAttendance}
@@ -1679,6 +1768,7 @@ function AttendancePage({
                           checkInAt={row.checkInAt}
                           checkOutAt={row.checkOutAt}
                           timeOnly
+                          late={scope === "shmp" && isLateCheckIn(shiftForPresent(row), row.checkInAt)}
                         />
                       </Link>
                       <div className="flex shrink-0 items-center gap-3">
@@ -1723,6 +1813,13 @@ function AttendancePage({
                       status={String(row.status || "").replaceAll("_", " ") || "Recorded"}
                       checkInAt={row.checkInAt}
                       checkOutAt={row.checkOutAt}
+                      late={
+                        scope === "shmp"
+                        && isLateCheckIn(
+                          employees.find((emp) => emp._id === attendanceEmployeeId(row))?.defaultShift,
+                          row.checkInAt,
+                        )
+                      }
                     />
                     {row.leaveType ? (
                       <p className="mt-1 text-sm text-slate-700">
@@ -1779,6 +1876,11 @@ function AttendancePage({
                               checkInAt={checkInAt}
                               checkOutAt={checkOutAt}
                               timeOnly
+                              late={
+                                scope === "shmp"
+                                && statusLabel === "Present"
+                                && isLateCheckIn(person.shift || portal?.shift, checkInAt)
+                              }
                             />
                           ) : (
                             <p className="mt-1 text-sm text-slate-700">{statusLabel}</p>
@@ -2067,6 +2169,7 @@ function FilteredRoster({
   present,
   absent,
   leave,
+  late = [],
   users,
   employees,
   staff = [],
@@ -2092,6 +2195,13 @@ function FilteredRoster({
     status: "leave" | "holiday";
     markKey: string;
     span: { from: string; to: string } | null;
+  }>;
+  late?: Array<{
+    key: string;
+    href: string;
+    name: string;
+    meta?: string;
+    checkInAt?: string | null;
   }>;
   users: ShmpAccessUser[];
   employees: Emp[];
@@ -2120,7 +2230,9 @@ function FilteredRoster({
         ? "Present today"
         : filter === "absent"
           ? "Absent today"
-          : "On leave or holiday";
+          : filter === "late"
+            ? "Late today"
+            : "On leave or holiday";
 
   return (
     <div className="rounded-2xl border border-line bg-white p-5">
@@ -2217,6 +2329,33 @@ function FilteredRoster({
                     <p className="text-xs text-slate-500">{person.meta || "Staff"}</p>
                   </div>
                   <StatusBadge status="absent" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+      {filter === "late" ? (
+        late.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">No one is late today.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-line/60">
+            {late.map((person) => (
+              <li key={person.key}>
+                <Link
+                  href={person.href}
+                  className="flex items-center justify-between gap-3 py-2.5 hover:underline"
+                >
+                  <div>
+                    <p className="font-medium text-ink">{person.name}</p>
+                    <p className="text-xs text-slate-500">{person.meta || "Staff"}</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      Check in: {fmtAttendanceTime(person.checkInAt, true)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                    Late
+                  </span>
                 </Link>
               </li>
             ))}

@@ -216,6 +216,8 @@ export type ShmpPresentTodayRow = {
   checkInAt?: string | null;
   checkOutAt?: string | null;
   source?: string;
+  /** day or morning is the 5:30 AM shift. night is 5:30 PM. */
+  shift?: string;
 };
 
 /** Present workers and supervisor check-ins for today (admins and sales excluded). */

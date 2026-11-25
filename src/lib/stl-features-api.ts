@@ -528,6 +528,8 @@ export type PayrollRegisterRow = {
   name: string;
   absentDays: number;
   presentDays: number;
+  /** Morning check-ins after 5:45 AM Dubai. Does not change pay. */
+  lateDays?: number;
   leaveDays: number;
   holidayDays?: number;
   absentOrSickDates?: PayrollAbsentOrSickDate[];

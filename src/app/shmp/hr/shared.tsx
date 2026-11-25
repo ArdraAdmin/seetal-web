@@ -59,7 +59,7 @@ export const DESIGNATIONS = [
 
 export type Designation = (typeof DESIGNATIONS)[number];
 
-export type DayFilter = "total" | "present" | "absent" | "leave";
+export type DayFilter = "total" | "present" | "absent" | "leave" | "late";
 
 export type HistoryRange = "1m" | "3m" | "6m" | "ytd";
 
