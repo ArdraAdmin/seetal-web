@@ -39,6 +39,7 @@ import {
 } from "@/lib/approval";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
 import { companyKeysWithModule, portalFieldVisible, sellingModuleVisible } from "@/lib/custom-users";
+import { categoryCompanyHref } from "@/lib/categories";
 import {
   INVENTORY_COMPANY_KEYS,
   inventoryCompanyHref,
@@ -117,6 +118,14 @@ const INVENTORY_CHILDREN: NavItem[] = INVENTORY_COMPANY_KEYS.map((key) => ({
   label: inventoryCompanyLabel(key),
   icon: Package,
   moduleId: "inventory",
+  companyKey: key,
+}));
+
+const CATEGORY_CHILDREN: NavItem[] = INVENTORY_COMPANY_KEYS.map((key) => ({
+  href: categoryCompanyHref(key),
+  label: inventoryCompanyLabel(key),
+  icon: Folders,
+  moduleId: "categories",
   companyKey: key,
 }));
 
@@ -205,7 +214,17 @@ const NAV: NavEntry[] = [
     },
   },
   { kind: "link", item: { href: "/admin/grv", label: "GRV management", icon: RotateCcw, moduleId: "grv" } },
-  { kind: "link", item: { href: "/admin/categories", label: "Categories", icon: Folders, moduleId: "categories" } },
+  {
+    kind: "group",
+    group: {
+      id: "categories",
+      label: "Categories",
+      icon: Folders,
+      href: "/admin/categories",
+      moduleId: "categories",
+      children: CATEGORY_CHILDREN,
+    },
+  },
   { kind: "link", item: { href: "/admin/payments", label: "Payments", icon: Banknote, moduleId: "payments" } },
   { kind: "link", item: { href: "/admin/warehouse", label: "Warehouse", icon: Warehouse, moduleId: "warehouse" } },
   { kind: "link", item: { href: "/admin/settings", label: "Settings", icon: Settings, moduleId: "settings" } },

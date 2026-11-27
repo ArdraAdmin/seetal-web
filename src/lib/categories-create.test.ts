@@ -17,6 +17,7 @@ describe("buildCreateSubCategoryBody", () => {
         subCategory: "Demo",
         awsMasterCatDir: "CrockeryAndDisposables",
         awsSubCatDir: "demo",
+        company: "stl",
       },
     );
   });

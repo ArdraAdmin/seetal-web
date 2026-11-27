@@ -17,12 +17,22 @@ import type { ProfileUser } from "@/lib/types";
 import {
   parseCategoryGroups,
   parseMasterCategories,
+  mergeCategoryGroups,
+  filterCategoryGroupsByCompany,
   buildCreateSubCategoryBody,
+  categoryCompany,
   slugDir,
   type CategoryGroup,
   type CategoryRecord,
   type MasterCategoryRecord,
 } from "@/lib/categories";
+import { useAuth } from "@/components/AuthProvider";
+import { companyKeysWithModule } from "@/lib/custom-users";
+import {
+  INVENTORY_COMPANY_KEYS,
+  inventoryCompanyLabel,
+  type InventoryCompanyKey,
+} from "@/lib/inventory-companies";
 import { useToast } from "@/components/Toast";
 import {
   Card,
@@ -42,8 +52,13 @@ type FormMode =
   | { kind: "edit-sub"; group: CategoryGroup; item: CategoryRecord }
   | null;
 
-export default function CategoriesPage() {
+export function CategoriesView({
+  companyKey = null,
+}: {
+  companyKey?: InventoryCompanyKey | null;
+}) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [groups, setGroups] = useState<CategoryGroup[]>([]);
   const [masters, setMasters] = useState<MasterCategoryRecord[]>([]);
   const [managers, setManagers] = useState<ProfileUser[]>([]);
@@ -61,6 +76,7 @@ export default function CategoriesPage() {
     subCategory: "",
     awsSubCatDir: "",
     categoryManager: "",
+    company: "stl" as InventoryCompanyKey,
   });
 
   const load = useCallback(async () => {
@@ -72,7 +88,10 @@ export default function CategoriesPage() {
         getMasterCategories(),
         getCategoryManagers().catch(() => getWarehouseProfiles()),
       ]);
-      const parsed = parseCategoryGroups(categoryData);
+      const parsed = mergeCategoryGroups(
+        parseCategoryGroups(categoryData),
+        parseMasterCategories(masterData),
+      );
       setGroups(parsed);
       setMasters(parseMasterCategories(masterData));
       setManagers(
@@ -96,10 +115,25 @@ export default function CategoriesPage() {
     void load();
   }, [load]);
 
+  const access = user?.customAccess;
+  const allowed = access
+    ? INVENTORY_COMPANY_KEYS.filter((key) =>
+        companyKeysWithModule(access, "categories").includes(key),
+      )
+    : INVENTORY_COMPANY_KEYS;
+  const denied = Boolean(
+    companyKey && user?.customAccess && !allowed.includes(companyKey),
+  );
+
+  const scoped = useMemo(
+    () => filterCategoryGroupsByCompany(groups, companyKey ?? null),
+    [groups, companyKey],
+  );
+
   const visible = useMemo(() => {
     const tag = query.trim().toLowerCase();
-    if (!tag) return groups;
-    return groups
+    if (!tag) return scoped;
+    return scoped
       .map((group) => {
         if (group.name.toLowerCase().includes(tag)) return group;
         const items = group.items.filter((item) =>
@@ -109,9 +143,10 @@ export default function CategoriesPage() {
         return { ...group, items };
       })
       .filter((group): group is CategoryGroup => Boolean(group));
-  }, [groups, query]);
+  }, [scoped, query]);
 
-  const subCount = groups.reduce((sum, group) => sum + group.items.length, 0);
+  const subCount = scoped.reduce((sum, group) => sum + group.items.length, 0);
+  const pageCompany = companyKey ?? "stl";
 
   function startAddMaster() {
     setForm({
@@ -121,6 +156,7 @@ export default function CategoriesPage() {
       subCategory: "",
       awsSubCatDir: "",
       categoryManager: "",
+      company: pageCompany,
     });
     setMode({ kind: "add-master" });
   }
@@ -134,6 +170,7 @@ export default function CategoriesPage() {
       subCategory: "",
       awsSubCatDir: "",
       categoryManager: "",
+      company: companyKey || categoryCompany(first && "company" in first ? first.company : undefined),
     });
     setMode({ kind: "add-sub" });
   }
@@ -147,6 +184,7 @@ export default function CategoriesPage() {
       subCategory: group.items[0]?.subCategory || "",
       awsSubCatDir: group.items[0]?.awsSubCatDir || "",
       categoryManager: managerId,
+      company: categoryCompany(group.company),
     });
     setMode({ kind: "edit-master", group });
   }
@@ -159,6 +197,7 @@ export default function CategoriesPage() {
       subCategory: item.subCategory || "",
       awsSubCatDir: item.awsSubCatDir || "",
       categoryManager: asManagerId(item.categoryManager),
+      company: categoryCompany(item.company),
     });
     setMode({ kind: "edit-sub", group, item });
   }
@@ -172,6 +211,7 @@ export default function CategoriesPage() {
       masterCategoryId: id,
       masterCategoryName: master ? categoryLabel(master) : current.masterCategoryName,
       awsMasterCatDir: master?.awsMasterCatDir || current.awsMasterCatDir,
+      company: companyKey ? current.company : categoryCompany(master?.company),
     }));
   }
 
@@ -193,6 +233,7 @@ export default function CategoriesPage() {
         await createMasterCategory({
           masterCategoryName: name,
           awsMasterCatDir: dir,
+          company: form.company,
         });
         toast("Category created", "success");
       } else if (mode.kind === "add-sub") {
@@ -219,6 +260,7 @@ export default function CategoriesPage() {
           categoryManager: form.categoryManager,
           subCategory: form.subCategory,
           awsSubCatDir: form.awsSubCatDir,
+          company: form.company,
         });
         toast("Category updated", "success");
       } else {
@@ -233,6 +275,7 @@ export default function CategoriesPage() {
           subCategory: form.subCategory.trim(),
           awsMasterCatDir: form.awsMasterCatDir.trim(),
           awsSubCatDir: form.awsSubCatDir.trim(),
+          company: form.company,
         });
         toast("Subcategory updated", "success");
       }
@@ -274,7 +317,10 @@ export default function CategoriesPage() {
   }
 
   async function onDelete(item: CategoryRecord) {
-    if (!item._id) return;
+    if (!item._id) {
+      toast("This subcategory cannot be deleted", "info");
+      return;
+    }
     if (!confirm(`Delete "${item.subCategory || "this subcategory"}"?`)) return;
     try {
       await deleteSubCategory(item._id);
@@ -288,8 +334,12 @@ export default function CategoriesPage() {
   return (
     <div>
       <PageHeader
-        title="Categories"
-        subtitle="Master categories and their subcategories."
+        title={companyKey ? `${inventoryCompanyLabel(companyKey)} categories` : "Categories"}
+        subtitle={
+          companyKey
+            ? `${inventoryCompanyLabel(companyKey)} main categories and subcategories.`
+            : "Every company. Categories with no company set belong to STL."
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <SecondaryButton type="button" disabled={loading} onClick={() => void load()}>
@@ -313,7 +363,7 @@ export default function CategoriesPage() {
           placeholder="Category or subcategory"
         />
         <p className="mt-2 text-xs text-slate-500">
-          {subCount} subcategories in {groups.length} groups
+          {subCount} subcategories in {scoped.length} groups
         </p>
       </Card>
 
@@ -378,6 +428,26 @@ export default function CategoriesPage() {
                 />
               </>
             ) : null}
+            <label className="block space-y-1.5">
+              <span className="text-[13px] font-medium text-slate-700">Company</span>
+              <select
+                required
+                value={form.company}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    company: categoryCompany(e.target.value),
+                  }))
+                }
+                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+              >
+                {INVENTORY_COMPANY_KEYS.map((key) => (
+                  <option key={key} value={key}>
+                    {inventoryCompanyLabel(key)}
+                  </option>
+                ))}
+              </select>
+            </label>
             {mode.kind === "edit-master" ? (
               <label className="block space-y-1.5 sm:col-span-2">
                 <span className="text-[13px] font-medium text-slate-700">
@@ -412,7 +482,12 @@ export default function CategoriesPage() {
         </Card>
       ) : null}
 
-      {loading ? (
+      {denied ? (
+        <EmptyState
+          title="You cannot open this company's categories"
+          description="This company is not on your account."
+        />
+      ) : loading ? (
         <LoadingState label="Loading categories…" />
       ) : error ? (
         <ErrorState message={error} onRetry={() => void load()} />
@@ -422,8 +497,10 @@ export default function CategoriesPage() {
         <div className="space-y-3">
           {visible.map((group) => {
             const open = openNames.has(group.name);
+            const canManageMaster =
+              !companyKey || categoryCompany(group.company) === companyKey;
             return (
-              <Card key={group.name}>
+              <Card key={group.masterCategoryId || group.name}>
                 <div className="flex flex-wrap items-center justify-between gap-2 p-4">
                   <button
                     type="button"
@@ -437,29 +514,36 @@ export default function CategoriesPage() {
                       });
                     }}
                   >
-                    <p className="font-semibold text-black">{group.name}</p>
+                    <p className="font-semibold text-black">
+                      {group.name}
+                      <span className="ml-2 text-xs font-medium text-slate-500">
+                        {inventoryCompanyLabel(categoryCompany(group.company))}
+                      </span>
+                    </p>
                     <p className="text-xs text-slate-500">
                       {group.items.length} subcategor
                       {group.items.length === 1 ? "y" : "ies"}
                     </p>
                   </button>
-                  <div className="flex gap-2">
-                    <SecondaryButton
-                      type="button"
-                      disabled={deletingName === group.name}
-                      onClick={() => startEditMaster(group)}
-                    >
-                      Edit
-                    </SecondaryButton>
-                    <SecondaryButton
-                      type="button"
-                      className="border-red-200 text-red-700"
-                      disabled={deletingName === group.name}
-                      onClick={() => void onDeleteMaster(group)}
-                    >
-                      {deletingName === group.name ? "Deleting…" : "Delete"}
-                    </SecondaryButton>
-                  </div>
+                  {canManageMaster ? (
+                    <div className="flex gap-2">
+                      <SecondaryButton
+                        type="button"
+                        disabled={deletingName === group.name}
+                        onClick={() => startEditMaster(group)}
+                      >
+                        Edit
+                      </SecondaryButton>
+                      <SecondaryButton
+                        type="button"
+                        className="border-red-200 text-red-700"
+                        disabled={deletingName === group.name}
+                        onClick={() => void onDeleteMaster(group)}
+                      >
+                        {deletingName === group.name ? "Deleting…" : "Delete"}
+                      </SecondaryButton>
+                    </div>
+                  ) : null}
                 </div>
                 {open ? (
                   <ul className="divide-y divide-line border-t border-line">
@@ -470,6 +554,9 @@ export default function CategoriesPage() {
                       >
                         <p className="text-sm font-medium text-black">
                           {item.subCategory || "Untitled"}
+                          <span className="ml-2 text-xs font-medium text-slate-500">
+                            {inventoryCompanyLabel(categoryCompany(item.company))}
+                          </span>
                         </p>
                         <div className="flex gap-2">
                           <SecondaryButton
@@ -497,6 +584,10 @@ export default function CategoriesPage() {
       )}
     </div>
   );
+}
+
+export default function CategoriesPage() {
+  return <CategoriesView />;
 }
 
 function asManagerId(value: CategoryRecord["categoryManager"]) {

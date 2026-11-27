@@ -1,3 +1,7 @@
+export const CATEGORY_COMPANY_KEYS = ["stl", "shlaxmi", "sarvah"] as const;
+
+export type CategoryCompanyKey = (typeof CATEGORY_COMPANY_KEYS)[number];
+
 export interface CategoryRecord {
   _id?: string;
   masterCategoryId?: string;
@@ -6,6 +10,8 @@ export interface CategoryRecord {
   awsMasterCatDir?: string;
   awsSubCatDir?: string;
   categoryManager?: string | { _id?: string; name?: string };
+  /** Selling company. Missing values are treated as STL. */
+  company?: string;
 }
 
 export interface CategoryGroup {
@@ -13,6 +19,8 @@ export interface CategoryGroup {
   masterCategoryId: string;
   awsMasterCatDir: string;
   items: CategoryRecord[];
+  /** Selling company of the main category. Missing values are treated as STL. */
+  company?: string;
 }
 
 export interface MasterCategoryRecord {
@@ -21,6 +29,21 @@ export interface MasterCategoryRecord {
   masterCategoryName?: string;
   awsMasterCatDir?: string;
   name?: string;
+  company?: string;
+}
+
+/** A category with no company belongs to STL. */
+export function categoryCompany(value: unknown): CategoryCompanyKey {
+  const key = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return (CATEGORY_COMPANY_KEYS as readonly string[]).includes(key)
+    ? (key as CategoryCompanyKey)
+    : "stl";
+}
+
+export function categoryCompanyHref(key: CategoryCompanyKey) {
+  return `/admin/categories/company/${key}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -87,6 +110,70 @@ export function parseMasterCategories(data: unknown): MasterCategoryRecord[] {
   return data.filter(asRecord) as MasterCategoryRecord[];
 }
 
+/** Put every main category on the list, including ones that have no subcategories yet. */
+export function mergeCategoryGroups(
+  groups: CategoryGroup[],
+  masters: MasterCategoryRecord[],
+): CategoryGroup[] {
+  const merged: CategoryGroup[] = groups.map((group) => ({
+    ...group,
+    company: categoryCompany(group.company),
+    items: group.items.map((item) => ({
+      ...item,
+      company: categoryCompany(item.company),
+    })),
+  }));
+
+  for (const master of masters) {
+    const id = String(master.masterCategoryId || "").trim();
+    const name = String(master.masterCategoryName || master.name || "").trim();
+    const company = categoryCompany(master.company);
+    const existing = merged.find(
+      (group) =>
+        (id && group.masterCategoryId === id) || (name && group.name === name),
+    );
+    if (existing) {
+      existing.company = company;
+      if (id) existing.masterCategoryId = id;
+      if (name) existing.name = name;
+      if (!existing.awsMasterCatDir && master.awsMasterCatDir) {
+        existing.awsMasterCatDir = master.awsMasterCatDir;
+      }
+      continue;
+    }
+    if (!id && !name) continue;
+    merged.push({
+      name: name || "Category",
+      masterCategoryId: id,
+      awsMasterCatDir: String(master.awsMasterCatDir || ""),
+      company,
+      items: [],
+    });
+  }
+
+  return merged.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Company pages show a main category when it belongs to that company,
+ * and any of its subcategories that belong there.
+ */
+export function filterCategoryGroupsByCompany(
+  groups: CategoryGroup[],
+  company: CategoryCompanyKey | null,
+): CategoryGroup[] {
+  if (!company) return groups;
+  return groups.flatMap((group) => {
+    const items = group.items.filter(
+      (item) => categoryCompany(item.company) === company,
+    );
+    if (categoryCompany(group.company) !== company && items.length === 0) {
+      return [];
+    }
+    return [{ ...group, items }];
+  });
+}
+
 export function slugDir(value: string) {
   return value.replace(/[^A-Za-z0-9]+/g, "").replace(/^[a-z]/, (ch) =>
     ch.toUpperCase(),
@@ -103,6 +190,7 @@ export function buildCreateSubCategoryBody(input: {
   masterCategoryName: string;
   subCategory: string;
   awsMasterCatDir: string;
+  company?: string;
 }) {
   const subCategory = input.subCategory.trim();
   return {
@@ -111,6 +199,7 @@ export function buildCreateSubCategoryBody(input: {
     subCategory,
     awsMasterCatDir: input.awsMasterCatDir.trim(),
     awsSubCatDir: subcategoryDirectory(subCategory),
+    company: categoryCompany(input.company),
   };
 }
 

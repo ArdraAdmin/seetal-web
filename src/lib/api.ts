@@ -1804,6 +1804,7 @@ export const readCategory = (catId: string) =>
 export const createMasterCategory = (body: {
   masterCategoryName: string;
   awsMasterCatDir: string;
+  company?: string;
 }) =>
   request<unknown>("/admin/category/create/master", {
     method: "POST",
@@ -1816,6 +1817,7 @@ export const createSubCategory = (body: {
   subCategory: string;
   awsMasterCatDir: string;
   awsSubCatDir: string;
+  company?: string;
 }) =>
   request<unknown>("/admin/category/create/sub", {
     method: "POST",
@@ -1835,7 +1837,7 @@ export const editSubCategory = (body: Record<string, unknown>) =>
   });
 
 export const deleteSubCategory = (catId: string) =>
-  siteRequest<{ deleted: true }>("/api/admin/categories/delete", {
+  request<unknown>("/admin/category/delete", {
     method: "POST",
     body: JSON.stringify({ catId }),
   });
@@ -1844,7 +1846,7 @@ export const deleteMasterCategory = (body: {
   masterCategoryId: string;
   masterCategoryName: string;
 }) =>
-  siteRequest<{ deletedSubcategories: number }>("/api/admin/categories/delete", {
+  request<unknown>("/admin/category/delete/master", {
     method: "POST",
     body: JSON.stringify(body),
   });
