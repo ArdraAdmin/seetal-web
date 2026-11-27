@@ -39,6 +39,9 @@ const EMPTY = {
   isSuperManager: false,
   category: "",
   pinNumber: "",
+  customs: false,
+  loadList: false,
+  zeroList: false,
 };
 
 export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
@@ -88,6 +91,9 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
             warehouse.pinNumber == null || warehouse.pinNumber === ""
               ? ""
               : String(warehouse.pinNumber),
+          customs: warehouse.customs === true,
+          loadList: warehouse.loadList === true,
+          zeroList: warehouse.zeroList === true,
         });
       } catch (e) {
         if (!cancelled) {
@@ -124,6 +130,9 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
         mobileNumber: form.mobileNumber.trim(),
         altMobileNumber: form.altMobileNumber.trim(),
         isSuperManager: form.isSuperManager,
+        customs: form.customs,
+        loadList: form.loadList,
+        zeroList: form.zeroList,
       };
       if (form.password.trim()) payload.password = form.password.trim();
       if (form.isSuperManager) {
@@ -172,8 +181,8 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
         title={title}
         subtitle={
           creating
-            ? "Create a warehouse manager login."
-            : "Update contact details, category, super-manager access, and password if needed."
+            ? "Create a warehouse manager login. Choose Customs, Load List, and Zero List for this user."
+            : "Update contact details, list choices, category, super-manager access, and password if needed."
         }
         actions={
           <Link
@@ -234,6 +243,35 @@ export function WarehouseProfileForm({ profileId }: { profileId?: string }) {
               />
               Super manager
             </label>
+            <fieldset className="space-y-2 rounded-lg border border-line px-3 py-3 sm:col-span-2">
+              <legend className="px-1 text-[13px] font-medium text-slate-700">
+                Lists
+              </legend>
+              <p className="text-sm text-slate-600">
+                Saved on this warehouse user. Each switch can be turned on or off on its own.
+              </p>
+              {(
+                [
+                  ["customs", "Customs"],
+                  ["loadList", "Load List"],
+                  ["zeroList", "Zero List"],
+                ] as const
+              ).map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-2 text-sm text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form[key]}
+                    onChange={(e) =>
+                      setForm({ ...form, [key]: e.target.checked })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
             {form.isSuperManager ? (
               <TextField
                 label="PIN"

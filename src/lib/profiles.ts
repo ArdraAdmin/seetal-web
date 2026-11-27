@@ -13,6 +13,9 @@ type WarehouseField = {
   isSuperManager?: boolean;
   masterCategoryId?: string;
   pinNumber?: number | string;
+  customs?: boolean;
+  loadList?: boolean;
+  zeroList?: boolean;
 };
 
 export function asObject(value: unknown): Record<string, unknown> | null {

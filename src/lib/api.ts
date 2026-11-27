@@ -1156,6 +1156,18 @@ export const updateWarehouseProfile = (
     body: JSON.stringify(body),
   });
 
+export const updateWarehouseListFlags = (
+  id: string,
+  flags: { customs?: boolean; loadList?: boolean; zeroList?: boolean },
+) =>
+  request<{ customs: boolean; loadList: boolean; zeroList: boolean }>(
+    `/admin/edit/warehouseList/${encodeURIComponent(id)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(flags),
+    },
+  );
+
 export const createSalesProfile = (body: Record<string, unknown>) =>
   request<unknown>("/admin/create/sales", {
     method: "POST",
