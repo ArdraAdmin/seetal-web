@@ -4,12 +4,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoadingState, PageHeader } from "@/components/ui";
+import { parseInventoryCompanyKey } from "@/lib/inventory-companies";
 import { InventoryBulkUpload } from "../bulk-upload";
 import { ProductForm } from "../product-form";
 
 function AddProductView() {
   const params = useSearchParams();
   const bulk = params.get("mode") === "bulk";
+  const companyKey = parseInventoryCompanyKey(params.get("company"));
+  const companyQuery = companyKey ? `company=${companyKey}` : "";
 
   return (
     <div>
@@ -23,7 +26,7 @@ function AddProductView() {
       />
       <div className="mb-5 flex flex-wrap gap-2">
         <Link
-          href="/admin/inventory/new"
+          href={companyQuery ? `/admin/inventory/new?${companyQuery}` : "/admin/inventory/new"}
           className={`inline-flex min-h-10 items-center rounded-lg border px-4 py-2 text-sm font-medium ${
             bulk
               ? "border-line bg-white text-slate-700 hover:bg-[#f7f5f0]"
@@ -33,7 +36,11 @@ function AddProductView() {
           Add one product
         </Link>
         <Link
-          href="/admin/inventory/new?mode=bulk"
+          href={
+            companyQuery
+              ? `/admin/inventory/new?mode=bulk&${companyQuery}`
+              : "/admin/inventory/new?mode=bulk"
+          }
           className={`inline-flex min-h-10 items-center rounded-lg border px-4 py-2 text-sm font-medium ${
             bulk
               ? "border-brand bg-brand text-ink"
@@ -43,7 +50,7 @@ function AddProductView() {
           Bulk upload
         </Link>
       </div>
-      {bulk ? <InventoryBulkUpload /> : <ProductForm />}
+      {bulk ? <InventoryBulkUpload /> : <ProductForm companyKey={companyKey} />}
     </div>
   );
 }

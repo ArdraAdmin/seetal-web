@@ -2,6 +2,7 @@ import { describeApiError } from "./api-error-message";
 import { getStoredAuth } from "./auth";
 import { noteRejectedSession } from "./session";
 import { readCustomAccess } from "./custom-users";
+import { warehouseListFlagsFromRecord } from "./warehouse-list-access";
 import { mulkyaAlertsFromVehicles } from "./expiry-window";
 import type {
   Driver,
@@ -70,6 +71,7 @@ import {
 import { pageShmpAssignedInventory } from "./shmp-sales-inventory";
 import { exportRangeBounds } from "./invoice";
 import { viewableVehicleFileType } from "./vehicle-records";
+import { inventoryFieldsFromRecord } from "./inventory-companies";
 
 const REMOTE_API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? "https://stl-api-testing.herokuapp.com"
@@ -289,6 +291,11 @@ function authUserFromPayload(
     field?.driver && typeof field.driver === "object"
       ? (field.driver as Record<string, unknown>)
       : null;
+  const warehouseRecord =
+    field?.warehouse && typeof field.warehouse === "object"
+      ? (field.warehouse as Record<string, unknown>)
+      : null;
+  const role = String(data.role ?? "");
   const driverId = data.driverId
     ? String(data.driverId)
     : driverField?.driverId
@@ -299,7 +306,7 @@ function authUserFromPayload(
     id: String(data._id ?? ""),
     name: String(data.name ?? ""),
     email: String(data.email ?? fallbackEmail),
-    role: String(data.role ?? ""),
+    role,
     token,
     mobileNumber: data.mobileNumber
       ? String(data.mobileNumber)
@@ -309,10 +316,9 @@ function authUserFromPayload(
     environments:
       environments && environments.length
         ? environments
-        : String(data.role) === "Supervisor" ||
-            String(data.role) === "LabelChecker"
+        : role === "Supervisor" || role === "LabelChecker"
           ? (["shmp"] as ("stl" | "shmp")[])
-          : String(data.role) === "Driver"
+          : role === "Driver"
             ? (["stl"] as ("stl" | "shmp")[])
           : adminField?.isSuperAdmin === true
             ? (["stl", "shmp"] as ("stl" | "shmp")[])
@@ -324,6 +330,8 @@ function authUserFromPayload(
       data.customAccess == null
         ? undefined
         : (readCustomAccess(data.customAccess) ?? undefined),
+    warehouseLists:
+      role === "Warehouse" ? warehouseListFlagsFromRecord(warehouseRecord) : undefined,
   };
 }
 
@@ -1290,6 +1298,13 @@ export interface CompanyProduct {
   itemRef?: string;
   company?: string;
   imagePath?: string | string[];
+  unit?: string;
+  ratio?: number;
+  sellingPrice?: number;
+  isDisplay?: boolean;
+  barCode?: string;
+  barcode?: string;
+  inQty?: { amountInCartons?: number; amountInUnits?: number };
 }
 
 export interface CompanyProductsPage {
@@ -1321,6 +1336,7 @@ function asCompanyProduct(item: unknown): CompanyProduct | null {
       : typeof o.imagePath === "string"
         ? o.imagePath
         : undefined,
+    ...inventoryFieldsFromRecord(o),
   };
 }
 

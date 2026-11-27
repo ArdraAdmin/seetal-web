@@ -1,16 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   deleteProduct,
   exportInventory,
-  getProductsPaged,
-  searchProducts,
+  getCompanies,
+  getCompanyProducts,
 } from "@/lib/api";
 import type { Product } from "@/lib/types";
 import { salesMoney } from "@/lib/sales";
-import { portalFieldVisible } from "@/lib/custom-users";
+import { companyKeysWithModule, portalFieldVisible } from "@/lib/custom-users";
+import {
+  INVENTORY_COMPANY_KEYS,
+  activeInventoryCompany,
+  inventoryCompanyLabel,
+  type InventoryCompanyKey,
+} from "@/lib/inventory-companies";
+import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 import { useAuth } from "@/components/AuthProvider";
 import { ProductThumb } from "@/components/ProductImage";
 import { useToast } from "@/components/Toast";
@@ -27,65 +35,128 @@ import {
 
 const PAGE_SIZES = [10, 20, 50, 100, 1000] as const;
 
-export default function InventoryPage() {
+function InventoryPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const showPrice = portalFieldVisible(user?.customAccess, "selling", "inventory", "selling-price");
   const showQty = portalFieldVisible(user?.customAccess, "selling", "inventory", "quantity");
+  const allowed = useMemo(() => {
+    if (!user?.customAccess) return [...INVENTORY_COMPANY_KEYS];
+    const enabled = new Set(companyKeysWithModule(user.customAccess, "inventory"));
+    return INVENTORY_COMPANY_KEYS.filter((key) => enabled.has(key));
+  }, [user?.customAccess]);
+  const requestedKey = activeInventoryCompany(searchParams.get("company"), allowed);
+  const [companyKey, setCompanyKey] = useState<InventoryCompanyKey | null>(requestedKey);
+  const previousRequested = useRef(requestedKey);
+  const requestId = useRef(0);
   const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [searchHits, setSearchHits] = useState<Product[] | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
 
   const load = useCallback(
-    async (p: number, size: number, hits: Product[] | null) => {
+    async (
+      key: InventoryCompanyKey,
+      p: number,
+      size: number,
+      search: string,
+    ) => {
+      const id = ++requestId.current;
       setLoading(true);
       setError(null);
       try {
-        if (hits) {
-          setProducts(hits.slice((p - 1) * size, p * size));
-        } else {
-          const data = await getProductsPaged(p, size);
-          setProducts(data);
+        const companies = await getCompanies();
+        const resolved = resolveSalesCompanyByKey(key, companies);
+        if (!resolved) {
+          throw new Error(`${inventoryCompanyLabel(key)} company was not found`);
         }
-        setPage(p);
+        const data = await getCompanyProducts(resolved.id, p, size, search);
+        if (id !== requestId.current) return;
+        if (data.products.length === 0 && p > 1) {
+          setPage(p - 1);
+          return;
+        }
+        setProducts(
+          data.products.map(
+            (row): Product => ({
+              _id: row._id,
+              itemName: row.itemName,
+              itemRef: row.itemRef,
+              company: row.company,
+              imagePath: row.imagePath,
+              unit: row.unit,
+              ratio: row.ratio,
+              sellingPrice: row.sellingPrice,
+              isDisplay: row.isDisplay,
+              barCode: row.barCode,
+              barcode: row.barcode,
+              inQty: row.inQty,
+            }),
+          ),
+        );
+        setTotal(data.total);
+        setHasMore(data.hasMore);
       } catch (e) {
+        if (id !== requestId.current) return;
         setError(e instanceof Error ? e.message : "Failed to load products");
       } finally {
-        setLoading(false);
+        if (id === requestId.current) setLoading(false);
       }
     },
     [],
   );
 
   useEffect(() => {
-    void load(1, pageSize, null);
-    // Initial catalogue fetch only; later paging uses load() directly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
+    if (previousRequested.current === requestedKey) return;
+    previousRequested.current = requestedKey;
+    setCompanyKey(requestedKey);
+    setPage(1);
+    setQuery("");
+    setSubmittedQuery("");
+  }, [requestedKey]);
 
-  async function onSearch() {
-    if (!query.trim()) {
-      setSearchHits(null);
-      await load(1, pageSize, null);
+  useEffect(() => {
+    if (!companyKey) {
+      setLoading(false);
+      setProducts([]);
+      setTotal(0);
+      setHasMore(false);
       return;
     }
-    setLoading(true);
+    void load(companyKey, page, pageSize, submittedQuery);
+  }, [companyKey, page, pageSize, submittedQuery, load]);
+
+  function selectCompany(key: InventoryCompanyKey) {
+    if (key === companyKey) return;
+    previousRequested.current = key;
+    setCompanyKey(key);
+    setPage(1);
+    setQuery("");
+    setSubmittedQuery("");
+    setProducts([]);
     setError(null);
-    try {
-      const hits = await searchProducts(query.trim());
-      setSearchHits(hits);
-      setProducts(hits.slice(0, pageSize));
-      setPage(1);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Search failed");
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("company", key);
+    router.replace(`/admin/inventory?${params.toString()}`);
+  }
+
+  async function onSearch() {
+    const next = query.trim();
+    if (page === 1 && next === submittedQuery && companyKey) {
+      await load(companyKey, 1, pageSize, next);
+      return;
     }
+    setPage(1);
+    setSubmittedQuery(next);
   }
 
   async function onDelete(id: string) {
@@ -93,13 +164,7 @@ export default function InventoryPage() {
     try {
       await deleteProduct(id);
       toast("Product deleted", "success");
-      if (searchHits) {
-        const nextHits = searchHits.filter((item) => item._id !== id);
-        setSearchHits(nextHits);
-        await load(page, pageSize, nextHits);
-      } else {
-        await load(page, pageSize, null);
-      }
+      if (companyKey) await load(companyKey, page, pageSize, submittedQuery);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed", "error");
     }
@@ -127,19 +192,25 @@ export default function InventoryPage() {
 
   function onPageSizeChange(size: (typeof PAGE_SIZES)[number]) {
     setPageSize(size);
-    void load(1, size, searchHits);
+    setPage(1);
   }
 
+  const label = companyKey ? inventoryCompanyLabel(companyKey) : "Inventory";
+  const addHref = companyKey
+    ? `/admin/inventory/new?company=${companyKey}`
+    : "/admin/inventory/new";
   const hasPrev = page > 1;
-  const hasNext = searchHits
-    ? page * pageSize < searchHits.length
-    : products.length === pageSize;
+  const hasNext = hasMore;
 
   return (
     <div>
       <PageHeader
         title="Inventory"
-        subtitle="Product catalogue, stock quantities, and pricing."
+        subtitle={
+          companyKey
+            ? `${label} product catalogue, stock quantities, and pricing.`
+            : "Product catalogue, stock quantities, and pricing."
+        }
         actions={
           <>
             <SecondaryButton
@@ -156,7 +227,7 @@ export default function InventoryPage() {
               Bulk upload
             </Link>
             <Link
-              href="/admin/inventory/new"
+              href={addHref}
               className="inline-flex min-h-10 items-center rounded-lg border border-brand bg-brand px-4 py-2 text-sm font-medium text-ink hover:bg-brand-dark hover:text-white"
             >
               Add product
@@ -164,6 +235,27 @@ export default function InventoryPage() {
           </>
         }
       />
+
+      {allowed.length > 0 ? (
+        <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Inventory company">
+          {allowed.map((key) => {
+            const selected = key === companyKey;
+            return (
+              <SecondaryButton
+                key={key}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => selectCompany(key)}
+                className={
+                  selected ? "!border-brand !bg-brand !text-ink" : ""
+                }
+              >
+                {inventoryCompanyLabel(key)}
+              </SecondaryButton>
+            );
+          })}
+        </div>
+      ) : null}
 
       <Card className="mb-5">
         <div className="flex flex-wrap items-end gap-3">
@@ -184,15 +276,23 @@ export default function InventoryPage() {
         </div>
       </Card>
 
-      {loading ? (
+      {!companyKey ? (
+        <EmptyState title="No inventory catalogue is available for this account" />
+      ) : loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState
           message={error}
-          onRetry={() => void load(page, pageSize, searchHits)}
+          onRetry={() => void load(companyKey, page, pageSize, submittedQuery)}
         />
       ) : products.length === 0 ? (
-        <EmptyState title="No products found" />
+        <EmptyState
+          title={
+            submittedQuery
+              ? `No ${label} products match that search`
+              : `No ${label} products found`
+          }
+        />
       ) : (
         <div className="space-y-3">
           {products.map((p) => (
@@ -250,7 +350,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {!error ? (
+      {companyKey && !error ? (
         <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <span className="whitespace-nowrap">Rows</span>
@@ -269,12 +369,15 @@ export default function InventoryPage() {
                 </option>
               ))}
             </select>
+            <span className="whitespace-nowrap text-slate-500">
+              {total.toLocaleString()} products
+            </span>
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <SecondaryButton
               type="button"
               disabled={!hasPrev || loading}
-              onClick={() => void load(page - 1, pageSize, searchHits)}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
             >
               Prev
             </SecondaryButton>
@@ -282,7 +385,7 @@ export default function InventoryPage() {
             <SecondaryButton
               type="button"
               disabled={!hasNext || loading}
-              onClick={() => void load(page + 1, pageSize, searchHits)}
+              onClick={() => setPage((current) => current + 1)}
             >
               Next
             </SecondaryButton>
@@ -290,5 +393,13 @@ export default function InventoryPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export default function InventoryRoute() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <InventoryPage />
+    </Suspense>
   );
 }

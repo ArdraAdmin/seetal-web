@@ -25,6 +25,8 @@ import { normalizeArtwork } from "@/lib/product-artwork";
 import { Card, PrimaryButton, SecondaryButton, TextField } from "@/components/ui";
 import { useAuth } from "@/components/AuthProvider";
 import { filterCompaniesForModule, portalFieldVisible } from "@/lib/custom-users";
+import type { InventoryCompanyKey } from "@/lib/inventory-companies";
+import { resolveSalesCompanyByKey } from "@/lib/sales-selected-company";
 
 const COMPANY_ORDER = ["SH Lakshmi", "SHMP", "Sarvah", "STL"] as const;
 
@@ -221,8 +223,10 @@ function SelectField({
 
 export function ProductForm({
   product,
+  companyKey,
 }: {
   product?: Product | null;
+  companyKey?: InventoryCompanyKey | null;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -293,6 +297,21 @@ export function ProductForm({
     }
     setForm(EMPTY_FORM);
   }, [product, groups]);
+
+  useEffect(() => {
+    if (product || !companyKey || companies.length === 0) return;
+    const resolved = resolveSalesCompanyByKey(companyKey, companies);
+    if (!resolved) return;
+    const allowed = filterCompaniesForModule(
+      companies,
+      user?.customAccess,
+      "inventory",
+    );
+    if (!allowed.some((company) => company._id === resolved.id)) return;
+    setForm((current) =>
+      current.company ? current : { ...current, company: resolved.id },
+    );
+  }, [product, companyKey, companies, groups, user?.customAccess]);
 
   const selectedGroup = useMemo(
     () =>

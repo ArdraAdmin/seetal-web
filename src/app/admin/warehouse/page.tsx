@@ -47,6 +47,7 @@ import {
   warehouseBasePath,
 } from "@/lib/warehouse";
 import { downloadLoadingListOffline } from "@/lib/warehouse-list-download";
+import { warehouseListAllowed } from "@/lib/warehouse-list-access";
 
 const ADMIN_DELETE_TABS = new Set<WarehouseTabIndex>([0, 1, 2]);
 
@@ -668,7 +669,11 @@ export default function WarehousePage() {
       ) : null}
 
       <div className="mb-5 flex flex-wrap gap-3">
-        {ACTION_BUTTONS.filter((action) => action.tag !== "daily" || tab === 0).map(
+        {ACTION_BUTTONS.filter(
+          (action) =>
+            warehouseListAllowed(user, action.tag) &&
+            (action.tag !== "daily" || tab === 0),
+        ).map(
           (action) => {
             const busy = sendingAction === action.tag;
             const open = actionMenu === action.tag;

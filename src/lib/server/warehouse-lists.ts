@@ -4,6 +4,7 @@ import { warehousePendingRange } from "@/lib/warehouse";
 import { readSundayDelivery } from "@/lib/server/sunday-delivery";
 import { getMongoClient } from "./mongo";
 import { userIdFromAuthHeader } from "./password";
+import { warehouseListAllowed } from "@/lib/warehouse-list-access";
 
 export type WarehouseListTag = "customs" | "daily" | "loading";
 
@@ -117,13 +118,21 @@ async function assertWarehouseUser(token: string | null) {
   const database = (await getMongoClient()).db();
   const user = await database.collection("users").findOne(
     { _id: new ObjectId(id) },
-    { projection: { role: 1, email: 1 } },
+    {
+      projection: {
+        role: 1,
+        email: 1,
+        "field.warehouse.customs": 1,
+        "field.warehouse.loadList": 1,
+        "field.warehouse.zeroList": 1,
+      },
+    },
   );
   const role = text(user?.role);
   if (!user || (role !== "Admin" && role !== "Warehouse")) {
     throw new Error("Not allowed");
   }
-  return { database, userId: id };
+  return { database, userId: id, user };
 }
 
 /** Hide SHMP manufacturing orders from Seetal Custom/Loading list exports. */
@@ -259,7 +268,27 @@ export async function buildWarehouseList(token: string | null, tag: string) {
   if (tag !== "customs" && tag !== "daily" && tag !== "loading") {
     throw new Error("Invalid list type");
   }
-  const { database } = await assertWarehouseUser(token);
+  const { database, user } = await assertWarehouseUser(token);
+  const warehouse = user.field && typeof user.field === "object"
+    ? (user.field as Document).warehouse
+    : null;
+  const flags =
+    warehouse && typeof warehouse === "object" ? (warehouse as Document) : null;
+  if (
+    !warehouseListAllowed(
+      {
+        role: text(user.role),
+        warehouseLists: {
+          customs: flags?.customs === true,
+          loadList: flags?.loadList === true,
+          zeroList: flags?.zeroList === true,
+        },
+      },
+      tag,
+    )
+  ) {
+    throw new Error("Not allowed");
+  }
   const extra: Document =
     tag === "daily"
       ? {

@@ -32,6 +32,12 @@ export interface AuthUser {
   driverId?: string;
   /** Set for accounts created in User management. */
   customAccess?: CustomAccess;
+  /** Lists a warehouse login may open. Admins are not limited by this. */
+  warehouseLists?: {
+    customs: boolean;
+    loadList: boolean;
+    zeroList: boolean;
+  };
 }
 
 export type FleetScope = "stl" | "shmp";
