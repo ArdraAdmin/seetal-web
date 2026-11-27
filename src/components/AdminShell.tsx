@@ -38,7 +38,13 @@ import {
   pendingApprovalCount,
 } from "@/lib/approval";
 import { canAccessEnvironment, isSuperAdmin, isTrackingAdmin } from "@/lib/auth";
-import { portalFieldVisible, sellingModuleVisible } from "@/lib/custom-users";
+import { companyKeysWithModule, portalFieldVisible, sellingModuleVisible } from "@/lib/custom-users";
+import {
+  INVENTORY_COMPANY_KEYS,
+  inventoryCompanyHref,
+  inventoryCompanyLabel,
+  type InventoryCompanyKey,
+} from "@/lib/inventory-companies";
 import { navItemActive } from "@/lib/nav-active";
 import {
   isSettingsNavHref,
@@ -57,6 +63,8 @@ type NavItem = {
   moduleId?: string;
   /** Hidden unless this field of moduleId is granted. */
   fieldId?: string;
+  /** Selling company this inventory link belongs to. */
+  companyKey?: InventoryCompanyKey;
   superAdminOnly?: boolean;
   /** Tracking — lav@shrseetal.com only, after 5 Settings clicks. */
   trackingOnly?: boolean;
@@ -104,6 +112,14 @@ const HR_CHILDREN: NavItem[] = [
   },
 ];
 
+const INVENTORY_CHILDREN: NavItem[] = INVENTORY_COMPANY_KEYS.map((key) => ({
+  href: inventoryCompanyHref(key),
+  label: inventoryCompanyLabel(key),
+  icon: Package,
+  moduleId: "inventory",
+  companyKey: key,
+}));
+
 const NAV: NavEntry[] = [
   { kind: "link", item: { href: "/admin", label: "KPI dashboard", icon: LayoutDashboard, moduleId: "dashboard" } },
   {
@@ -126,7 +142,17 @@ const NAV: NavEntry[] = [
     },
   },
   { kind: "link", item: { href: "/admin/stores", label: "Stores", icon: Store, moduleId: "stores" } },
-  { kind: "link", item: { href: "/admin/inventory", label: "Inventory", icon: Package, moduleId: "inventory" } },
+  {
+    kind: "group",
+    group: {
+      id: "inventory",
+      label: "Inventory",
+      icon: Package,
+      href: "/admin/inventory",
+      moduleId: "inventory",
+      children: INVENTORY_CHILDREN,
+    },
+  },
   { kind: "link", item: { href: "/admin/catalog", label: "Catalog", icon: ImageIcon, moduleId: "catalog" } },
   {
     kind: "link",
@@ -227,8 +253,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [collapseReady, setCollapseReady] = useState(false);
   const [trackingUnlocked, setTrackingUnlocked] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  const [hrOpen, setHrOpen] = useState(false);
-  const [hrDismissedPath, setHrDismissedPath] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [dismissedGroup, setDismissedGroup] = useState<{
+    id: string;
+    path: string;
+  } | null>(null);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
@@ -278,6 +307,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       ) {
         return false;
       }
+      if (
+        item.companyKey &&
+        !companyKeysWithModule(user.customAccess, item.moduleId).includes(item.companyKey)
+      ) {
+        return false;
+      }
       return true;
     }
     if (item.trackingOnly) return canSeeTracking;
@@ -311,11 +346,6 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     ];
   });
   const navItems = navTargetsForActive(navEntries);
-  const hrGroup = navEntries.find(
-    (entry): entry is Extract<NavEntry, { kind: "group" }> =>
-      entry.kind === "group" && entry.group.id === "hr",
-  )?.group;
-  const inHrSection = hrGroup ? pathInNavGroup(pathname, hrGroup) : false;
   const showApprovals = navItems.some((item) => item.href === "/admin/approvals");
   const showSettings =
     !user?.customAccess || sellingModuleVisible(user.customAccess, "settings");
@@ -482,31 +512,35 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     "/admin",
                   )
                 : false;
-              const hrDismissed = hrDismissedPath === pathname;
+              const inSection = pathInNavGroup(pathname, group);
+              const groupDismissed =
+                dismissedGroup?.id === group.id && dismissedGroup.path === pathname;
               const showChildren =
-                !hrDismissed &&
-                (hrOpen || inHrSection) &&
+                !groupDismissed &&
+                (openGroups[group.id] || inSection) &&
                 group.children.length > 0 &&
                 (!collapsed || mobileOpen);
               const headerClass = `flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 ${
                 collapsed ? "lg:justify-center lg:px-2" : ""
               }`;
 
-              function toggleHrGroup() {
+              function toggleGroup() {
                 if (showChildren) {
-                  setHrOpen(false);
-                  setHrDismissedPath(pathname);
+                  setOpenGroups((current) => ({ ...current, [group.id]: false }));
+                  setDismissedGroup({ id: group.id, path: pathname });
                   return;
                 }
-                setHrDismissedPath(null);
-                setHrOpen(true);
+                setDismissedGroup((current) =>
+                  current?.id === group.id ? null : current,
+                );
+                setOpenGroups((current) => ({ ...current, [group.id]: true }));
               }
 
               return (
                 <li key={group.id}>
                   <div
                     className={`flex items-center rounded-xl text-[13.5px] font-medium text-black transition ${
-                      groupActive || inHrSection
+                      groupActive || inSection
                         ? "bg-white/70 shadow-sm"
                         : "hover:bg-white/50"
                     } ${collapsed ? "lg:justify-center" : ""}`}
@@ -516,8 +550,10 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         href={group.href}
                         title={group.label}
                         onClick={() => {
-                          setHrDismissedPath(null);
-                          setHrOpen(true);
+                          setDismissedGroup((current) =>
+                            current?.id === group.id ? null : current,
+                          );
+                          setOpenGroups((current) => ({ ...current, [group.id]: true }));
                           setMobileOpen(false);
                         }}
                         className={headerClass}
@@ -534,7 +570,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                       <button
                         type="button"
                         title={group.label}
-                        onClick={toggleHrGroup}
+                        onClick={toggleGroup}
                         className={headerClass}
                       >
                         <GroupIcon
@@ -558,7 +594,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                         className={`mr-1 rounded-lg p-1.5 hover:bg-white/60 ${
                           collapsed ? "lg:hidden" : ""
                         }`}
-                        onClick={toggleHrGroup}
+                        onClick={toggleGroup}
                       >
                         <ChevronDown
                           className={`h-4 w-4 text-black transition-transform ${

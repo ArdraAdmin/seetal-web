@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   activeInventoryCompany,
+  inventoryCompanyHref,
   inventoryCompanyLabel,
   inventoryFieldsFromRecord,
   parseInventoryCompanyKey,
@@ -12,6 +13,8 @@ describe("inventory company tabs", () => {
     assert.equal(inventoryCompanyLabel("stl"), "STL");
     assert.equal(inventoryCompanyLabel("shlaxmi"), "SH Lakshmi");
     assert.equal(inventoryCompanyLabel("sarvah"), "Sarvah");
+    assert.equal(inventoryCompanyHref("sarvah"), "/admin/inventory/company/sarvah");
+    assert.equal(inventoryCompanyHref("shlaxmi"), "/admin/inventory/company/shlaxmi");
   });
 
   it("opens the requested company when that catalogue is allowed", () => {

@@ -13,6 +13,10 @@ export function inventoryCompanyLabel(key: InventoryCompanyKey) {
   return INVENTORY_COMPANY_LABELS[key];
 }
 
+export function inventoryCompanyHref(key: InventoryCompanyKey) {
+  return `/admin/inventory/company/${key}`;
+}
+
 export function parseInventoryCompanyKey(
   value: string | null | undefined,
 ): InventoryCompanyKey | null {

@@ -2613,10 +2613,13 @@ export async function deleteWarehouseOrders(
   return { total, deleted, failed };
 }
 
-export const exportInventory = (userId: string) =>
+export const exportInventory = (userId: string, companyId?: string) =>
   request<unknown>("/admin/export/products", {
     method: "POST",
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({
+      userId,
+      ...(companyId?.trim() ? { companyId: companyId.trim() } : {}),
+    }),
   });
 
 export const exportPayments = (
